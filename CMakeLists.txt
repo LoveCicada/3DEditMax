@@ -34,6 +34,10 @@ target_link_libraries(3DEditMax PRIVATE Qt5::Widgets)
 enable_testing()
 add_executable(3deditmax_tests
   tests/test_main.cpp
+  tests/test_queues.cpp
+  src/render/CommandQueue.cpp
+  src/render/FeedbackQueue.cpp
+  src/core/SnapshotBuffer.cpp
 )
 target_include_directories(3deditmax_tests PRIVATE
   "${CMAKE_SOURCE_DIR}/src"
