@@ -37,6 +37,7 @@ add_executable(3deditmax_tests
   tests/test_queues.cpp
   src/render/CommandQueue.cpp
   src/render/FeedbackQueue.cpp
+  src/render/RenderThread.cpp
   src/core/SnapshotBuffer.cpp
 )
 target_include_directories(3deditmax_tests PRIVATE

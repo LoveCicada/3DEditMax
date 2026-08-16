@@ -1,7 +1,10 @@
 #include "test_harness.h"
 #include "render/CommandQueue.h"
 #include "render/FeedbackQueue.h"
+#include "render/RenderThread.h"
 #include "core/SnapshotBuffer.h"
+#include <chrono>
+#include <thread>
 
 void runQueueTests() {
   CommandQueue cq;
@@ -36,4 +39,17 @@ void runQueueTests() {
   StateSnapshot b = buf.consume();
   TEST_CHECK(b.teaching.camDistance == 9.f);
   TEST_CHECK(b.viewportW == 640);
+}
+
+void runRenderThreadTests() {
+  RenderThread rt;
+  rt.start();
+  RenderCommand stop;
+  stop.type = CmdStop;
+  stop.hwnd = 0;
+  stop.width = 0;
+  stop.height = 0;
+  rt.commands().push(stop);
+  rt.requestStopAndJoin();
+  TEST_CHECK(true);
 }
