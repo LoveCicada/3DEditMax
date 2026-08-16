@@ -26,10 +26,23 @@ add_executable(3DEditMax
   src/main.cpp
   src/app/MainWindow.h
   src/app/MainWindow.cpp
+  src/core/SnapshotBuffer.cpp
+  src/render/CommandQueue.cpp
+  src/render/FeedbackQueue.cpp
+  src/render/RenderThread.cpp
+  src/render/D3D11Renderer.cpp
+  src/render/MeshGpu.cpp
+  src/render/ShaderSet.cpp
+  src/teach/Transforms.cpp
 )
 
 target_include_directories(3DEditMax PRIVATE "${CMAKE_SOURCE_DIR}/src")
-target_link_libraries(3DEditMax PRIVATE Qt5::Widgets)
+target_link_libraries(3DEditMax PRIVATE Qt5::Widgets d3d11 dxgi d3dcompiler)
+
+add_custom_command(TARGET 3DEditMax POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_SOURCE_DIR}/assets/shaders"
+    "$<TARGET_FILE_DIR:3DEditMax>/shaders")
 
 enable_testing()
 add_executable(3deditmax_tests
@@ -39,9 +52,11 @@ add_executable(3deditmax_tests
   src/render/FeedbackQueue.cpp
   src/render/RenderThread.cpp
   src/core/SnapshotBuffer.cpp
+  src/teach/Transforms.cpp
 )
 target_include_directories(3deditmax_tests PRIVATE
   "${CMAKE_SOURCE_DIR}/src"
   "${CMAKE_SOURCE_DIR}/tests"
 )
+target_compile_definitions(3deditmax_tests PRIVATE D3DEDITMAX_NO_D3D)
 add_test(NAME 3deditmax_tests COMMAND 3deditmax_tests)

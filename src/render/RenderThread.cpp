@@ -1,7 +1,19 @@
 #include "render/RenderThread.h"
 #include <chrono>
 
-RenderThread::RenderThread() : m_running(false) {}
+RenderThread::RenderThread() : RenderThread(std::wstring()) {}
+
+RenderThread::RenderThread(const std::wstring& shaderDir)
+#ifndef D3DEDITMAX_NO_D3D
+    : m_renderer(shaderDir)
+    , m_hwnd(0)
+#else
+    : m_hwnd(0)
+#endif
+    , m_w(0)
+    , m_h(0)
+    , m_shaderDir(shaderDir)
+    , m_running(false) {}
 
 RenderThread::~RenderThread() {
   requestStopAndJoin();
@@ -30,18 +42,57 @@ void RenderThread::requestStopAndJoin() {
 }
 
 void RenderThread::threadMain() {
+  int frames = 0;
   for (;;) {
     RenderCommand cmd;
     bool stop = false;
     while (m_commands.tryPop(&cmd)) {
-      if (cmd.type == CmdStop) {
+      if (cmd.type == CmdInit) {
+        m_hwnd = cmd.hwnd;
+        m_w = cmd.width;
+        m_h = cmd.height;
+#ifndef D3DEDITMAX_NO_D3D
+        m_renderer.initialize(cmd.hwnd, cmd.width, cmd.height, true, &m_feedback);
+#endif
+      } else if (cmd.type == CmdResize) {
+        m_w = cmd.width;
+        m_h = cmd.height;
+#ifndef D3DEDITMAX_NO_D3D
+        m_renderer.resize(cmd.width, cmd.height);
+#endif
+      } else if (cmd.type == CmdReloadShader) {
+#ifndef D3DEDITMAX_NO_D3D
+        m_renderer.reloadShaders(&m_feedback);
+#endif
+      } else if (cmd.type == CmdStop) {
+#ifndef D3DEDITMAX_NO_D3D
+        m_renderer.shutdown();
+#endif
         stop = true;
       }
     }
     if (stop) {
       break;
     }
+#ifndef D3DEDITMAX_NO_D3D
+    if (m_renderer.initialized() && !m_renderer.dead()) {
+      const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+      m_renderer.render(m_snapshots.consume());
+      const std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
+      ++frames;
+      if (frames % 30 == 0) {
+        FeedbackItem fps;
+        fps.kind = FbFps;
+        fps.text = "";
+        fps.ms = std::chrono::duration<float, std::milli>(t1 - t0).count();
+        m_feedback.push(fps);
+      }
+    } else {
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+#else
     (void)m_snapshots.consume();
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
+#endif
   }
 }
