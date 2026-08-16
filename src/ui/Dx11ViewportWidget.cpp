@@ -80,7 +80,6 @@ void Dx11ViewportWidget::showEvent(QShowEvent* e) {
   winId();
   startRenderer();
   if (m_axisLegend) {
-    m_axisLegend->winId();
     m_axisLegend->raise();
     m_axisLegend->show();
   }
@@ -96,12 +95,7 @@ void Dx11ViewportWidget::resizeEvent(QResizeEvent* e) {
   if (!m_thread) {
     return;
   }
-  RenderCommand cmd;
-  cmd.type = CmdResize;
-  cmd.hwnd = hwnd();
-  cmd.width = width();
-  cmd.height = height();
-  m_thread->commands().push(cmd);
+  m_thread->resizeOnOwnerThread(width(), height());
   publishState(m_teaching, m_lab);
 }
 
@@ -163,12 +157,7 @@ void Dx11ViewportWidget::startRenderer() {
   const QString dir = QCoreApplication::applicationDirPath() + QString::fromUtf8("/shaders");
   m_thread = ::make_unique<RenderThread>(dir.toStdWString());
   m_thread->start();
-  RenderCommand init;
-  init.type = CmdInit;
-  init.hwnd = hwnd();
-  init.width = width();
-  init.height = height();
-  m_thread->commands().push(init);
+  m_thread->initOnOwnerThread(hwnd(), width(), height());
   publishState(m_teaching, m_lab);
 }
 
@@ -176,6 +165,7 @@ void Dx11ViewportWidget::stopRenderer() {
   if (!m_thread) {
     return;
   }
+  m_thread->shutdownOnOwnerThread();
   m_thread->requestStopAndJoin();
   m_thread.reset();
 }
@@ -198,7 +188,6 @@ void Dx11ViewportWidget::flushTeachingEdited() {
 void Dx11ViewportWidget::buildAxisLegend() {
   m_axisLegend = new QFrame(this);
   m_axisLegend->setObjectName(QString::fromUtf8("axisLegend"));
-  m_axisLegend->setAttribute(Qt::WA_NativeWindow, true);
   m_axisLegend->setAttribute(Qt::WA_TransparentForMouseEvents, true);
   m_axisLegend->setStyleSheet(QString::fromUtf8(
       "QFrame#axisLegend {"

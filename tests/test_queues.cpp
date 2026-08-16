@@ -44,12 +44,6 @@ void runQueueTests() {
 void runRenderThreadTests() {
   RenderThread rt;
   rt.start();
-  RenderCommand stop;
-  stop.type = CmdStop;
-  stop.hwnd = 0;
-  stop.width = 0;
-  stop.height = 0;
-  rt.commands().push(stop);
   rt.requestStopAndJoin();
   TEST_CHECK(true);
 }

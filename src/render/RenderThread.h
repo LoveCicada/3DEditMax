@@ -6,8 +6,10 @@
 #include "render/D3D11Renderer.h"
 #endif
 #include <atomic>
+#include <mutex>
 #include <string>
 #include <thread>
+#include <windows.h>
 
 class RenderThread {
 public:
@@ -16,6 +18,10 @@ public:
   ~RenderThread();
   void start();
   void requestStopAndJoin();
+  // Swapchain create/resize/destroy must run on the HWND owner (UI) thread.
+  bool initOnOwnerThread(HWND hwnd, int w, int h);
+  bool resizeOnOwnerThread(int w, int h);
+  void shutdownOnOwnerThread();
   CommandQueue& commands() { return m_commands; }
   FeedbackQueue& feedback() { return m_feedback; }
   SnapshotBuffer& snapshots() { return m_snapshots; }
@@ -33,4 +39,5 @@ private:
   std::wstring m_shaderDir;
   std::thread m_thread;
   std::atomic<bool> m_running;
+  std::mutex m_d3dMu;
 };

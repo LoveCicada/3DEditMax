@@ -233,7 +233,8 @@ bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, Feedback
   selectMultisampleLevel();
 
   DXGI_SWAP_CHAIN_DESC sd = {};
-  sd.BufferCount = 2;
+  // Multisampled DISCARD swapchains require BufferCount == 1.
+  sd.BufferCount = (m_sampleCount > 1) ? 1 : 2;
   sd.BufferDesc.Width = static_cast<UINT>(m_w);
   sd.BufferDesc.Height = static_cast<UINT>(m_h);
   sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -246,13 +247,22 @@ bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, Feedback
   sd.Windowed = TRUE;
   sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
 
-  hr = m_factory->CreateSwapChain(m_device.Get(), &sd, &m_swap);
+  hr = m_factory->CreateSwapChain(m_device.Get(), &sd, m_swap.ReleaseAndGetAddressOf());
+  if ((FAILED(hr) || !m_swap) && m_sampleCount > 1) {
+    m_sampleCount = 1;
+    m_sampleQuality = 0;
+    sd.BufferCount = 2;
+    sd.SampleDesc.Count = 1;
+    sd.SampleDesc.Quality = 0;
+    hr = m_factory->CreateSwapChain(m_device.Get(), &sd, m_swap.ReleaseAndGetAddressOf());
+  }
   if (FAILED(hr) || !m_swap) {
     pushFb(fb, FbError, "CreateSwapChain failed");
     shutdown();
     return false;
   }
-  m_factory->MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER);
+  m_factory->MakeWindowAssociation(
+      hwnd, DXGI_MWA_NO_ALT_ENTER | DXGI_MWA_NO_WINDOW_CHANGES);
 
   if (!createSizeDependentResources()) {
     pushFb(fb, FbError, "Create RTV/DSV failed");
@@ -367,7 +377,7 @@ bool D3D11Renderer::resize(int w, int h) {
   if (w <= 0 || h <= 0) {
     return true;
   }
-  if (!m_swap || !m_context) {
+  if (!m_swap || !m_context || !m_device) {
     return false;
   }
   if (w == m_w && h == m_h && m_rtv && m_dsv) {
@@ -375,15 +385,20 @@ bool D3D11Renderer::resize(int w, int h) {
   }
   m_w = w;
   m_h = h;
+
+  // Must release every outstanding back-buffer reference before ResizeBuffers.
   m_context->OMSetRenderTargets(0, 0, 0);
+  m_context->ClearState();
+  m_context->Flush();
   m_rtv.Reset();
   m_dsv.Reset();
   m_depth.Reset();
+
   const HRESULT hr = m_swap->ResizeBuffers(
-      2,
+      0,
       static_cast<UINT>(w),
       static_cast<UINT>(h),
-      DXGI_FORMAT_R8G8B8A8_UNORM,
+      DXGI_FORMAT_UNKNOWN,
       0);
   if (FAILED(hr)) {
     if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
@@ -493,7 +508,9 @@ void D3D11Renderer::render(const StateSnapshot& snap) {
   m_debug.draw(m_context.Get(), snap, V, P);
   drawAxisCones(snap, V, P);
 
-  const HRESULT hr = m_swap->Present(1, 0);
+  // Sync interval 0: callers may hold a mutex shared with the UI resize path;
+  // never block here on vsync or the UI thread can deadlock.
+  const HRESULT hr = m_swap->Present(0, 0);
   handlePresentResult(hr);
   pumpInfoQueue();
 }
@@ -790,13 +807,21 @@ bool D3D11Renderer::createSizeDependentResources() {
   if (!m_device || !m_swap) {
     return false;
   }
+  m_rtv.Reset();
+  m_dsv.Reset();
+  m_depth.Reset();
+
   ComPtr<ID3D11Texture2D> back;
-  HRESULT hr = m_swap->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(back.ReleaseAndGetAddressOf()));
-  if (FAILED(hr)) {
+  HRESULT hr = m_swap->GetBuffer(
+      0,
+      __uuidof(ID3D11Texture2D),
+      reinterpret_cast<void**>(back.ReleaseAndGetAddressOf()));
+  if (FAILED(hr) || !back) {
     return false;
   }
-  hr = m_device->CreateRenderTargetView(back.Get(), 0, &m_rtv);
-  if (FAILED(hr)) {
+  hr = m_device->CreateRenderTargetView(back.Get(), 0, m_rtv.ReleaseAndGetAddressOf());
+  back.Reset();
+  if (FAILED(hr) || !m_rtv) {
     return false;
   }
 
@@ -809,12 +834,18 @@ bool D3D11Renderer::createSizeDependentResources() {
   dd.SampleDesc.Count = m_sampleCount;
   dd.SampleDesc.Quality = m_sampleQuality;
   dd.BindFlags = D3D11_BIND_DEPTH_STENCIL;
-  hr = m_device->CreateTexture2D(&dd, 0, &m_depth);
-  if (FAILED(hr)) {
+  hr = m_device->CreateTexture2D(&dd, 0, m_depth.ReleaseAndGetAddressOf());
+  if (FAILED(hr) || !m_depth) {
+    m_rtv.Reset();
     return false;
   }
-  hr = m_device->CreateDepthStencilView(m_depth.Get(), 0, &m_dsv);
-  return SUCCEEDED(hr);
+  hr = m_device->CreateDepthStencilView(m_depth.Get(), 0, m_dsv.ReleaseAndGetAddressOf());
+  if (FAILED(hr) || !m_dsv) {
+    m_rtv.Reset();
+    m_depth.Reset();
+    return false;
+  }
+  return true;
 }
 
 void D3D11Renderer::handlePresentResult(HRESULT hr) {
@@ -822,15 +853,8 @@ void D3D11Renderer::handlePresentResult(HRESULT hr) {
     return;
   }
   pushFb(m_fb, FbDeviceLost, "");
-  const HWND hwnd = m_hwnd;
-  const int w = m_w;
-  const int h = m_h;
-  const bool wantDebug = m_wantDebug;
-  FeedbackQueue* fb = m_fb;
-  const std::wstring shaderDir = m_shaderDir;
+  // Do not recreate the swapchain on the render thread — HWND ownership is on
+  // the UI thread. Mark dead and wait for a UI-side reinit.
   shutdown();
-  m_shaderDir = shaderDir;
-  if (!initialize(hwnd, w, h, wantDebug, fb)) {
-    m_dead = true;
-  }
+  m_dead = true;
 }
