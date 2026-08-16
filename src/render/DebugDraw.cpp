@@ -1,0 +1,246 @@
+#include "render/DebugDraw.h"
+#include "teach/Transforms.h"
+#include <d3dcompiler.h>
+#include <cstring>
+
+using Microsoft::WRL::ComPtr;
+using namespace DirectX;
+
+namespace {
+
+const UINT kMaxLineVerts = 128;
+
+struct LineVertex {
+  XMFLOAT3 pos;
+  XMFLOAT4 col;
+};
+
+struct LineCBCpu {
+  XMFLOAT4X4 viewProj;
+};
+
+void pushLine(LineVertex* verts, UINT* count, UINT cap,
+              FXMVECTOR a, FXMVECTOR b, const XMFLOAT4& col) {
+  if (!verts || !count || *count + 2 > cap) {
+    return;
+  }
+  LineVertex va;
+  LineVertex vb;
+  XMStoreFloat3(&va.pos, a);
+  XMStoreFloat3(&vb.pos, b);
+  va.col = col;
+  vb.col = col;
+  verts[*count] = va;
+  verts[*count + 1] = vb;
+  *count += 2;
+}
+
+}  // namespace
+
+void DebugDraw::create(ID3D11Device* device) {
+  create(device, std::wstring());
+}
+
+void DebugDraw::create(ID3D11Device* device, const std::wstring& shaderDir) {
+  reset();
+  if (!device) {
+    return;
+  }
+  if (!compileLine(device, shaderDir)) {
+    reset();
+    return;
+  }
+
+  D3D11_BUFFER_DESC vbd = {};
+  vbd.ByteWidth = kMaxLineVerts * sizeof(LineVertex);
+  vbd.Usage = D3D11_USAGE_DYNAMIC;
+  vbd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+  vbd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+  if (FAILED(device->CreateBuffer(&vbd, 0, &m_vb))) {
+    reset();
+    return;
+  }
+  m_vbCapacity = kMaxLineVerts;
+
+  D3D11_BUFFER_DESC cbd = {};
+  cbd.ByteWidth = sizeof(LineCBCpu);
+  cbd.Usage = D3D11_USAGE_DYNAMIC;
+  cbd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+  cbd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+  if (FAILED(device->CreateBuffer(&cbd, 0, &m_cb))) {
+    reset();
+    return;
+  }
+}
+
+void DebugDraw::reset() {
+  m_vs.Reset();
+  m_ps.Reset();
+  m_layout.Reset();
+  m_vb.Reset();
+  m_cb.Reset();
+  m_vbCapacity = 0;
+}
+
+bool DebugDraw::compileLine(ID3D11Device* device, const std::wstring& shaderDir) {
+  const std::wstring path = shaderDir + L"/line.hlsl";
+  ComPtr<ID3DBlob> vsBlob;
+  ComPtr<ID3DBlob> psBlob;
+  ComPtr<ID3DBlob> err;
+  HRESULT hr = D3DCompileFromFile(
+      path.c_str(),
+      0,
+      D3D_COMPILE_STANDARD_FILE_INCLUDE,
+      "vs_main",
+      "vs_5_0",
+      0,
+      0,
+      &vsBlob,
+      &err);
+  if (FAILED(hr)) {
+    return false;
+  }
+  err.Reset();
+  hr = D3DCompileFromFile(
+      path.c_str(),
+      0,
+      D3D_COMPILE_STANDARD_FILE_INCLUDE,
+      "ps_main",
+      "ps_5_0",
+      0,
+      0,
+      &psBlob,
+      &err);
+  if (FAILED(hr)) {
+    return false;
+  }
+
+  hr = device->CreateVertexShader(
+      vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), 0, &m_vs);
+  if (FAILED(hr)) {
+    return false;
+  }
+  hr = device->CreatePixelShader(
+      psBlob->GetBufferPointer(), psBlob->GetBufferSize(), 0, &m_ps);
+  if (FAILED(hr)) {
+    return false;
+  }
+
+  D3D11_INPUT_ELEMENT_DESC elems[2] = {};
+  elems[0].SemanticName = "POSITION";
+  elems[0].Format = DXGI_FORMAT_R32G32B32_FLOAT;
+  elems[0].AlignedByteOffset = 0;
+  elems[0].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
+  elems[1].SemanticName = "COLOR";
+  elems[1].Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+  elems[1].AlignedByteOffset = 12;
+  elems[1].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
+  hr = device->CreateInputLayout(
+      elems,
+      2,
+      vsBlob->GetBufferPointer(),
+      vsBlob->GetBufferSize(),
+      &m_layout);
+  return SUCCEEDED(hr);
+}
+
+void DebugDraw::draw(ID3D11DeviceContext* context,
+                     const StateSnapshot& snap,
+                     FXMMATRIX view,
+                     FXMMATRIX proj) {
+  if (!context || !valid()) {
+    return;
+  }
+
+  LineVertex verts[kMaxLineVerts];
+  UINT count = 0;
+
+  XMVECTOR detP = XMVectorZero();
+  XMVECTOR detV = XMVectorZero();
+  const XMMATRIX invP = XMMatrixInverse(&detP, proj);
+  const XMMATRIX invV = XMMatrixInverse(&detV, view);
+  if (XMVectorGetX(detP) != 0.f && XMVectorGetX(detV) != 0.f) {
+    // D3D LH clip/NDC: x,y in [-1,1], z in [0,1].
+    static const float kClip[8][3] = {
+        {-1.f, -1.f, 0.f}, {1.f, -1.f, 0.f}, {1.f, 1.f, 0.f}, {-1.f, 1.f, 0.f},
+        {-1.f, -1.f, 1.f}, {1.f, -1.f, 1.f}, {1.f, 1.f, 1.f}, {-1.f, 1.f, 1.f},
+    };
+    XMVECTOR corner[8];
+    for (int i = 0; i < 8; ++i) {
+      const XMVECTOR clip = XMVectorSet(kClip[i][0], kClip[i][1], kClip[i][2], 1.f);
+      const XMVECTOR viewP = XMVector3TransformCoord(clip, invP);
+      corner[i] = XMVector3TransformCoord(viewP, invV);
+    }
+    static const int kEdges[12][2] = {
+        {0, 1}, {1, 2}, {2, 3}, {3, 0},
+        {4, 5}, {5, 6}, {6, 7}, {7, 4},
+        {0, 4}, {1, 5}, {2, 6}, {3, 7},
+    };
+    const XMFLOAT4 yellow(1.f, 1.f, 0.2f, 1.f);
+    for (int e = 0; e < 12; ++e) {
+      pushLine(verts, &count, kMaxLineVerts, corner[kEdges[e][0]], corner[kEdges[e][1]], yellow);
+    }
+  }
+
+  const XMVECTOR origin = XMVectorZero();
+  pushLine(verts, &count, kMaxLineVerts, origin, XMVectorSet(1.f, 0.f, 0.f, 0.f), XMFLOAT4(1.f, 0.f, 0.f, 1.f));
+  pushLine(verts, &count, kMaxLineVerts, origin, XMVectorSet(0.f, 1.f, 0.f, 0.f), XMFLOAT4(0.f, 1.f, 0.f, 1.f));
+  pushLine(verts, &count, kMaxLineVerts, origin, XMVectorSet(0.f, 0.f, 1.f, 0.f), XMFLOAT4(0.2f, 0.4f, 1.f, 1.f));
+
+  const TeachingState& t = snap.teaching;
+  const XMMATRIX W = BuildWorld(t.objects[0].trs);
+  const XMFLOAT3 model(t.trackModel[0], t.trackModel[1], t.trackModel[2]);
+  const TrackResult tr = TrackPoint(model, W, view, proj);
+  const XMVECTOR wp = XMVectorSet(tr.world.x, tr.world.y, tr.world.z, 0.f);
+  const float s = 0.12f;
+  const XMVECTOR px = XMVectorAdd(wp, XMVectorSet(s, 0.f, 0.f, 0.f));
+  const XMVECTOR nx = XMVectorAdd(wp, XMVectorSet(-s, 0.f, 0.f, 0.f));
+  const XMVECTOR py = XMVectorAdd(wp, XMVectorSet(0.f, s, 0.f, 0.f));
+  const XMVECTOR ny = XMVectorAdd(wp, XMVectorSet(0.f, -s, 0.f, 0.f));
+  const XMVECTOR pz = XMVectorAdd(wp, XMVectorSet(0.f, 0.f, s, 0.f));
+  const XMVECTOR nz = XMVectorAdd(wp, XMVectorSet(0.f, 0.f, -s, 0.f));
+  const XMFLOAT4 mag(1.f, 0.35f, 1.f, 1.f);
+  pushLine(verts, &count, kMaxLineVerts, px, py, mag);
+  pushLine(verts, &count, kMaxLineVerts, px, ny, mag);
+  pushLine(verts, &count, kMaxLineVerts, px, pz, mag);
+  pushLine(verts, &count, kMaxLineVerts, px, nz, mag);
+  pushLine(verts, &count, kMaxLineVerts, nx, py, mag);
+  pushLine(verts, &count, kMaxLineVerts, nx, ny, mag);
+  pushLine(verts, &count, kMaxLineVerts, nx, pz, mag);
+  pushLine(verts, &count, kMaxLineVerts, nx, nz, mag);
+  pushLine(verts, &count, kMaxLineVerts, py, pz, mag);
+  pushLine(verts, &count, kMaxLineVerts, py, nz, mag);
+  pushLine(verts, &count, kMaxLineVerts, ny, pz, mag);
+  pushLine(verts, &count, kMaxLineVerts, ny, nz, mag);
+
+  if (count == 0) {
+    return;
+  }
+
+  const XMMATRIX viewProj = view * proj;
+  LineCBCpu cb;
+  XMStoreFloat4x4(&cb.viewProj, XMMatrixTranspose(viewProj));
+  D3D11_MAPPED_SUBRESOURCE mapped = {};
+  if (SUCCEEDED(context->Map(m_cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+    std::memcpy(mapped.pData, &cb, sizeof(cb));
+    context->Unmap(m_cb.Get(), 0);
+  }
+  mapped = D3D11_MAPPED_SUBRESOURCE();
+  if (SUCCEEDED(context->Map(m_vb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+    std::memcpy(mapped.pData, verts, count * sizeof(LineVertex));
+    context->Unmap(m_vb.Get(), 0);
+  }
+
+  ID3D11Buffer* cbuf = m_cb.Get();
+  context->VSSetConstantBuffers(0, 1, &cbuf);
+  context->PSSetConstantBuffers(0, 1, &cbuf);
+  context->VSSetShader(m_vs.Get(), 0, 0);
+  context->PSSetShader(m_ps.Get(), 0, 0);
+  context->IASetInputLayout(m_layout.Get());
+  UINT stride = sizeof(LineVertex);
+  UINT offset = 0;
+  ID3D11Buffer* vb = m_vb.Get();
+  context->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
+  context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
+  context->Draw(count, 0);
+}

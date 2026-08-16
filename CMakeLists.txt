@@ -34,6 +34,8 @@ add_executable(3DEditMax
   src/ui/TransformPanel.cpp
   src/ui/ObjectPanel.h
   src/ui/ObjectPanel.cpp
+  src/ui/TrackerPanel.h
+  src/ui/TrackerPanel.cpp
   src/ui/MatrixBoardPanel.h
   src/ui/MatrixBoardPanel.cpp
   src/core/SnapshotBuffer.cpp
@@ -42,6 +44,7 @@ add_executable(3DEditMax
   src/render/FeedbackQueue.cpp
   src/render/RenderThread.cpp
   src/render/D3D11Renderer.cpp
+  src/render/DebugDraw.cpp
   src/render/MeshGpu.cpp
   src/render/ShaderSet.cpp
   src/teach/Transforms.cpp

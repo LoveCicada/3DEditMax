@@ -4,6 +4,7 @@
 #include "ui/Dx11ViewportWidget.h"
 #include "ui/MatrixBoardPanel.h"
 #include "ui/ObjectPanel.h"
+#include "ui/TrackerPanel.h"
 #include "ui/TransformPanel.h"
 #include <QAction>
 #include <QDockWidget>
@@ -18,6 +19,7 @@ MainWindow::MainWindow(QWidget* parent)
     , m_viewport(0)
     , m_transforms(0)
     , m_objects(0)
+    , m_tracker(0)
     , m_board(0)
     , m_log(0)
     , m_poll(0)
@@ -31,6 +33,7 @@ MainWindow::MainWindow(QWidget* parent)
   m_viewport = new Dx11ViewportWidget(this);
   m_transforms = new TransformPanel(this);
   m_objects = new ObjectPanel(this);
+  m_tracker = new TrackerPanel(this);
   m_board = new MatrixBoardPanel(this);
   m_log = new DebugLogPanel(this);
   setCentralWidget(m_viewport);
@@ -51,6 +54,12 @@ MainWindow::MainWindow(QWidget* parent)
   dockMatrix->setWidget(m_board);
   addDockWidget(Qt::RightDockWidgetArea, dockMatrix);
 
+  QDockWidget* dockTracker = new QDockWidget(QString::fromUtf8("Tracker"), this);
+  dockTracker->setObjectName(QString::fromUtf8("dockTracker"));
+  dockTracker->setWidget(m_tracker);
+  addDockWidget(Qt::RightDockWidgetArea, dockTracker);
+  splitDockWidget(dockMatrix, dockTracker, Qt::Vertical);
+
   QDockWidget* dockDebug = new QDockWidget(QString::fromUtf8("DX11 Lab / Debug"), this);
   dockDebug->setObjectName(QString::fromUtf8("dockDebug"));
   dockDebug->setWidget(m_log);
@@ -67,18 +76,22 @@ MainWindow::MainWindow(QWidget* parent)
   viewMenu->addAction(dockTransforms->toggleViewAction());
   viewMenu->addAction(dockObject->toggleViewAction());
   viewMenu->addAction(dockMatrix->toggleViewAction());
+  viewMenu->addAction(dockTracker->toggleViewAction());
   viewMenu->addAction(dockDebug->toggleViewAction());
 
   connect(m_transforms, &TransformPanel::changed, this, &MainWindow::onTransformsChanged);
   connect(m_objects, &ObjectPanel::changed, this, &MainWindow::onObjectsChanged);
+  connect(m_tracker, &TrackerPanel::changed, this, &MainWindow::onTrackerChanged);
   connect(m_viewport, &Dx11ViewportWidget::teachingEdited, this, &MainWindow::onTeachingEdited);
   connect(m_majorAction, &QAction::triggered, this, &MainWindow::onToggleMajor);
   connect(resetAction, &QAction::triggered, this, &MainWindow::onReset);
 
   m_transforms->setState(m_teaching);
   m_objects->setState(m_teaching);
+  m_tracker->setState(m_teaching);
   m_viewport->publishState(m_teaching, m_lab);
   refreshBoard();
+  refreshTracker();
 
   m_poll = new QTimer(this);
   m_poll->setInterval(100);
@@ -93,22 +106,37 @@ void MainWindow::onPollFeedback() {
 void MainWindow::onTransformsChanged() {
   m_teaching = m_transforms->state();
   m_objects->setState(m_teaching);
+  m_tracker->setState(m_teaching);
   m_viewport->publishState(m_teaching, m_lab);
   refreshBoard();
+  refreshTracker();
 }
 
 void MainWindow::onObjectsChanged() {
   m_teaching = m_objects->state();
   m_transforms->setState(m_teaching);
+  m_tracker->setState(m_teaching);
   m_viewport->publishState(m_teaching, m_lab);
   refreshBoard();
+  refreshTracker();
+}
+
+void MainWindow::onTrackerChanged() {
+  m_teaching = m_tracker->state();
+  m_transforms->setState(m_teaching);
+  m_objects->setState(m_teaching);
+  m_viewport->publishState(m_teaching, m_lab);
+  refreshBoard();
+  refreshTracker();
 }
 
 void MainWindow::onTeachingEdited(const TeachingState& t) {
   m_teaching = t;
   m_transforms->setState(m_teaching);
   m_objects->setState(m_teaching);
+  m_tracker->setState(m_teaching);
   refreshBoard();
+  refreshTracker();
 }
 
 void MainWindow::onToggleMajor() {
@@ -121,8 +149,10 @@ void MainWindow::onReset() {
   m_teaching = teachingStateDefault();
   m_transforms->setState(m_teaching);
   m_objects->setState(m_teaching);
+  m_tracker->setState(m_teaching);
   m_viewport->publishState(m_teaching, m_lab);
   refreshBoard();
+  refreshTracker();
 }
 
 void MainWindow::refreshBoard() {
@@ -146,6 +176,21 @@ void MainWindow::refreshBoard() {
   XMStoreFloat4x4(&p, P);
   XMStoreFloat4x4(&wvp, WVP);
   m_board->setMatrices(w, v, p, wvp, m_major);
+}
+
+void MainWindow::refreshTracker() {
+  using namespace DirectX;
+  const TeachingState& t = m_teaching;
+  float aspect = t.aspect;
+  if (t.aspectFollowViewport && m_viewport->height() > 0) {
+    aspect = static_cast<float>(m_viewport->width()) /
+             static_cast<float>(m_viewport->height());
+  }
+  const XMMATRIX W = BuildWorld(t.objects[0].trs);
+  const XMMATRIX V = BuildView(t.camDistance, t.camPitchDeg, t.camYawDeg);
+  const XMMATRIX P = BuildProjection(t, aspect);
+  const XMFLOAT3 model(t.trackModel[0], t.trackModel[1], t.trackModel[2]);
+  m_tracker->setTrackResult(TrackPoint(model, W, V, P));
 }
 
 void MainWindow::syncMajorActionText() {

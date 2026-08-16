@@ -1,6 +1,7 @@
 #pragma once
 #include "core/StateSnapshot.h"
 #include "render/FeedbackQueue.h"
+#include "render/DebugDraw.h"
 #include "render/MeshGpu.h"
 #include "render/ShaderSet.h"
 #include <d3d11.h>
@@ -46,4 +47,5 @@ private:
   MeshGpu m_sphere;
   MeshGpu m_cyl;
   ShaderSet m_shaders;
+  DebugDraw m_debug;
 };

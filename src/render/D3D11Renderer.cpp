@@ -210,6 +210,10 @@ bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, Feedback
     shutdown();
     return false;
   }
+  m_debug.create(m_device.Get(), m_shaderDir);
+  if (!m_debug.valid()) {
+    pushFb(fb, FbWarn, "DebugDraw line.hlsl failed");
+  }
 
   m_initialized = true;
   pushFb(fb, FbLog, "D3D11 device ready");
@@ -223,6 +227,7 @@ void D3D11Renderer::shutdown() {
     m_context->Flush();
   }
   m_shaders = ShaderSet();
+  m_debug.reset();
   m_cube = MeshGpu();
   m_sphere = MeshGpu();
   m_cyl = MeshGpu();
@@ -351,6 +356,8 @@ void D3D11Renderer::render(const StateSnapshot& snap) {
     mesh->draw(m_context.Get());
   }
 
+  m_debug.draw(m_context.Get(), snap, V, P);
+
   const HRESULT hr = m_swap->Present(1, 0);
   handlePresentResult(hr);
 }
@@ -365,6 +372,11 @@ bool D3D11Renderer::reloadShaders(FeedbackQueue* fb) {
     return false;
   }
   m_shaders = next;
+  DebugDraw debugNext;
+  debugNext.create(m_device.Get(), m_shaderDir);
+  if (debugNext.valid()) {
+    m_debug = debugNext;
+  }
   return true;
 }
 
