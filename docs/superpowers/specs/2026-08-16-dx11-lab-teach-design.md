@@ -1,9 +1,10 @@
 # 3DEditMax 第一期设计：DX11 实验台与矩阵教学
 
 日期：2026-08-16  
-状态：待审阅（实现计划已写好，请先看本 spec，再决定是否按计划开工）  
+状态：Phase 0–4 已落地；视口/UI 抛光见下方 follow-up 计划  
 实现计划：[`docs/superpowers/plans/2026-08-16-dx11-lab-teach.md`](../plans/2026-08-16-dx11-lab-teach.md)  
-相邻参考：`E:\code\private\DX11-Study`（网页教学能力）、`E:\code\private\ProRes`（Qt HWND + D3D11 嵌入，仅窗口边界）
+视口抛光计划：[`docs/superpowers/plans/2026-08-16-viewport-polish.md`](../plans/2026-08-16-viewport-polish.md)（对齐 DX11-Study 视觉：停闪、MSAA、半透明立方体+轮廓边、网格、深蓝圆角 QSS）  
+相邻参考：`E:\code\private\DX11-Study`（网页教学能力与视觉）、`E:\code\private\ProRes`（Qt HWND + D3D11 嵌入，仅窗口边界）
 
 ## 1. 目标与非目标
 
@@ -226,3 +227,18 @@ cbuffer FrameCB : register(b0) {
 - 架构、线程、HWND、数学与分期一致。
 - 范围是单一产品的五个阶段，实现计划按阶段拆任务，仍是一个可运行程序。
 - 「行列主序」只影响展示；「渲染线程」不用 Qt 线程；「回传」只用轮询。这三处不允许第二种解释。
+
+## 14. Follow-up：视口与 UI 抛光（对齐 DX11-Study）
+
+Phase 0–4 功能落地后，按用户反馈增加抛光计划（不改架构）：
+
+| 问题 | 方向 |
+|------|------|
+| 左键拖视口闪烁 | 无尺寸变化跳过 `ResizeBuffers`；拖动中节流面板/看板刷新 |
+| 锯齿 / 穿模 | Swapchain 4x MSAA；Debug 线 depth bias、不写深度 |
+| 模型简陋 | 半透明 Lambert、轮廓边、地面网格、锥形 RGB 轴（对照 DX11-Study `scene.js`） |
+| UI 粗糙 | Fusion + QSS：DX11-Study 色板、圆角、W/V/P/MVP 分色 |
+
+约束：停靠栏不叠在 HWND 上做真半透明；不做 PBR / 漂浮 3D 字。
+
+详细任务见 [`docs/superpowers/plans/2026-08-16-viewport-polish.md`](../plans/2026-08-16-viewport-polish.md)。
