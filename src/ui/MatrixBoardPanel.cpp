@@ -34,9 +34,13 @@ MatrixBoardPanel::MatrixBoardPanel(QWidget* parent)
 
   QVBoxLayout* root = new QVBoxLayout(this);
   QGroupBox* gw = new QGroupBox(QString::fromUtf8("M_W"), this);
+  gw->setObjectName(QString::fromUtf8("sectionMatrixW"));
   QGroupBox* gv = new QGroupBox(QString::fromUtf8("M_V"), this);
+  gv->setObjectName(QString::fromUtf8("sectionMatrixV"));
   QGroupBox* gp = new QGroupBox(QString::fromUtf8("M_P"), this);
+  gp->setObjectName(QString::fromUtf8("sectionMatrixP"));
   QGroupBox* gm = new QGroupBox(QString::fromUtf8("MVP"), this);
+  gm->setObjectName(QString::fromUtf8("sectionMVP"));
   QVBoxLayout* lw = new QVBoxLayout(gw);
   QVBoxLayout* lv = new QVBoxLayout(gv);
   QVBoxLayout* lp = new QVBoxLayout(gp);

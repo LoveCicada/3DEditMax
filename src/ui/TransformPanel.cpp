@@ -30,6 +30,7 @@ TransformPanel::TransformPanel(QWidget* parent)
   QVBoxLayout* root = new QVBoxLayout(this);
 
   QGroupBox* world = new QGroupBox(QString::fromUtf8("World"), this);
+  world->setObjectName(QString::fromUtf8("sectionWorld"));
   QFormLayout* worldForm = new QFormLayout(world);
   m_posX = makeSpin(-50.0, 50.0, 0.1, 1);
   m_posY = makeSpin(-50.0, 50.0, 0.1, 1);
@@ -52,6 +53,7 @@ TransformPanel::TransformPanel(QWidget* parent)
   root->addWidget(world);
 
   QGroupBox* view = new QGroupBox(QString::fromUtf8("View"), this);
+  view->setObjectName(QString::fromUtf8("sectionView"));
   QFormLayout* viewForm = new QFormLayout(view);
   m_camDistance = makeSpin(0.5, 50.0, 0.1, 1);
   m_camPitch = makeSpin(-89.0, 89.0, 1.0, 0);
@@ -72,6 +74,7 @@ TransformPanel::TransformPanel(QWidget* parent)
   root->addWidget(view);
 
   QGroupBox* proj = new QGroupBox(QString::fromUtf8("Projection"), this);
+  proj->setObjectName(QString::fromUtf8("sectionProjection"));
   QFormLayout* projForm = new QFormLayout(proj);
   m_proj = new QComboBox(proj);
   m_proj->addItem(QString::fromUtf8("Perspective"));

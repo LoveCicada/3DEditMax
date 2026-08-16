@@ -69,6 +69,11 @@ add_custom_command(TARGET 3DEditMax POST_BUILD
     "${CMAKE_SOURCE_DIR}/assets/shaders"
     "$<TARGET_FILE_DIR:3DEditMax>/shaders")
 
+add_custom_command(TARGET 3DEditMax POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_SOURCE_DIR}/src/app/app.qss"
+    "$<TARGET_FILE_DIR:3DEditMax>/app.qss")
+
 enable_testing()
 add_executable(3deditmax_tests
   tests/test_main.cpp

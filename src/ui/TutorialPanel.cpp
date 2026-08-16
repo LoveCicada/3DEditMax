@@ -19,6 +19,7 @@ TutorialPanel::TutorialPanel(QWidget* parent)
   m_prev = new QPushButton(QString::fromUtf8("\xE4\xB8\x8A\xE4\xB8\x80\xE6\xAD\xA5"), this);
   m_next = new QPushButton(QString::fromUtf8("\xE4\xB8\x8B\xE4\xB8\x80\xE6\xAD\xA5"), this);
   QPushButton* demo = new QPushButton(QString::fromUtf8("\xE6\xBC\x94\xE7\xA4\xBA"), this);
+  demo->setObjectName(QString::fromUtf8("btnDemo"));
   m_step = new QLabel(this);
   row->addWidget(m_prev);
   row->addWidget(m_next);
