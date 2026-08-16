@@ -7,6 +7,22 @@
 #include <QPushButton>
 #include <QVBoxLayout>
 
+namespace {
+
+void makeCheckableGroup(QGroupBox* box) {
+  box->setCheckable(true);
+  box->setChecked(true);
+  QObject::connect(box, &QGroupBox::toggled, box, [box](bool checked) {
+    const QList<QWidget*> children =
+        box->findChildren<QWidget*>(QString(), Qt::FindDirectChildrenOnly);
+    for (QWidget* child : children) {
+      child->setVisible(checked);
+    }
+  });
+}
+
+}  // namespace
+
 TransformPanel::TransformPanel(QWidget* parent)
     : QWidget(parent)
     , m_state(teachingStateDefault())
@@ -53,6 +69,7 @@ TransformPanel::TransformPanel(QWidget* parent)
   worldForm->addRow(QString::fromUtf8("Scale X"), m_scaleX);
   worldForm->addRow(QString::fromUtf8("Scale Y"), m_scaleY);
   worldForm->addRow(QString::fromUtf8("Scale Z"), m_scaleZ);
+  makeCheckableGroup(world);
   root->addWidget(world);
 
   QGroupBox* view = new QGroupBox(QString::fromUtf8("View"), this);
@@ -80,6 +97,7 @@ TransformPanel::TransformPanel(QWidget* parent)
   presets->addWidget(top);
   presets->addWidget(iso);
   viewForm->addRow(presets);
+  makeCheckableGroup(view);
   root->addWidget(view);
 
   QGroupBox* proj = new QGroupBox(QString::fromUtf8("Projection"), this);
@@ -95,6 +113,7 @@ TransformPanel::TransformPanel(QWidget* parent)
   projForm->addRow(QString::fromUtf8("FOV"), m_fov);
   projForm->addRow(QString::fromUtf8("Near"), m_nearZ);
   projForm->addRow(QString::fromUtf8("Far"), m_farZ);
+  makeCheckableGroup(proj);
   root->addWidget(proj);
   root->addStretch(1);
 

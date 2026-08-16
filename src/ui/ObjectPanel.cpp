@@ -8,6 +8,22 @@
 #include <QRadioButton>
 #include <QVBoxLayout>
 
+namespace {
+
+void makeCheckableGroup(QGroupBox* box) {
+  box->setCheckable(true);
+  box->setChecked(true);
+  QObject::connect(box, &QGroupBox::toggled, box, [box](bool checked) {
+    const QList<QWidget*> children =
+        box->findChildren<QWidget*>(QString(), Qt::FindDirectChildrenOnly);
+    for (QWidget* child : children) {
+      child->setVisible(checked);
+    }
+  });
+}
+
+}  // namespace
+
 ObjectPanel::ObjectPanel(QWidget* parent)
     : QWidget(parent)
     , m_state(teachingStateDefault())
@@ -29,6 +45,7 @@ ObjectPanel::ObjectPanel(QWidget* parent)
   meshRow->addWidget(cube);
   meshRow->addWidget(sphere);
   meshRow->addWidget(cyl);
+  makeCheckableGroup(meshBox);
   root->addWidget(meshBox);
 
   QGroupBox* scene = new QGroupBox(QString::fromUtf8("Scene"), this);
@@ -43,6 +60,7 @@ ObjectPanel::ObjectPanel(QWidget* parent)
   m_shading->addItem(QString::fromUtf8("Wire"));
   form->addRow(QString::fromUtf8("Layout"), m_layout);
   form->addRow(QString::fromUtf8("Shading"), m_shading);
+  makeCheckableGroup(scene);
   root->addWidget(scene);
   root->addStretch(1);
 

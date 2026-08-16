@@ -90,6 +90,12 @@ MainWindow::MainWindow(QWidget* parent)
   dockTutorial->setWidget(m_tutorial);
   addDockWidget(Qt::BottomDockWidgetArea, dockTutorial);
 
+  QTimer::singleShot(0, this, [this, dockTransforms, dockObject, dockMatrix, dockTutorial]() {
+    resizeDocks({dockTransforms, dockObject}, {300, 300}, Qt::Horizontal);
+    resizeDocks({dockMatrix}, {380}, Qt::Horizontal);
+    resizeDocks({dockTutorial}, {140}, Qt::Vertical);
+  });
+
   QToolBar* toolbar = addToolBar(QString::fromUtf8("Teach"));
   toolbar->setObjectName(QString::fromUtf8("toolbarTeach"));
   m_majorAction = toolbar->addAction(QString());
