@@ -1,0 +1,1927 @@
+﻿# Final polish review: b0070a679d422775f626d48581139de8b8bfbbc7..234c607596060f6f5345673073788b8a6c5a6dd2
+
+## Commits
+234c607 Apply DX11-Study-inspired Fusion QSS theme. 29ca7b6 Align viewport materials and helpers with DX11-Study look. 3c1a44f Fix debug-line depth bias sign so lines sit in front under LESS. 0f87071 Add MSAA swapchain and depth-biased debug lines. 42a17cc Fix orbit flicker by skipping no-op resize and throttling panel refresh.
+
+## Files changed
+ CMakeLists.txt                |   5 +  assets/shaders/line.hlsl      |   3 +-  assets/shaders/unlit.hlsl     |  22 ++-  src/app/app.qss               | 415 ++++++++++++++++++++++++++++++++++++++++++  src/main.cpp                  |  14 ++  src/render/D3D11Renderer.cpp  | 284 ++++++++++++++++++++++++++---  src/render/D3D11Renderer.h    |  17 ++  src/render/DebugDraw.cpp      | 146 +++++++++++++--  src/render/DebugDraw.h        |  18 +-  src/render/MeshGpu.cpp        |   7 +  src/render/MeshGpu.h          |   1 +  src/teach/MeshBuild.cpp       | 240 ++++++++++++++++++++++++  src/teach/MeshBuild.h         |  11 ++  src/ui/Dx11ViewportWidget.cpp | 110 ++++++++++-  src/ui/Dx11ViewportWidget.h   |   9 +  src/ui/MatrixBoardPanel.cpp   |   7 +  src/ui/TransformPanel.cpp     |   3 +  src/ui/TutorialPanel.cpp      |   1 +  tests/test_transforms.cpp     |  17 +-  19 files changed, 1275 insertions(+), 55 deletions(-)
+
+## Diff
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 2a472a0..284d5d2 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -69,6 +69,11 @@ add_custom_command(TARGET 3DEditMax POST_BUILD
+     "${CMAKE_SOURCE_DIR}/assets/shaders"
+     "$<TARGET_FILE_DIR:3DEditMax>/shaders")
+ 
++add_custom_command(TARGET 3DEditMax POST_BUILD
++  COMMAND ${CMAKE_COMMAND} -E copy_if_different
++    "${CMAKE_SOURCE_DIR}/src/app/app.qss"
++    "$<TARGET_FILE_DIR:3DEditMax>/app.qss")
++
+ enable_testing()
+ add_executable(3deditmax_tests
+   tests/test_main.cpp
+diff --git a/assets/shaders/line.hlsl b/assets/shaders/line.hlsl
+index a156209..6c76da3 100644
+--- a/assets/shaders/line.hlsl
++++ b/assets/shaders/line.hlsl
+@@ -1,5 +1,6 @@
+ cbuffer LineCB : register(b0) {
+   float4x4 viewProj;
++  float4 colorMul;
+ };
+ 
+ struct VSIn {
+@@ -15,7 +16,7 @@ struct VSOut {
+ VSOut vs_main(VSIn i) {
+   VSOut o;
+   o.pos = mul(float4(i.pos, 1.0), viewProj);
+-  o.col = i.col;
++  o.col = i.col * colorMul;
+   return o;
+ }
+ 
+diff --git a/assets/shaders/unlit.hlsl b/assets/shaders/unlit.hlsl
+index 9431ec2..f0d1713 100644
+--- a/assets/shaders/unlit.hlsl
++++ b/assets/shaders/unlit.hlsl
+@@ -4,6 +4,8 @@ cbuffer FrameCB : register(b0) {
+   float4x4 proj;
+   float4x4 worldViewProj;
+   float4 shadingMode;
++  float4 baseColor;
++  float4 emissive;
+ };
+ 
+ struct VSIn {
+@@ -21,25 +23,35 @@ struct VSOut {
+ VSOut vs_main(VSIn i) {
+   VSOut o;
+   o.pos = mul(float4(i.pos, 1.0), worldViewProj);
+-  o.nrm = i.nrm;
++  o.nrm = mul(i.nrm, (float3x3)world);
+   o.uv = i.uv;
+   return o;
+ }
+ 
++float3 lambertLit(float3 albedo, float3 nrm, float3 emit) {
++  float3 N = normalize(nrm);
++  float3 L = normalize(float3(5.0, 10.0, 5.0));
++  float diff = saturate(dot(N, L));
++  return albedo * (0.4 + 0.8 * diff) + emit;
++}
++
+ float4 ps_checker(VSOut i) : SV_TARGET {
+   float2 f = frac(i.uv * 8.0);
+   float c = (f.x < 0.5) != (f.y < 0.5) ? 0.0 : 1.0;
+-  return float4(c, c, c, 1.0);
++  float3 dark = float3(0.173, 0.373, 0.588);
++  float3 lite = float3(0.949, 0.949, 0.949);
++  float3 albedo = lerp(dark, lite, c);
++  return float4(lambertLit(albedo, i.nrm, emissive.rgb), baseColor.a);
+ }
+ 
+ float4 ps_main(VSOut i) : SV_TARGET {
+   float mode = shadingMode.x;
+   if (mode < 0.5) {
+-    return float4(0.55, 0.62, 0.75, 1.0);
++    return float4(lambertLit(baseColor.rgb, i.nrm, emissive.rgb), baseColor.a);
+   }
+   if (mode < 1.5) {
+-    float3 c = 0.35 + 0.65 * saturate(i.nrm * 0.5 + 0.5);
+-    return float4(c, 1.0);
++    float3 c = 0.35 + 0.65 * saturate(normalize(i.nrm) * 0.5 + 0.5);
++    return float4(c, baseColor.a);
+   }
+   return ps_checker(i);
+ }
+diff --git a/src/app/app.qss b/src/app/app.qss
+new file mode 100644
+index 0000000..b7d22f0
+--- /dev/null
++++ b/src/app/app.qss
+@@ -0,0 +1,415 @@
++/* DX11-Study palette 鈥?Fusion dark theme */
++
++QWidget {
++  background-color: #0f0f1a;
++  color: #ccd6f6;
++  font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
++  font-size: 13px;
++}
++
++QMainWindow {
++  background-color: #0f0f1a;
++}
++
++QMenuBar {
++  background-color: #1a1a2e;
++  border-bottom: 1px solid #2a2a4a;
++  padding: 2px 0;
++}
++
++QMenuBar::item {
++  background: transparent;
++  padding: 4px 10px;
++  border-radius: 4px;
++}
++
++QMenuBar::item:selected {
++  background-color: #16213e;
++  color: #61dafb;
++}
++
++QMenu {
++  background-color: #1a1a2e;
++  border: 1px solid #2a2a4a;
++  padding: 4px 0;
++}
++
++QMenu::item {
++  padding: 5px 24px 5px 12px;
++}
++
++QMenu::item:selected {
++  background-color: #16213e;
++  color: #61dafb;
++}
++
++QToolBar {
++  background-color: #1a1a2e;
++  border-bottom: 1px solid #2a2a4a;
++  spacing: 6px;
++  padding: 4px 8px;
++}
++
++QToolBar QToolButton {
++  background-color: #16213e;
++  color: #ccd6f6;
++  border: 1px solid #2a2a4a;
++  border-radius: 5px;
++  padding: 4px 10px;
++  min-height: 22px;
++}
++
++QToolBar QToolButton:hover {
++  background-color: #61dafb;
++  color: #0f0f1a;
++  border-color: #61dafb;
++}
++
++QToolBar QToolButton:pressed {
++  background-color: #4ecdc4;
++  color: #0f0f1a;
++}
++
++QDockWidget {
++  titlebar-close-icon: url(none);
++  titlebar-normal-icon: url(none);
++  color: #ccd6f6;
++}
++
++QDockWidget::title {
++  background-color: #1a1a2e;
++  border: 1px solid #2a2a4a;
++  border-radius: 5px;
++  padding: 6px 8px;
++  text-align: left;
++}
++
++QDockWidget::close-button,
++QDockWidget::float-button {
++  background: #16213e;
++  border: 1px solid #2a2a4a;
++  border-radius: 4px;
++  padding: 2px;
++}
++
++QDockWidget::close-button:hover,
++QDockWidget::float-button:hover {
++  background: #61dafb;
++}
++
++QGroupBox {
++  background-color: #16213e;
++  border: 1px solid #2a2a4a;
++  border-radius: 5px;
++  margin-top: 12px;
++  padding: 8px 8px 8px 8px;
++  font-weight: 600;
++}
++
++QGroupBox::title {
++  subcontrol-origin: margin;
++  subcontrol-position: top left;
++  padding: 0 6px;
++  color: #ccd6f6;
++}
++
++QGroupBox#sectionWorld {
++  border-left: 3px solid #ff6b6b;
++}
++
++QGroupBox#sectionWorld::title {
++  color: #ff6b6b;
++}
++
++QGroupBox#sectionView {
++  border-left: 3px solid #4ecdc4;
++}
++
++QGroupBox#sectionView::title {
++  color: #4ecdc4;
++}
++
++QGroupBox#sectionProjection {
++  border-left: 3px solid #f7b731;
++}
++
++QGroupBox#sectionProjection::title {
++  color: #f7b731;
++}
++
++QGroupBox#sectionMatrixW {
++  border-left: 3px solid #ff6b6b;
++}
++
++QGroupBox#sectionMatrixW::title {
++  color: #ff6b6b;
++}
++
++QGroupBox#sectionMatrixV {
++  border-left: 3px solid #4ecdc4;
++}
++
++QGroupBox#sectionMatrixV::title {
++  color: #4ecdc4;
++}
++
++QGroupBox#sectionMatrixP {
++  border-left: 3px solid #f7b731;
++}
++
++QGroupBox#sectionMatrixP::title {
++  color: #f7b731;
++}
++
++QGroupBox#sectionMVP {
++  border-left: 3px solid #a55eea;
++}
++
++QGroupBox#sectionMVP::title {
++  color: #a55eea;
++}
++
++QLabel {
++  background: transparent;
++  color: #ccd6f6;
++}
++
++QFormLayout QLabel,
++QHBoxLayout QLabel {
++  color: #8892b0;
++}
++
++QPushButton {
++  background-color: #16213e;
++  color: #ccd6f6;
++  border: 1px solid #2a2a4a;
++  border-radius: 5px;
++  padding: 4px 12px;
++  min-height: 22px;
++}
++
++QPushButton:hover {
++  background-color: #61dafb;
++  color: #0f0f1a;
++  border-color: #61dafb;
++}
++
++QPushButton:pressed {
++  background-color: #4ecdc4;
++  color: #0f0f1a;
++  border-color: #4ecdc4;
++}
++
++QPushButton:disabled {
++  background-color: #1a1a2e;
++  color: #8892b0;
++  border-color: #2a2a4a;
++}
++
++QPushButton#btnDemo {
++  background-color: #16213e;
++  color: #f7b731;
++  border: 1px solid #f7b731;
++}
++
++QPushButton#btnDemo:hover {
++  background-color: #61dafb;
++  color: #0f0f1a;
++  border-color: #61dafb;
++}
++
++QPushButton#btnDemo:pressed {
++  background-color: #61dafb;
++  color: #0f0f1a;
++  border-color: #61dafb;
++}
++
++QDoubleSpinBox,
++QSpinBox,
++QComboBox,
++QLineEdit {
++  background-color: #0d0d1a;
++  color: #ccd6f6;
++  border: 1px solid #2a2a4a;
++  border-radius: 5px;
++  padding: 3px 6px;
++  min-height: 22px;
++  selection-background-color: #61dafb;
++  selection-color: #0f0f1a;
++}
++
++QDoubleSpinBox:focus,
++QSpinBox:focus,
++QComboBox:focus,
++QLineEdit:focus {
++  border-color: #61dafb;
++}
++
++QDoubleSpinBox::up-button,
++QDoubleSpinBox::down-button,
++QSpinBox::up-button,
++QSpinBox::down-button {
++  background-color: #16213e;
++  border: none;
++  border-radius: 3px;
++  width: 16px;
++}
++
++QDoubleSpinBox::up-button:hover,
++QDoubleSpinBox::down-button:hover,
++QSpinBox::up-button:hover,
++QSpinBox::down-button:hover {
++  background-color: #61dafb;
++}
++
++QComboBox::drop-down {
++  border: none;
++  border-left: 1px solid #2a2a4a;
++  border-top-right-radius: 5px;
++  border-bottom-right-radius: 5px;
++  width: 20px;
++  background: #16213e;
++}
++
++QComboBox::down-arrow {
++  image: none;
++  border-left: 4px solid transparent;
++  border-right: 4px solid transparent;
++  border-top: 5px solid #8892b0;
++  margin-right: 6px;
++}
++
++QComboBox QAbstractItemView {
++  background-color: #1a1a2e;
++  color: #ccd6f6;
++  border: 1px solid #2a2a4a;
++  selection-background-color: #16213e;
++  selection-color: #61dafb;
++  outline: none;
++}
++
++QPlainTextEdit,
++QTextEdit {
++  background-color: #0d0d1a;
++  color: #ccd6f6;
++  border: 1px solid #2a2a4a;
++  border-radius: 5px;
++  padding: 6px;
++  font-family: "Consolas", "Courier New", monospace;
++  font-size: 12px;
++}
++
++QPlainTextEdit:focus,
++QTextEdit:focus {
++  border-color: #61dafb;
++}
++
++QScrollBar:vertical {
++  background: transparent;
++  width: 8px;
++  margin: 0;
++}
++
++QScrollBar::handle:vertical {
++  background: #2a2a4a;
++  border-radius: 4px;
++  min-height: 24px;
++}
++
++QScrollBar::handle:vertical:hover {
++  background: #4a4a7a;
++}
++
++QScrollBar::add-line:vertical,
++QScrollBar::sub-line:vertical,
++QScrollBar::add-page:vertical,
++QScrollBar::sub-page:vertical {
++  background: none;
++  height: 0;
++}
++
++QScrollBar:horizontal {
++  background: transparent;
++  height: 8px;
++  margin: 0;
++}
++
++QScrollBar::handle:horizontal {
++  background: #2a2a4a;
++  border-radius: 4px;
++  min-width: 24px;
++}
++
++QScrollBar::handle:horizontal:hover {
++  background: #4a4a7a;
++}
++
++QScrollBar::add-line:horizontal,
++QScrollBar::sub-line:horizontal,
++QScrollBar::add-page:horizontal,
++QScrollBar::sub-page:horizontal {
++  background: none;
++  width: 0;
++}
++
++QStatusBar {
++  background-color: #1a1a2e;
++  color: #8892b0;
++  border-top: 1px solid #2a2a4a;
++}
++
++QSplitter::handle {
++  background-color: #2a2a4a;
++}
++
++QSplitter::handle:hover {
++  background-color: #61dafb;
++}
++
++QCheckBox {
++  spacing: 6px;
++  color: #ccd6f6;
++}
++
++QCheckBox::indicator {
++  width: 14px;
++  height: 14px;
++  border: 1px solid #2a2a4a;
++  border-radius: 4px;
++  background: #0d0d1a;
++}
++
++QCheckBox::indicator:checked {
++  background: #61dafb;
++  border-color: #61dafb;
++}
++
++QTabWidget::pane {
++  border: 1px solid #2a2a4a;
++  border-radius: 5px;
++  background: #1a1a2e;
++}
++
++QTabBar::tab {
++  background: #16213e;
++  color: #8892b0;
++  border: 1px solid #2a2a4a;
++  border-bottom: none;
++  border-top-left-radius: 5px;
++  border-top-right-radius: 5px;
++  padding: 5px 12px;
++}
++
++QTabBar::tab:selected {
++  background: #1a1a2e;
++  color: #61dafb;
++  border-color: #61dafb;
++}
++
++QMessageBox {
++  background-color: #1a1a2e;
++}
++
++QFileDialog {
++  background-color: #1a1a2e;
++}
+diff --git a/src/main.cpp b/src/main.cpp
+index f8de416..feb4f5b 100644
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -1,8 +1,22 @@
+ #include "app/MainWindow.h"
+ #include <QApplication>
++#include <QCoreApplication>
++#include <QFile>
++#include <QStyleFactory>
++
++static void applyAppStyleSheet(QApplication& app) {
++  app.setStyle(QStyleFactory::create(QString::fromUtf8("Fusion")));
++  const QString qssPath =
++      QCoreApplication::applicationDirPath() + QString::fromUtf8("/app.qss");
++  QFile qssFile(qssPath);
++  if (qssFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
++    app.setStyleSheet(QString::fromUtf8(qssFile.readAll()));
++  }
++}
+ 
+ int main(int argc, char** argv) {
+   QApplication app(argc, argv);
++  applyAppStyleSheet(app);
+   MainWindow w;
+   w.show();
+   return app.exec();
+diff --git a/src/render/D3D11Renderer.cpp b/src/render/D3D11Renderer.cpp
+index 578a7f4..9fb234c 100644
+--- a/src/render/D3D11Renderer.cpp
++++ b/src/render/D3D11Renderer.cpp
+@@ -5,7 +5,9 @@
+ #endif
+ #include "render/D3D11Renderer.h"
+ #include "core/LabState.h"
++#include "teach/MeshBuild.h"
+ #include "teach/Transforms.h"
++#include <cmath>
+ #include <cstdio>
+ #include <cstring>
+ #include <string>
+@@ -34,8 +36,78 @@ struct FrameCBCpu {
+   XMFLOAT4X4 p;
+   XMFLOAT4X4 wvp;
+   XMFLOAT4 shadingMode;
++  XMFLOAT4 baseColor;
++  XMFLOAT4 emissive;
+ };
+ 
++const int kSphereSlices = 32;
++const int kSphereStacks = 24;
++
++void objectShadeColors(int objectIndex, XMFLOAT4* base, XMFLOAT4* emit) {
++  if (objectIndex == 1) {
++    *base = XMFLOAT4(0x38 / 255.f, 0xb8 / 255.f, 0x89 / 255.f, 0.82f);
++    *emit = XMFLOAT4(0x17 / 255.f, 0x3c / 255.f, 0x31 / 255.f, 0.f);
++    return;
++  }
++  if (objectIndex == 2) {
++    *base = XMFLOAT4(0xd9 / 255.f, 0x8c / 255.f, 0x3f / 255.f, 0.82f);
++    *emit = XMFLOAT4(0x4f / 255.f, 0x2e / 255.f, 0x12 / 255.f, 0.f);
++    return;
++  }
++  *base = XMFLOAT4(0x4a / 255.f, 0x90 / 255.f, 0xd9 / 255.f, 0.9f);
++  *emit = XMFLOAT4(0x1a / 255.f, 0x3a / 255.f, 0x5c / 255.f, 0.f);
++}
++
++XMFLOAT4 objectEdgeColor(int objectIndex) {
++  if (objectIndex == 1) {
++    return XMFLOAT4(0x72 / 255.f, 0xf2 / 255.f, 0xc6 / 255.f, 1.f);
++  }
++  if (objectIndex == 2) {
++    return XMFLOAT4(1.f, 0xc1 / 255.f, 0x78 / 255.f, 1.f);
++  }
++  return XMFLOAT4(0x88 / 255.f, 0xcc / 255.f, 1.f, 1.f);
++}
++
++void writeFrameCb(ID3D11DeviceContext* context, ID3D11Buffer* buf,
++                  FXMMATRIX W, FXMMATRIX V, FXMMATRIX P,
++                  float shadeX, const XMFLOAT4& base, const XMFLOAT4& emit) {
++  FrameCBCpu cb;
++  const XMMATRIX WVP = W * V * P;
++  XMStoreFloat4x4(&cb.w, XMMatrixTranspose(W));
++  XMStoreFloat4x4(&cb.v, XMMatrixTranspose(V));
++  XMStoreFloat4x4(&cb.p, XMMatrixTranspose(P));
++  XMStoreFloat4x4(&cb.wvp, XMMatrixTranspose(WVP));
++  cb.shadingMode = XMFLOAT4(shadeX, 0.f, 0.f, 0.f);
++  cb.baseColor = base;
++  cb.emissive = emit;
++  D3D11_MAPPED_SUBRESOURCE mapped = {};
++  if (SUCCEEDED(context->Map(buf, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
++    std::memcpy(mapped.pData, &cb, sizeof(cb));
++    context->Unmap(buf, 0);
++  }
++}
++
++XMMATRIX rotationYToDir(FXMVECTOR dir) {
++  const XMVECTOR d = XMVector3Normalize(dir);
++  const XMVECTOR y = XMVectorSet(0.f, 1.f, 0.f, 0.f);
++  const float dty = XMVectorGetX(XMVector3Dot(y, d));
++  if (dty > 0.9999f) {
++    return XMMatrixIdentity();
++  }
++  if (dty < -0.9999f) {
++    return XMMatrixRotationX(XM_PI);
++  }
++  const XMVECTOR axis = XMVector3Normalize(XMVector3Cross(y, d));
++  float c = dty;
++  if (c > 1.f) {
++    c = 1.f;
++  }
++  if (c < -1.f) {
++    c = -1.f;
++  }
++  return XMMatrixRotationAxis(axis, acosf(c));
++}
++
+ void pushCbFloats(FeedbackQueue* fb, const FrameCBCpu& cb) {
+   if (!fb) {
+     return;
+@@ -69,7 +141,12 @@ D3D11Renderer::D3D11Renderer(const std::wstring& shaderDir)
+     , m_dead(false)
+     , m_fb(0)
+     , m_lastLoggedShadeX(-1.f)
+-    , m_loggedCb(false) {
++    , m_loggedCb(false)
++    , m_sampleCount(1)
++    , m_sampleQuality(0)
++    , m_cubeEdgeVerts(0)
++    , m_sphereEdgeVerts(0)
++    , m_cylEdgeVerts(0) {
+   std::memset(m_shaderVariant, 0, sizeof(m_shaderVariant));
+   std::memset(m_triedVariant, 0, sizeof(m_triedVariant));
+ }
+@@ -153,6 +230,7 @@ bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, Feedback
+     return false;
+   }
+   attachInfoQueue();
++  selectMultisampleLevel();
+ 
+   DXGI_SWAP_CHAIN_DESC sd = {};
+   sd.BufferCount = 2;
+@@ -163,8 +241,8 @@ bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, Feedback
+   sd.BufferDesc.RefreshRate.Denominator = 1;
+   sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+   sd.OutputWindow = hwnd;
+-  sd.SampleDesc.Count = 1;
+-  sd.SampleDesc.Quality = 0;
++  sd.SampleDesc.Count = m_sampleCount;
++  sd.SampleDesc.Quality = m_sampleQuality;
+   sd.Windowed = TRUE;
+   sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+ 
+@@ -205,7 +283,7 @@ bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, Feedback
+     shutdown();
+     return false;
+   }
+-  m_sphere = MeshGpu::createSphere(m_device.Get(), 16, 24);
++  m_sphere = MeshGpu::createSphere(m_device.Get(), kSphereSlices, kSphereStacks);
+   if (!m_sphere.valid()) {
+     pushFb(fb, FbError, "createSphere failed");
+     shutdown();
+@@ -217,6 +295,10 @@ bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, Feedback
+     shutdown();
+     return false;
+   }
++  m_cone = MeshGpu::createCone(m_device.Get(), 0.15f, 0.36f, 8);
++  if (!m_cone.valid()) {
++    pushFb(fb, FbWarn, "createCone failed");
++  }
+ 
+   copyVariantName("unlit");
+   copyTriedName("unlit");
+@@ -228,6 +310,9 @@ bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, Feedback
+   if (!m_debug.valid()) {
+     pushFb(fb, FbWarn, "DebugDraw line.hlsl failed");
+   }
++  if (!createEdgeBuffers(fb)) {
++    pushFb(fb, FbWarn, "silhouette edge buffers failed");
++  }
+ 
+   m_initialized = true;
+   pushFb(fb, FbLog, "D3D11 device ready");
+@@ -246,7 +331,15 @@ void D3D11Renderer::shutdown() {
+   m_cube = MeshGpu();
+   m_sphere = MeshGpu();
+   m_cyl = MeshGpu();
++  m_cone = MeshGpu();
++  m_cubeEdges.Reset();
++  m_sphereEdges.Reset();
++  m_cylEdges.Reset();
++  m_cubeEdgeVerts = 0;
++  m_sphereEdgeVerts = 0;
++  m_cylEdgeVerts = 0;
+   m_cb.Reset();
++  m_blend.Reset();
+   m_depthOff.Reset();
+   m_depthOn.Reset();
+   for (int fi = 0; fi < 2; ++fi) {
+@@ -277,6 +370,9 @@ bool D3D11Renderer::resize(int w, int h) {
+   if (!m_swap || !m_context) {
+     return false;
+   }
++  if (w == m_w && h == m_h && m_rtv && m_dsv) {
++    return true;
++  }
+   m_w = w;
+   m_h = h;
+   m_context->OMSetRenderTargets(0, 0, 0);
+@@ -328,7 +424,7 @@ void D3D11Renderer::render(const StateSnapshot& snap) {
+   vp.MaxDepth = 1.f;
+   m_context->RSSetViewports(1, &vp);
+ 
+-  const float clear[4] = {0.08f, 0.10f, 0.14f, 1.f};
++  const float clear[4] = {0x0a / 255.f, 0x0a / 255.f, 0x18 / 255.f, 1.f};
+   m_context->ClearRenderTargetView(m_rtv.Get(), clear);
+   m_context->ClearDepthStencilView(m_dsv.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.f, 0);
+ 
+@@ -349,47 +445,53 @@ void D3D11Renderer::render(const StateSnapshot& snap) {
+   const int count = (t.layout == LayoutThree) ? 3 : 1;
+   const float shadeX = labShadeModeX(snap.lab.shaderVariant, static_cast<int>(t.shading));
+ 
+-  ID3D11Buffer* cbuf = m_cb.Get();
+-  m_context->VSSetConstantBuffers(0, 1, &cbuf);
+-  m_context->PSSetConstantBuffers(0, 1, &cbuf);
+-  m_context->VSSetShader(m_shaders.vs(), 0, 0);
+-  m_context->PSSetShader(m_shaders.ps(), 0, 0);
+-  m_context->IASetInputLayout(m_shaders.layout());
+-  bindLabStates(snap);
++  bindMeshPipeline(snap);
+ 
+   for (int oi = 0; oi < count; ++oi) {
+     const TeachingObject& obj = t.objects[oi];
+     const XMMATRIX W = BuildWorld(obj.trs);
+-    const XMMATRIX WVP = W * V * P;
+-
+-    FrameCBCpu cb;
+-    XMStoreFloat4x4(&cb.w, XMMatrixTranspose(W));
+-    XMStoreFloat4x4(&cb.v, XMMatrixTranspose(V));
+-    XMStoreFloat4x4(&cb.p, XMMatrixTranspose(P));
+-    XMStoreFloat4x4(&cb.wvp, XMMatrixTranspose(WVP));
+-    cb.shadingMode = XMFLOAT4(shadeX, 0.f, 0.f, 0.f);
+-
+-    D3D11_MAPPED_SUBRESOURCE mapped = {};
+-    if (SUCCEEDED(m_context->Map(m_cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+-      std::memcpy(mapped.pData, &cb, sizeof(cb));
+-      m_context->Unmap(m_cb.Get(), 0);
+-    }
++    XMFLOAT4 base;
++    XMFLOAT4 emit;
++    objectShadeColors(oi, &base, &emit);
++    writeFrameCb(m_context.Get(), m_cb.Get(), W, V, P, shadeX, base, emit);
+     if (!m_loggedCb || shadeX != m_lastLoggedShadeX) {
+       m_loggedCb = true;
+       m_lastLoggedShadeX = shadeX;
+-      pushCbFloats(m_fb, cb);
++      FrameCBCpu logCb;
++      const XMMATRIX WVP = W * V * P;
++      XMStoreFloat4x4(&logCb.w, XMMatrixTranspose(W));
++      XMStoreFloat4x4(&logCb.v, XMMatrixTranspose(V));
++      XMStoreFloat4x4(&logCb.p, XMMatrixTranspose(P));
++      XMStoreFloat4x4(&logCb.wvp, XMMatrixTranspose(WVP));
++      logCb.shadingMode = XMFLOAT4(shadeX, 0.f, 0.f, 0.f);
++      logCb.baseColor = base;
++      logCb.emissive = emit;
++      pushCbFloats(m_fb, logCb);
+     }
+ 
+     const MeshGpu* mesh = &m_cube;
++    ID3D11Buffer* edgeVb = m_cubeEdges.Get();
++    UINT edgeVerts = m_cubeEdgeVerts;
+     if (obj.mesh == MeshSphere) {
+       mesh = &m_sphere;
++      edgeVb = m_sphereEdges.Get();
++      edgeVerts = m_sphereEdgeVerts;
+     } else if (obj.mesh == MeshCylinder) {
+       mesh = &m_cyl;
++      edgeVb = m_cylEdges.Get();
++      edgeVerts = m_cylEdgeVerts;
+     }
++    bindMeshPipeline(snap);
+     mesh->draw(m_context.Get());
++
++    if (t.shading != ShadeWire && edgeVb && edgeVerts > 0 && m_debug.valid()) {
++      const XMMATRIX WVP = W * V * P;
++      m_debug.drawLineList(m_context.Get(), edgeVb, edgeVerts, WVP, objectEdgeColor(oi));
++    }
+   }
+ 
+   m_debug.draw(m_context.Get(), snap, V, P);
++  drawAxisCones(snap, V, P);
+ 
+   const HRESULT hr = m_swap->Present(1, 0);
+   handlePresentResult(hr);
+@@ -469,9 +571,61 @@ bool D3D11Renderer::createLabStates(FeedbackQueue* fb) {
+     pushFb(fb, FbError, "CreateDepthStencilState off failed");
+     return false;
+   }
++
++  D3D11_BLEND_DESC bd = {};
++  bd.RenderTarget[0].BlendEnable = TRUE;
++  bd.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
++  bd.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
++  bd.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
++  bd.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
++  bd.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
++  bd.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
++  bd.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
++  hr = m_device->CreateBlendState(&bd, &m_blend);
++  if (FAILED(hr)) {
++    pushFb(fb, FbError, "CreateBlendState failed");
++    return false;
++  }
+   return true;
+ }
+ 
++bool D3D11Renderer::createEdgeBuffers(FeedbackQueue* fb) {
++  (void)fb;
++  m_cubeEdges.Reset();
++  m_sphereEdges.Reset();
++  m_cylEdges.Reset();
++  m_cubeEdgeVerts = 0;
++  m_sphereEdgeVerts = 0;
++  m_cylEdgeVerts = 0;
++  if (!m_device || !m_debug.valid()) {
++    return false;
++  }
++
++  std::vector<MeshVertex> verts;
++  std::vector<unsigned short> indices;
++  std::vector<MeshEdge> edges;
++  bool ok = true;
++
++  buildCube(&verts, &indices);
++  buildSilhouetteEdges(verts, indices, &edges, 1.f);
++  if (!m_debug.createEdgeVertexBuffer(m_device.Get(), edges, &m_cubeEdges, &m_cubeEdgeVerts)) {
++    ok = false;
++  }
++
++  buildSphere(&verts, &indices, kSphereSlices, kSphereStacks);
++  buildSilhouetteEdges(verts, indices, &edges, 1.f);
++  if (!m_debug.createEdgeVertexBuffer(m_device.Get(), edges, &m_sphereEdges, &m_sphereEdgeVerts)) {
++    ok = false;
++  }
++
++  buildCylinder(&verts, &indices, 24);
++  buildSilhouetteEdges(verts, indices, &edges, 1.f);
++  if (!m_debug.createEdgeVertexBuffer(m_device.Get(), edges, &m_cylEdges, &m_cylEdgeVerts)) {
++    ok = false;
++  }
++  return ok;
++}
++
+ void D3D11Renderer::bindLabStates(const StateSnapshot& snap) {
+   const int fill = labEffectiveFillMode(snap.lab.fillMode, snap.teaching.shading == ShadeWire);
+   const int cull = labEffectiveCullMode(snap.lab.cullMode);
+@@ -482,6 +636,59 @@ void D3D11Renderer::bindLabStates(const StateSnapshot& snap) {
+   }
+   m_context->RSSetState(m_raster[fi][ci].Get());
+   m_context->OMSetDepthStencilState(snap.lab.depthEnable ? m_depthOn.Get() : m_depthOff.Get(), 0);
++  const float blendFactor[4] = {0.f, 0.f, 0.f, 0.f};
++  m_context->OMSetBlendState(m_blend.Get(), blendFactor, 0xffffffff);
++}
++
++void D3D11Renderer::bindMeshPipeline(const StateSnapshot& snap) {
++  ID3D11Buffer* cbuf = m_cb.Get();
++  m_context->VSSetConstantBuffers(0, 1, &cbuf);
++  m_context->PSSetConstantBuffers(0, 1, &cbuf);
++  m_context->VSSetShader(m_shaders.vs(), 0, 0);
++  m_context->PSSetShader(m_shaders.ps(), 0, 0);
++  m_context->IASetInputLayout(m_shaders.layout());
++  bindLabStates(snap);
++}
++
++void D3D11Renderer::drawAxisCones(const StateSnapshot& snap,
++                                 FXMMATRIX view,
++                                 FXMMATRIX proj) {
++  (void)snap;
++  if (!m_context || !m_cone.valid() || !m_cb) {
++    return;
++  }
++
++  ID3D11Buffer* cbuf = m_cb.Get();
++  m_context->VSSetConstantBuffers(0, 1, &cbuf);
++  m_context->PSSetConstantBuffers(0, 1, &cbuf);
++  m_context->VSSetShader(m_shaders.vs(), 0, 0);
++  m_context->PSSetShader(m_shaders.ps(), 0, 0);
++  m_context->IASetInputLayout(m_shaders.layout());
++  m_context->RSSetState(m_raster[0][0].Get());
++  m_context->OMSetDepthStencilState(m_depthOn.Get(), 0);
++  const float blendFactor[4] = {0.f, 0.f, 0.f, 0.f};
++  m_context->OMSetBlendState(m_blend.Get(), blendFactor, 0xffffffff);
++
++  const float axisLen = 3.f;
++  const XMVECTOR dirs[3] = {
++      XMVectorSet(1.f, 0.f, 0.f, 0.f),
++      XMVectorSet(0.f, 1.f, 0.f, 0.f),
++      XMVectorSet(0.f, 0.f, 1.f, 0.f),
++  };
++  const XMFLOAT4 colors[3] = {
++      XMFLOAT4(1.f, 0x44 / 255.f, 0x44 / 255.f, 1.f),
++      XMFLOAT4(0x44 / 255.f, 1.f, 0x44 / 255.f, 1.f),
++      XMFLOAT4(0x44 / 255.f, 0x44 / 255.f, 1.f, 1.f),
++  };
++
++  for (int i = 0; i < 3; ++i) {
++    const XMMATRIX rot = rotationYToDir(dirs[i]);
++    const XMMATRIX T = XMMatrixTranslationFromVector(XMVectorScale(dirs[i], axisLen));
++    const XMMATRIX W = rot * T;
++    const XMFLOAT4 emit(colors[i].x * 0.35f, colors[i].y * 0.35f, colors[i].z * 0.35f, 0.f);
++    writeFrameCb(m_context.Get(), m_cb.Get(), W, view, proj, 0.f, colors[i], emit);
++    m_cone.draw(m_context.Get());
++  }
+ }
+ 
+ void D3D11Renderer::copyVariantName(const char* name) {
+@@ -504,6 +711,26 @@ void D3D11Renderer::copyTriedName(const char* name) {
+   }
+ }
+ 
++void D3D11Renderer::selectMultisampleLevel() {
++  m_sampleCount = 1;
++  m_sampleQuality = 0;
++  if (!m_device) {
++    return;
++  }
++  static const UINT kCandidates[] = { 4, 2, 1 };
++  for (size_t i = 0; i < sizeof(kCandidates) / sizeof(kCandidates[0]); ++i) {
++    const UINT count = kCandidates[i];
++    UINT levels = 0;
++    m_device->CheckMultisampleQualityLevels(
++        DXGI_FORMAT_R8G8B8A8_UNORM, count, &levels);
++    if (levels > 0) {
++      m_sampleCount = count;
++      m_sampleQuality = 0;
++      return;
++    }
++  }
++}
++
+ void D3D11Renderer::attachInfoQueue() {
+ #ifdef _DEBUG
+   m_infoQueue.Reset();
+@@ -579,7 +806,8 @@ bool D3D11Renderer::createSizeDependentResources() {
+   dd.MipLevels = 1;
+   dd.ArraySize = 1;
+   dd.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+-  dd.SampleDesc.Count = 1;
++  dd.SampleDesc.Count = m_sampleCount;
++  dd.SampleDesc.Quality = m_sampleQuality;
+   dd.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+   hr = m_device->CreateTexture2D(&dd, 0, &m_depth);
+   if (FAILED(hr)) {
+diff --git a/src/render/D3D11Renderer.h b/src/render/D3D11Renderer.h
+index fcc5962..171ee88 100644
+--- a/src/render/D3D11Renderer.h
++++ b/src/render/D3D11Renderer.h
+@@ -7,6 +7,7 @@
+ #include <d3d11.h>
+ #include <d3d11sdklayers.h>
+ #include <dxgi.h>
++#include <DirectXMath.h>
+ #include <wrl/client.h>
+ #include <string>
+ 
+@@ -25,12 +26,18 @@ public:
+ private:
+   bool createSizeDependentResources();
+   bool createLabStates(FeedbackQueue* fb);
++  bool createEdgeBuffers(FeedbackQueue* fb);
+   void bindLabStates(const StateSnapshot& snap);
++  void bindMeshPipeline(const StateSnapshot& snap);
++  void drawAxisCones(const StateSnapshot& snap,
++                     DirectX::FXMMATRIX view,
++                     DirectX::FXMMATRIX proj);
+   void handlePresentResult(HRESULT hr);
+   void copyVariantName(const char* name);
+   void copyTriedName(const char* name);
+   void attachInfoQueue();
+   void pumpInfoQueue();
++  void selectMultisampleLevel();
+   std::wstring m_shaderDir;
+   HWND m_hwnd;
+   int m_w;
+@@ -50,15 +57,25 @@ private:
+   Microsoft::WRL::ComPtr<ID3D11RasterizerState> m_raster[2][3];
+   Microsoft::WRL::ComPtr<ID3D11DepthStencilState> m_depthOn;
+   Microsoft::WRL::ComPtr<ID3D11DepthStencilState> m_depthOff;
++  Microsoft::WRL::ComPtr<ID3D11BlendState> m_blend;
+   char m_shaderVariant[32];
+   char m_triedVariant[32];
+   Microsoft::WRL::ComPtr<ID3D11InfoQueue> m_infoQueue;
+   float m_lastLoggedShadeX;
+   bool m_loggedCb;
++  UINT m_sampleCount;
++  UINT m_sampleQuality;
+   Microsoft::WRL::ComPtr<ID3D11Buffer> m_cb;
+   MeshGpu m_cube;
+   MeshGpu m_sphere;
+   MeshGpu m_cyl;
++  MeshGpu m_cone;
++  Microsoft::WRL::ComPtr<ID3D11Buffer> m_cubeEdges;
++  Microsoft::WRL::ComPtr<ID3D11Buffer> m_sphereEdges;
++  Microsoft::WRL::ComPtr<ID3D11Buffer> m_cylEdges;
++  UINT m_cubeEdgeVerts;
++  UINT m_sphereEdgeVerts;
++  UINT m_cylEdgeVerts;
+   ShaderSet m_shaders;
+   DebugDraw m_debug;
+ };
+diff --git a/src/render/DebugDraw.cpp b/src/render/DebugDraw.cpp
+index fc86036..23b5e4c 100644
+--- a/src/render/DebugDraw.cpp
++++ b/src/render/DebugDraw.cpp
+@@ -8,7 +8,7 @@ using namespace DirectX;
+ 
+ namespace {
+ 
+-const UINT kMaxLineVerts = 128;
++const UINT kMaxLineVerts = 256;
+ 
+ struct LineVertex {
+   XMFLOAT3 pos;
+@@ -17,6 +17,7 @@ struct LineVertex {
+ 
+ struct LineCBCpu {
+   XMFLOAT4X4 viewProj;
++  XMFLOAT4 colorMul;
+ };
+ 
+ void pushLine(LineVertex* verts, UINT* count, UINT cap,
+@@ -35,6 +36,18 @@ void pushLine(LineVertex* verts, UINT* count, UINT cap,
+   *count += 2;
+ }
+ 
++void uploadLineCb(ID3D11DeviceContext* context, ID3D11Buffer* cb,
++                  FXMMATRIX xform, const XMFLOAT4& colorMul) {
++  LineCBCpu cpu;
++  XMStoreFloat4x4(&cpu.viewProj, XMMatrixTranspose(xform));
++  cpu.colorMul = colorMul;
++  D3D11_MAPPED_SUBRESOURCE mapped = {};
++  if (SUCCEEDED(context->Map(cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
++    std::memcpy(mapped.pData, &cpu, sizeof(cpu));
++    context->Unmap(cb, 0);
++  }
++}
++
+ }  // namespace
+ 
+ void DebugDraw::create(ID3D11Device* device) {
+@@ -71,6 +84,28 @@ void DebugDraw::create(ID3D11Device* device, const std::wstring& shaderDir) {
+     reset();
+     return;
+   }
++
++  D3D11_RASTERIZER_DESC rd = {};
++  rd.FillMode = D3D11_FILL_SOLID;
++  rd.CullMode = D3D11_CULL_NONE;
++  rd.DepthClipEnable = TRUE;
++  // Negative bias pulls debug lines slightly toward the camera under LESS depth.
++  rd.DepthBias = -100000;
++  rd.DepthBiasClamp = 0.f;
++  rd.SlopeScaledDepthBias = -1.f;
++  if (FAILED(device->CreateRasterizerState(&rd, &m_raster))) {
++    reset();
++    return;
++  }
++
++  D3D11_DEPTH_STENCIL_DESC dsd = {};
++  dsd.DepthEnable = TRUE;
++  dsd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
++  dsd.DepthFunc = D3D11_COMPARISON_LESS;
++  if (FAILED(device->CreateDepthStencilState(&dsd, &m_depth))) {
++    reset();
++    return;
++  }
+ }
+ 
+ void DebugDraw::reset() {
+@@ -79,6 +114,8 @@ void DebugDraw::reset() {
+   m_layout.Reset();
+   m_vb.Reset();
+   m_cb.Reset();
++  m_raster.Reset();
++  m_depth.Reset();
+   m_vbCapacity = 0;
+ }
+ 
+@@ -144,6 +181,73 @@ bool DebugDraw::compileLine(ID3D11Device* device, const std::wstring& shaderDir)
+   return SUCCEEDED(hr);
+ }
+ 
++void DebugDraw::bindLinePipeline(ID3D11DeviceContext* context) {
++  ID3D11Buffer* cbuf = m_cb.Get();
++  context->VSSetConstantBuffers(0, 1, &cbuf);
++  context->PSSetConstantBuffers(0, 1, &cbuf);
++  context->VSSetShader(m_vs.Get(), 0, 0);
++  context->PSSetShader(m_ps.Get(), 0, 0);
++  context->IASetInputLayout(m_layout.Get());
++  context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
++  context->RSSetState(m_raster.Get());
++  context->OMSetDepthStencilState(m_depth.Get(), 0);
++}
++
++bool DebugDraw::createEdgeVertexBuffer(ID3D11Device* device,
++                                       const std::vector<MeshEdge>& edges,
++                                       ComPtr<ID3D11Buffer>* outVb,
++                                       UINT* outVertCount) {
++  if (!device || !outVb || !outVertCount) {
++    return false;
++  }
++  outVb->Reset();
++  *outVertCount = 0;
++  if (edges.empty()) {
++    return false;
++  }
++
++  std::vector<LineVertex> verts(edges.size() * 2);
++  const XMFLOAT4 white(1.f, 1.f, 1.f, 1.f);
++  for (size_t i = 0; i < edges.size(); ++i) {
++    LineVertex a;
++    LineVertex b;
++    a.pos = XMFLOAT3(edges[i].ax, edges[i].ay, edges[i].az);
++    b.pos = XMFLOAT3(edges[i].bx, edges[i].by, edges[i].bz);
++    a.col = white;
++    b.col = white;
++    verts[i * 2] = a;
++    verts[i * 2 + 1] = b;
++  }
++
++  D3D11_BUFFER_DESC vbd = {};
++  vbd.ByteWidth = static_cast<UINT>(verts.size() * sizeof(LineVertex));
++  vbd.Usage = D3D11_USAGE_IMMUTABLE;
++  vbd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
++  D3D11_SUBRESOURCE_DATA srd = {};
++  srd.pSysMem = &verts[0];
++  if (FAILED(device->CreateBuffer(&vbd, &srd, outVb->ReleaseAndGetAddressOf()))) {
++    return false;
++  }
++  *outVertCount = static_cast<UINT>(verts.size());
++  return true;
++}
++
++void DebugDraw::drawLineList(ID3D11DeviceContext* context,
++                             ID3D11Buffer* vb,
++                             UINT vertexCount,
++                             FXMMATRIX wvp,
++                             const XMFLOAT4& color) {
++  if (!context || !valid() || !vb || vertexCount < 2) {
++    return;
++  }
++  uploadLineCb(context, m_cb.Get(), wvp, color);
++  bindLinePipeline(context);
++  UINT stride = sizeof(LineVertex);
++  UINT offset = 0;
++  context->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
++  context->Draw(vertexCount, 0);
++}
++
+ void DebugDraw::draw(ID3D11DeviceContext* context,
+                      const StateSnapshot& snap,
+                      FXMMATRIX view,
+@@ -155,6 +259,20 @@ void DebugDraw::draw(ID3D11DeviceContext* context,
+   LineVertex verts[kMaxLineVerts];
+   UINT count = 0;
+ 
++  const XMFLOAT4 gridMajor(0x44 / 255.f, 0x44 / 255.f, 0x66 / 255.f, 1.f);
++  const XMFLOAT4 gridMinor(0x33 / 255.f, 0x33 / 255.f, 0x55 / 255.f, 1.f);
++  const float half = 10.f;
++  const int divs = 20;
++  const int center = divs / 2;
++  for (int i = 0; i <= divs; ++i) {
++    const float t = -half + (2.f * half) * (static_cast<float>(i) / static_cast<float>(divs));
++    const XMFLOAT4& col = (i == center) ? gridMajor : gridMinor;
++    pushLine(verts, &count, kMaxLineVerts,
++             XMVectorSet(-half, 0.f, t, 0.f), XMVectorSet(half, 0.f, t, 0.f), col);
++    pushLine(verts, &count, kMaxLineVerts,
++             XMVectorSet(t, 0.f, -half, 0.f), XMVectorSet(t, 0.f, half, 0.f), col);
++  }
++
+   XMVECTOR detP = XMVectorZero();
+   XMVECTOR detV = XMVectorZero();
+   const XMMATRIX invP = XMMatrixInverse(&detP, proj);
+@@ -183,9 +301,13 @@ void DebugDraw::draw(ID3D11DeviceContext* context,
+   }
+ 
+   const XMVECTOR origin = XMVectorZero();
+-  pushLine(verts, &count, kMaxLineVerts, origin, XMVectorSet(1.f, 0.f, 0.f, 0.f), XMFLOAT4(1.f, 0.f, 0.f, 1.f));
+-  pushLine(verts, &count, kMaxLineVerts, origin, XMVectorSet(0.f, 1.f, 0.f, 0.f), XMFLOAT4(0.f, 1.f, 0.f, 1.f));
+-  pushLine(verts, &count, kMaxLineVerts, origin, XMVectorSet(0.f, 0.f, 1.f, 0.f), XMFLOAT4(0.2f, 0.4f, 1.f, 1.f));
++  const float axisLen = 3.f;
++  pushLine(verts, &count, kMaxLineVerts, origin, XMVectorSet(axisLen, 0.f, 0.f, 0.f),
++           XMFLOAT4(1.f, 0x44 / 255.f, 0x44 / 255.f, 1.f));
++  pushLine(verts, &count, kMaxLineVerts, origin, XMVectorSet(0.f, axisLen, 0.f, 0.f),
++           XMFLOAT4(0x44 / 255.f, 1.f, 0x44 / 255.f, 1.f));
++  pushLine(verts, &count, kMaxLineVerts, origin, XMVectorSet(0.f, 0.f, axisLen, 0.f),
++           XMFLOAT4(0x44 / 255.f, 0x44 / 255.f, 1.f, 1.f));
+ 
+   const TeachingState& t = snap.teaching;
+   const XMMATRIX W = BuildWorld(t.objects[0].trs);
+@@ -218,29 +340,17 @@ void DebugDraw::draw(ID3D11DeviceContext* context,
+   }
+ 
+   const XMMATRIX viewProj = view * proj;
+-  LineCBCpu cb;
+-  XMStoreFloat4x4(&cb.viewProj, XMMatrixTranspose(viewProj));
++  uploadLineCb(context, m_cb.Get(), viewProj, XMFLOAT4(1.f, 1.f, 1.f, 1.f));
+   D3D11_MAPPED_SUBRESOURCE mapped = {};
+-  if (SUCCEEDED(context->Map(m_cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+-    std::memcpy(mapped.pData, &cb, sizeof(cb));
+-    context->Unmap(m_cb.Get(), 0);
+-  }
+-  mapped = D3D11_MAPPED_SUBRESOURCE();
+   if (SUCCEEDED(context->Map(m_vb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+     std::memcpy(mapped.pData, verts, count * sizeof(LineVertex));
+     context->Unmap(m_vb.Get(), 0);
+   }
+ 
+-  ID3D11Buffer* cbuf = m_cb.Get();
+-  context->VSSetConstantBuffers(0, 1, &cbuf);
+-  context->PSSetConstantBuffers(0, 1, &cbuf);
+-  context->VSSetShader(m_vs.Get(), 0, 0);
+-  context->PSSetShader(m_ps.Get(), 0, 0);
+-  context->IASetInputLayout(m_layout.Get());
++  bindLinePipeline(context);
+   UINT stride = sizeof(LineVertex);
+   UINT offset = 0;
+   ID3D11Buffer* vb = m_vb.Get();
+   context->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
+-  context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
+   context->Draw(count, 0);
+ }
+diff --git a/src/render/DebugDraw.h b/src/render/DebugDraw.h
+index a8052a1..86d652f 100644
+--- a/src/render/DebugDraw.h
++++ b/src/render/DebugDraw.h
+@@ -1,9 +1,11 @@
+ #pragma once
+ #include "core/StateSnapshot.h"
++#include "teach/MeshBuild.h"
+ #include <d3d11.h>
+ #include <DirectXMath.h>
+ #include <wrl/client.h>
+ #include <string>
++#include <vector>
+ 
+ class DebugDraw {
+ public:
+@@ -14,14 +16,28 @@ public:
+             const StateSnapshot& snap,
+             DirectX::FXMMATRIX view,
+             DirectX::FXMMATRIX proj);
+-  bool valid() const { return m_vs && m_ps && m_layout && m_vb && m_cb; }
++  bool createEdgeVertexBuffer(ID3D11Device* device,
++                              const std::vector<MeshEdge>& edges,
++                              Microsoft::WRL::ComPtr<ID3D11Buffer>* outVb,
++                              UINT* outVertCount);
++  void drawLineList(ID3D11DeviceContext* context,
++                    ID3D11Buffer* vb,
++                    UINT vertexCount,
++                    DirectX::FXMMATRIX wvp,
++                    const DirectX::XMFLOAT4& color);
++  bool valid() const {
++    return m_vs && m_ps && m_layout && m_vb && m_cb && m_raster && m_depth;
++  }
+ private:
+   bool compileLine(ID3D11Device* device, const std::wstring& shaderDir);
++  void bindLinePipeline(ID3D11DeviceContext* context);
+ 
+   Microsoft::WRL::ComPtr<ID3D11VertexShader> m_vs;
+   Microsoft::WRL::ComPtr<ID3D11PixelShader> m_ps;
+   Microsoft::WRL::ComPtr<ID3D11InputLayout> m_layout;
+   Microsoft::WRL::ComPtr<ID3D11Buffer> m_vb;
+   Microsoft::WRL::ComPtr<ID3D11Buffer> m_cb;
++  Microsoft::WRL::ComPtr<ID3D11RasterizerState> m_raster;
++  Microsoft::WRL::ComPtr<ID3D11DepthStencilState> m_depth;
+   UINT m_vbCapacity = 0;
+ };
+diff --git a/src/render/MeshGpu.cpp b/src/render/MeshGpu.cpp
+index d1ae707..c50e1eb 100644
+--- a/src/render/MeshGpu.cpp
++++ b/src/render/MeshGpu.cpp
+@@ -55,6 +55,13 @@ MeshGpu MeshGpu::createCylinder(ID3D11Device* device, int slices) {
+   return createFromCpu(device, verts, indices);
+ }
+ 
++MeshGpu MeshGpu::createCone(ID3D11Device* device, float radius, float height, int slices) {
++  std::vector<MeshVertex> verts;
++  std::vector<unsigned short> indices;
++  buildCone(&verts, &indices, radius, height, slices);
++  return createFromCpu(device, verts, indices);
++}
++
+ void MeshGpu::draw(ID3D11DeviceContext* context) const {
+   if (!context || !valid()) {
+     return;
+diff --git a/src/render/MeshGpu.h b/src/render/MeshGpu.h
+index 47199fa..b9b8f97 100644
+--- a/src/render/MeshGpu.h
++++ b/src/render/MeshGpu.h
+@@ -12,6 +12,7 @@ public:
+   static MeshGpu createCube(ID3D11Device* device);
+   static MeshGpu createSphere(ID3D11Device* device, int slices, int stacks);
+   static MeshGpu createCylinder(ID3D11Device* device, int slices);
++  static MeshGpu createCone(ID3D11Device* device, float radius, float height, int slices);
+   void draw(ID3D11DeviceContext* context) const;
+   bool valid() const { return m_vb && m_ib && m_indexCount > 0; }
+ private:
+diff --git a/src/teach/MeshBuild.cpp b/src/teach/MeshBuild.cpp
+index 680bd23..97ef28d 100644
+--- a/src/teach/MeshBuild.cpp
++++ b/src/teach/MeshBuild.cpp
+@@ -1,5 +1,7 @@
+ #include "teach/MeshBuild.h"
+ #include <cmath>
++#include <map>
++#include <vector>
+ 
+ namespace {
+ 
+@@ -189,6 +191,244 @@ void buildCylinder(std::vector<MeshVertex>* v, std::vector<unsigned short>* i, i
+   }
+ }
+ 
++void buildCone(std::vector<MeshVertex>* v, std::vector<unsigned short>* i,
++               float radius, float height, int slices) {
++  if (!v || !i) {
++    return;
++  }
++  v->clear();
++  i->clear();
++  if (slices < 3) {
++    slices = 3;
++  }
++  if (radius < 1e-4f) {
++    radius = 1e-4f;
++  }
++  if (height < 1e-4f) {
++    height = 1e-4f;
++  }
++
++  const float yApex = height * 0.5f;
++  const float yBase = -height * 0.5f;
++  const float slope = radius / height;
++  pushVert(v, 0.f, yApex, 0.f, 0.f, 1.f, 0.f, 0.5f, 0.f);
++
++  for (int sl = 0; sl < slices; ++sl) {
++    const float u = static_cast<float>(sl) / static_cast<float>(slices);
++    const float phi = u * (2.f * kPi);
++    const float x = radius * sinf(phi);
++    const float z = radius * cosf(phi);
++    float nx = x;
++    float ny = radius * slope;
++    float nz = z;
++    const float nlen = sqrtf(nx * nx + ny * ny + nz * nz);
++    if (nlen > 1e-6f) {
++      nx /= nlen;
++      ny /= nlen;
++      nz /= nlen;
++    }
++    pushVert(v, x, yBase, z, nx, ny, nz, u, 1.f);
++  }
++
++  for (int sl = 0; sl < slices; ++sl) {
++    const unsigned short a = 0;
++    const unsigned short b = static_cast<unsigned short>(1 + sl);
++    const unsigned short c = static_cast<unsigned short>(1 + ((sl + 1) % slices));
++    i->push_back(a);
++    i->push_back(b);
++    i->push_back(c);
++  }
++
++  const unsigned short baseCenter = static_cast<unsigned short>(v->size());
++  pushVert(v, 0.f, yBase, 0.f, 0.f, -1.f, 0.f, 0.5f, 0.5f);
++  const unsigned short baseRim = static_cast<unsigned short>(v->size());
++  for (int sl = 0; sl <= slices; ++sl) {
++    const float u = static_cast<float>(sl) / static_cast<float>(slices);
++    const float phi = u * (2.f * kPi);
++    const float x = radius * sinf(phi);
++    const float z = radius * cosf(phi);
++    pushVert(v, x, yBase, z, 0.f, -1.f, 0.f, 0.5f + 0.5f * x / radius, 0.5f + 0.5f * z / radius);
++  }
++  for (int sl = 0; sl < slices; ++sl) {
++    i->push_back(baseCenter);
++    i->push_back(static_cast<unsigned short>(baseRim + sl + 1));
++    i->push_back(static_cast<unsigned short>(baseRim + sl));
++  }
++}
++
++namespace {
++
++struct QPos {
++  int x;
++  int y;
++  int z;
++  bool operator<(const QPos& o) const {
++    if (x != o.x) {
++      return x < o.x;
++    }
++    if (y != o.y) {
++      return y < o.y;
++    }
++    return z < o.z;
++  }
++};
++
++struct QEdge {
++  QPos a;
++  QPos b;
++  bool operator<(const QEdge& o) const {
++    if (a < o.a) {
++      return true;
++    }
++    if (o.a < a) {
++      return false;
++    }
++    return b < o.b;
++  }
++};
++
++int quantizeAxis(float v) {
++  return static_cast<int>(floorf(v * 4096.f + (v >= 0.f ? 0.5f : -0.5f)));
++}
++
++QPos makePos(float x, float y, float z) {
++  QPos p;
++  p.x = quantizeAxis(x);
++  p.y = quantizeAxis(y);
++  p.z = quantizeAxis(z);
++  return p;
++}
++
++QEdge makeEdge(QPos a, QPos b) {
++  QEdge e;
++  if (b < a) {
++    e.a = b;
++    e.b = a;
++  } else {
++    e.a = a;
++    e.b = b;
++  }
++  return e;
++}
++
++struct EdgeRec {
++  float ax, ay, az;
++  float bx, by, bz;
++  int face0;
++  int face1;
++  int nfaces;
++};
++
++void addEdgeFace(std::map<QEdge, EdgeRec>* edges,
++                 const MeshVertex& va,
++                 const MeshVertex& vb,
++                 int face) {
++  const QEdge key = makeEdge(makePos(va.px, va.py, va.pz), makePos(vb.px, vb.py, vb.pz));
++  std::map<QEdge, EdgeRec>::iterator it = edges->find(key);
++  if (it == edges->end()) {
++    EdgeRec rec;
++    rec.ax = va.px;
++    rec.ay = va.py;
++    rec.az = va.pz;
++    rec.bx = vb.px;
++    rec.by = vb.py;
++    rec.bz = vb.pz;
++    rec.face0 = face;
++    rec.face1 = -1;
++    rec.nfaces = 1;
++    (*edges)[key] = rec;
++    return;
++  }
++  if (it->second.nfaces == 1) {
++    it->second.face1 = face;
++  }
++  it->second.nfaces += 1;
++}
++
++void faceNormal(const MeshVertex& a, const MeshVertex& b, const MeshVertex& c,
++                float* nx, float* ny, float* nz) {
++  const float e1x = b.px - a.px;
++  const float e1y = b.py - a.py;
++  const float e1z = b.pz - a.pz;
++  const float e2x = c.px - a.px;
++  const float e2y = c.py - a.py;
++  const float e2z = c.pz - a.pz;
++  float x = e1y * e2z - e1z * e2y;
++  float y = e1z * e2x - e1x * e2z;
++  float z = e1x * e2y - e1y * e2x;
++  const float len = sqrtf(x * x + y * y + z * z);
++  if (len > 1e-8f) {
++    x /= len;
++    y /= len;
++    z /= len;
++  }
++  *nx = x;
++  *ny = y;
++  *nz = z;
++}
++
++}  // namespace
++
++void buildSilhouetteEdges(const std::vector<MeshVertex>& verts,
++                          const std::vector<unsigned short>& indices,
++                          std::vector<MeshEdge>* edges,
++                          float thresholdDeg) {
++  if (!edges) {
++    return;
++  }
++  edges->clear();
++  if (verts.empty() || indices.size() < 3) {
++    return;
++  }
++  if (thresholdDeg < 0.f) {
++    thresholdDeg = 0.f;
++  }
++
++  const size_t nfaces = indices.size() / 3;
++  std::vector<float> nx(nfaces, 0.f);
++  std::vector<float> ny(nfaces, 0.f);
++  std::vector<float> nz(nfaces, 0.f);
++  std::map<QEdge, EdgeRec> unique;
++
++  for (size_t f = 0; f < nfaces; ++f) {
++    const unsigned short i0 = indices[f * 3 + 0];
++    const unsigned short i1 = indices[f * 3 + 1];
++    const unsigned short i2 = indices[f * 3 + 2];
++    if (i0 >= verts.size() || i1 >= verts.size() || i2 >= verts.size()) {
++      continue;
++    }
++    faceNormal(verts[i0], verts[i1], verts[i2], &nx[f], &ny[f], &nz[f]);
++    addEdgeFace(&unique, verts[i0], verts[i1], static_cast<int>(f));
++    addEdgeFace(&unique, verts[i1], verts[i2], static_cast<int>(f));
++    addEdgeFace(&unique, verts[i2], verts[i0], static_cast<int>(f));
++  }
++
++  const float threshRad = thresholdDeg * (kPi / 180.f);
++  const float threshDot = cosf(threshRad);
++
++  for (std::map<QEdge, EdgeRec>::const_iterator it = unique.begin(); it != unique.end(); ++it) {
++    const EdgeRec& rec = it->second;
++    bool keep = rec.nfaces == 1;
++    if (rec.nfaces >= 2 && rec.face0 >= 0 && rec.face1 >= 0) {
++      const float dot = nx[static_cast<size_t>(rec.face0)] * nx[static_cast<size_t>(rec.face1)] +
++                        ny[static_cast<size_t>(rec.face0)] * ny[static_cast<size_t>(rec.face1)] +
++                        nz[static_cast<size_t>(rec.face0)] * nz[static_cast<size_t>(rec.face1)];
++      keep = dot <= threshDot;
++    }
++    if (!keep) {
++      continue;
++    }
++    MeshEdge e;
++    e.ax = rec.ax;
++    e.ay = rec.ay;
++    e.az = rec.az;
++    e.bx = rec.bx;
++    e.by = rec.by;
++    e.bz = rec.bz;
++    edges->push_back(e);
++  }
++}
++
+ int cubeVertexCount() {
+   std::vector<MeshVertex> v;
+   std::vector<unsigned short> i;
+diff --git a/src/teach/MeshBuild.h b/src/teach/MeshBuild.h
+index d10ea7c..92aa283 100644
+--- a/src/teach/MeshBuild.h
++++ b/src/teach/MeshBuild.h
+@@ -7,7 +7,18 @@ struct MeshVertex {
+   float u, v;
+ };
+ 
++struct MeshEdge {
++  float ax, ay, az;
++  float bx, by, bz;
++};
++
+ void buildCube(std::vector<MeshVertex>* v, std::vector<unsigned short>* i);
+ void buildSphere(std::vector<MeshVertex>* v, std::vector<unsigned short>* i, int slices, int stacks);
+ void buildCylinder(std::vector<MeshVertex>* v, std::vector<unsigned short>* i, int slices);
++void buildCone(std::vector<MeshVertex>* v, std::vector<unsigned short>* i,
++               float radius, float height, int slices);
++void buildSilhouetteEdges(const std::vector<MeshVertex>& verts,
++                          const std::vector<unsigned short>& indices,
++                          std::vector<MeshEdge>* edges,
++                          float thresholdDeg);
+ int cubeVertexCount();
+diff --git a/src/ui/Dx11ViewportWidget.cpp b/src/ui/Dx11ViewportWidget.cpp
+index 88d4e0c..9d4b60f 100644
+--- a/src/ui/Dx11ViewportWidget.cpp
++++ b/src/ui/Dx11ViewportWidget.cpp
+@@ -1,11 +1,16 @@
+ #include "ui/Dx11ViewportWidget.h"
+ #include "core/StateSnapshot.h"
+ #include <QCoreApplication>
++#include <QFrame>
++#include <QGridLayout>
+ #include <QHideEvent>
++#include <QLabel>
+ #include <QMouseEvent>
+ #include <QPaintEvent>
+ #include <QResizeEvent>
+ #include <QShowEvent>
++#include <QTimer>
++#include <QVBoxLayout>
+ #include <QWheelEvent>
+ #include <windows.h>
+ 
+@@ -13,7 +18,10 @@ Dx11ViewportWidget::Dx11ViewportWidget(QWidget* parent)
+     : QWidget(parent)
+     , m_teaching(teachingStateDefault())
+     , m_lab(labStateDefault())
+-    , m_lastMouse(0, 0) {
++    , m_lastMouse(0, 0)
++    , m_orbitEditTimer(0)
++    , m_axisLegend(0)
++    , m_orbiting(false) {
+   setAttribute(Qt::WA_NativeWindow, true);
+   setAttribute(Qt::WA_DontCreateNativeAncestors, true);
+   setAttribute(Qt::WA_OpaquePaintEvent, true);
+@@ -22,6 +30,11 @@ Dx11ViewportWidget::Dx11ViewportWidget(QWidget* parent)
+   setMinimumSize(320, 180);
+   setMouseTracking(true);
+   setFocusPolicy(Qt::StrongFocus);
++  m_orbitEditTimer = new QTimer(this);
++  m_orbitEditTimer->setSingleShot(true);
++  m_orbitEditTimer->setInterval(50);
++  connect(m_orbitEditTimer, &QTimer::timeout, this, &Dx11ViewportWidget::flushTeachingEdited);
++  buildAxisLegend();
+ }
+ 
+ Dx11ViewportWidget::~Dx11ViewportWidget() {
+@@ -66,6 +79,11 @@ void Dx11ViewportWidget::showEvent(QShowEvent* e) {
+   QWidget::showEvent(e);
+   winId();
+   startRenderer();
++  if (m_axisLegend) {
++    m_axisLegend->winId();
++    m_axisLegend->raise();
++    m_axisLegend->show();
++  }
+ }
+ 
+ void Dx11ViewportWidget::hideEvent(QHideEvent* e) {
+@@ -93,11 +111,24 @@ void Dx11ViewportWidget::paintEvent(QPaintEvent*) {
+ void Dx11ViewportWidget::mousePressEvent(QMouseEvent* e) {
+   if (e->button() == Qt::LeftButton) {
+     m_lastMouse = e->pos();
++    m_orbiting = true;
++    grabMouse();
+     setFocus(Qt::MouseFocusReason);
+   }
+   QWidget::mousePressEvent(e);
+ }
+ 
++void Dx11ViewportWidget::mouseReleaseEvent(QMouseEvent* e) {
++  if (e->button() == Qt::LeftButton && m_orbiting) {
++    m_orbiting = false;
++    releaseMouse();
++    m_orbitEditTimer->stop();
++    publishState(m_teaching, m_lab);
++    emit teachingEdited(m_teaching);
++  }
++  QWidget::mouseReleaseEvent(e);
++}
++
+ void Dx11ViewportWidget::mouseMoveEvent(QMouseEvent* e) {
+   if (e->buttons() & Qt::LeftButton) {
+     const QPoint p = e->pos();
+@@ -151,9 +182,86 @@ void Dx11ViewportWidget::stopRenderer() {
+ 
+ void Dx11ViewportWidget::commitTeaching() {
+   publishState(m_teaching, m_lab);
++  if (!m_orbiting) {
++    emit teachingEdited(m_teaching);
++    return;
++  }
++  if (!m_orbitEditTimer->isActive()) {
++    m_orbitEditTimer->start();
++  }
++}
++
++void Dx11ViewportWidget::flushTeachingEdited() {
+   emit teachingEdited(m_teaching);
+ }
+ 
++void Dx11ViewportWidget::buildAxisLegend() {
++  m_axisLegend = new QFrame(this);
++  m_axisLegend->setObjectName(QString::fromUtf8("axisLegend"));
++  m_axisLegend->setAttribute(Qt::WA_NativeWindow, true);
++  m_axisLegend->setAttribute(Qt::WA_TransparentForMouseEvents, true);
++  m_axisLegend->setStyleSheet(QString::fromUtf8(
++      "QFrame#axisLegend {"
++      "  background-color: rgba(10, 10, 24, 184);"
++      "  border: 1px solid rgba(97, 218, 251, 71);"
++      "  border-radius: 6px;"
++      "}"
++      "QLabel#axisLegendTitle {"
++      "  color: #61dafb;"
++      "  font-size: 11px;"
++      "  font-weight: 700;"
++      "}"
++      "QLabel#axisLegendName { color: #ccd6f6; font-size: 11px; }"
++      "QLabel#axisLegendDesc { color: #8892b0; font-size: 10px; }"));
++
++  QVBoxLayout* root = new QVBoxLayout(m_axisLegend);
++  root->setContentsMargins(10, 8, 10, 8);
++  root->setSpacing(6);
++
++  QLabel* title = new QLabel(QString::fromUtf8("\xE5\x9D\x90\xE6\xA0\x87\xE8\xBD\xB4\xE5\x9B\xBE\xE4\xBE\x8B"), m_axisLegend);
++  title->setObjectName(QString::fromUtf8("axisLegendTitle"));
++  root->addWidget(title);
++
++  QGridLayout* grid = new QGridLayout();
++  grid->setContentsMargins(0, 0, 0, 0);
++  grid->setHorizontalSpacing(8);
++  grid->setVerticalSpacing(5);
++  grid->setColumnStretch(2, 1);
++
++  const char* names[3] = {
++      "X \xE8\xBD\xB4",
++      "Y \xE8\xBD\xB4",
++      "Z \xE8\xBD\xB4",
++  };
++  const char* descs[3] = {
++      "World / Local \xC2\xB7 \xE7\xBA\xA2\xE8\x89\xB2 \xC2\xB7 \xE5\xB7\xA6\xE5\x8F\xB3\xE6\x96\xB9\xE5\x90\x91",
++      "World / Local \xC2\xB7 \xE7\xBB\xBF\xE8\x89\xB2 \xC2\xB7 \xE4\xB8\x8A\xE4\xB8\x8B\xE6\x96\xB9\xE5\x90\x91",
++      "World / Local \xC2\xB7 \xE8\x93\x9D\xE8\x89\xB2 \xC2\xB7 \xE5\x89\x8D\xE5\x90\x8E\xE6\x96\xB9\xE5\x90\x91",
++  };
++  const char* swatches[3] = { "#ff4444", "#44ff44", "#4444ff" };
++
++  for (int i = 0; i < 3; ++i) {
++    QLabel* swatch = new QLabel(m_axisLegend);
++    swatch->setFixedSize(10, 10);
++    swatch->setStyleSheet(QString::fromUtf8(
++        "background-color: %1; border-radius: 5px; border: 1px solid rgba(255,255,255,20);")
++                              .arg(QString::fromUtf8(swatches[i])));
++    QLabel* name = new QLabel(QString::fromUtf8(names[i]), m_axisLegend);
++    name->setObjectName(QString::fromUtf8("axisLegendName"));
++    QLabel* desc = new QLabel(QString::fromUtf8(descs[i]), m_axisLegend);
++    desc->setObjectName(QString::fromUtf8("axisLegendDesc"));
++    grid->addWidget(swatch, i, 0, Qt::AlignVCenter);
++    grid->addWidget(name, i, 1, Qt::AlignVCenter);
++    grid->addWidget(desc, i, 2, Qt::AlignVCenter);
++  }
++  root->addLayout(grid);
++
++  m_axisLegend->adjustSize();
++  m_axisLegend->move(12, 10);
++  m_axisLegend->raise();
++  m_axisLegend->show();
++}
++
+ HWND Dx11ViewportWidget::hwnd() const {
+   return reinterpret_cast<HWND>(winId());
+ }
+diff --git a/src/ui/Dx11ViewportWidget.h b/src/ui/Dx11ViewportWidget.h
+index 316cd02..9f992a5 100644
+--- a/src/ui/Dx11ViewportWidget.h
++++ b/src/ui/Dx11ViewportWidget.h
+@@ -7,6 +7,9 @@
+ #include <QWidget>
+ #include <memory>
+ 
++class QFrame;
++class QTimer;
++
+ class Dx11ViewportWidget : public QWidget {
+   Q_OBJECT
+ public:
+@@ -23,6 +26,7 @@ protected:
+   void resizeEvent(QResizeEvent* e);
+   void paintEvent(QPaintEvent* e);
+   void mousePressEvent(QMouseEvent* e);
++  void mouseReleaseEvent(QMouseEvent* e);
+   void mouseMoveEvent(QMouseEvent* e);
+   void wheelEvent(QWheelEvent* e);
+   QPaintEngine* paintEngine() const;
+@@ -30,9 +34,14 @@ private:
+   void startRenderer();
+   void stopRenderer();
+   void commitTeaching();
++  void flushTeachingEdited();
++  void buildAxisLegend();
+   HWND hwnd() const;
+   std::unique_ptr<RenderThread> m_thread;
+   TeachingState m_teaching;
+   LabState m_lab;
+   QPoint m_lastMouse;
++  QTimer* m_orbitEditTimer;
++  QFrame* m_axisLegend;
++  bool m_orbiting;
+ };
+diff --git a/src/ui/MatrixBoardPanel.cpp b/src/ui/MatrixBoardPanel.cpp
+index a0f700b..db18bb1 100644
+--- a/src/ui/MatrixBoardPanel.cpp
++++ b/src/ui/MatrixBoardPanel.cpp
+@@ -1,5 +1,6 @@
+ #include "ui/MatrixBoardPanel.h"
+ #include <QFont>
++#include <QFontMetrics>
+ #include <QGroupBox>
+ #include <QPlainTextEdit>
+ #include <QVBoxLayout>
+@@ -14,6 +15,8 @@ static QPlainTextEdit* makeMatrixEdit(QWidget* parent) {
+   edit->setFont(font);
+   edit->setLineWrapMode(QPlainTextEdit::NoWrap);
+   edit->setTabChangesFocus(true);
++  const QFontMetrics fm(edit->font());
++  edit->setMinimumHeight(fm.lineSpacing() * 4 + 28);
+   return edit;
+ }
+ 
+@@ -31,9 +34,13 @@ MatrixBoardPanel::MatrixBoardPanel(QWidget* parent)
+ 
+   QVBoxLayout* root = new QVBoxLayout(this);
+   QGroupBox* gw = new QGroupBox(QString::fromUtf8("M_W"), this);
++  gw->setObjectName(QString::fromUtf8("sectionMatrixW"));
+   QGroupBox* gv = new QGroupBox(QString::fromUtf8("M_V"), this);
++  gv->setObjectName(QString::fromUtf8("sectionMatrixV"));
+   QGroupBox* gp = new QGroupBox(QString::fromUtf8("M_P"), this);
++  gp->setObjectName(QString::fromUtf8("sectionMatrixP"));
+   QGroupBox* gm = new QGroupBox(QString::fromUtf8("MVP"), this);
++  gm->setObjectName(QString::fromUtf8("sectionMVP"));
+   QVBoxLayout* lw = new QVBoxLayout(gw);
+   QVBoxLayout* lv = new QVBoxLayout(gv);
+   QVBoxLayout* lp = new QVBoxLayout(gp);
+diff --git a/src/ui/TransformPanel.cpp b/src/ui/TransformPanel.cpp
+index 06a36ce..67ffd93 100644
+--- a/src/ui/TransformPanel.cpp
++++ b/src/ui/TransformPanel.cpp
+@@ -30,6 +30,7 @@ TransformPanel::TransformPanel(QWidget* parent)
+   QVBoxLayout* root = new QVBoxLayout(this);
+ 
+   QGroupBox* world = new QGroupBox(QString::fromUtf8("World"), this);
++  world->setObjectName(QString::fromUtf8("sectionWorld"));
+   QFormLayout* worldForm = new QFormLayout(world);
+   m_posX = makeSpin(-50.0, 50.0, 0.1, 1);
+   m_posY = makeSpin(-50.0, 50.0, 0.1, 1);
+@@ -52,6 +53,7 @@ TransformPanel::TransformPanel(QWidget* parent)
+   root->addWidget(world);
+ 
+   QGroupBox* view = new QGroupBox(QString::fromUtf8("View"), this);
++  view->setObjectName(QString::fromUtf8("sectionView"));
+   QFormLayout* viewForm = new QFormLayout(view);
+   m_camDistance = makeSpin(0.5, 50.0, 0.1, 1);
+   m_camPitch = makeSpin(-89.0, 89.0, 1.0, 0);
+@@ -72,6 +74,7 @@ TransformPanel::TransformPanel(QWidget* parent)
+   root->addWidget(view);
+ 
+   QGroupBox* proj = new QGroupBox(QString::fromUtf8("Projection"), this);
++  proj->setObjectName(QString::fromUtf8("sectionProjection"));
+   QFormLayout* projForm = new QFormLayout(proj);
+   m_proj = new QComboBox(proj);
+   m_proj->addItem(QString::fromUtf8("Perspective"));
+diff --git a/src/ui/TutorialPanel.cpp b/src/ui/TutorialPanel.cpp
+index 28bb8a5..9cff45d 100644
+--- a/src/ui/TutorialPanel.cpp
++++ b/src/ui/TutorialPanel.cpp
+@@ -19,6 +19,7 @@ TutorialPanel::TutorialPanel(QWidget* parent)
+   m_prev = new QPushButton(QString::fromUtf8("\xE4\xB8\x8A\xE4\xB8\x80\xE6\xAD\xA5"), this);
+   m_next = new QPushButton(QString::fromUtf8("\xE4\xB8\x8B\xE4\xB8\x80\xE6\xAD\xA5"), this);
+   QPushButton* demo = new QPushButton(QString::fromUtf8("\xE6\xBC\x94\xE7\xA4\xBA"), this);
++  demo->setObjectName(QString::fromUtf8("btnDemo"));
+   m_step = new QLabel(this);
+   row->addWidget(m_prev);
+   row->addWidget(m_next);
+diff --git a/tests/test_transforms.cpp b/tests/test_transforms.cpp
+index cd34eb2..2e7d168 100644
+--- a/tests/test_transforms.cpp
++++ b/tests/test_transforms.cpp
+@@ -106,7 +106,7 @@ void runTransformTests() {
+   TEST_CHECK(near4(corner.world.x, 0.5f) && near4(corner.world.y, 0.5f) &&
+              near4(corner.world.z, 0.5f));
+ 
+-  const int slices = 16;
++  const int slices = 32;
+   const int stacks = 24;
+   std::vector<MeshVertex> sphereV;
+   std::vector<unsigned short> sphereI;
+@@ -115,9 +115,24 @@ void runTransformTests() {
+   TEST_CHECK(sphereV.size() > 0);
+   TEST_CHECK(sphereI.size() > 0);
+ 
++  std::vector<MeshEdge> cubeEdges;
++  buildSilhouetteEdges(cubeV, cubeI, &cubeEdges, 1.f);
++  TEST_CHECK(cubeEdges.size() == 12);
++
++  std::vector<MeshEdge> sphereEdges;
++  buildSilhouetteEdges(sphereV, sphereI, &sphereEdges, 1.f);
++  TEST_CHECK(sphereEdges.size() > 12);
++  TEST_CHECK(sphereEdges.size() < sphereI.size() / 2);
++
+   std::vector<MeshVertex> cylV;
+   std::vector<unsigned short> cylI;
+   buildCylinder(&cylV, &cylI, 24);
+   TEST_CHECK(cylV.size() > 0);
+   TEST_CHECK(cylI.size() > 0);
++
++  std::vector<MeshVertex> coneV;
++  std::vector<unsigned short> coneI;
++  buildCone(&coneV, &coneI, 0.15f, 0.36f, 8);
++  TEST_CHECK(coneV.size() > 0);
++  TEST_CHECK(coneI.size() > 0);
+ }

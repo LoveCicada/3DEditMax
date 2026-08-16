@@ -1,0 +1,557 @@
+﻿# Review package: 29ca7b6cd1e06fb6441cdb295e0f94e825cff393..234c607596060f6f5345673073788b8a6c5a6dd2
+
+## Commits
+234c607 Apply DX11-Study-inspired Fusion QSS theme.
+
+## Files changed
+ CMakeLists.txt              |   5 +  src/app/app.qss             | 415 ++++++++++++++++++++++++++++++++++++++++++++  src/main.cpp                |  14 ++  src/ui/MatrixBoardPanel.cpp |   4 +  src/ui/TransformPanel.cpp   |   3 +  src/ui/TutorialPanel.cpp    |   1 +  6 files changed, 442 insertions(+)
+
+## Diff
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 2a472a0..284d5d2 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -67,10 +67,15 @@ endif()
+ add_custom_command(TARGET 3DEditMax POST_BUILD
+   COMMAND ${CMAKE_COMMAND} -E copy_directory
+     "${CMAKE_SOURCE_DIR}/assets/shaders"
+     "$<TARGET_FILE_DIR:3DEditMax>/shaders")
+ 
++add_custom_command(TARGET 3DEditMax POST_BUILD
++  COMMAND ${CMAKE_COMMAND} -E copy_if_different
++    "${CMAKE_SOURCE_DIR}/src/app/app.qss"
++    "$<TARGET_FILE_DIR:3DEditMax>/app.qss")
++
+ enable_testing()
+ add_executable(3deditmax_tests
+   tests/test_main.cpp
+   tests/test_queues.cpp
+   tests/test_transforms.cpp
+diff --git a/src/app/app.qss b/src/app/app.qss
+new file mode 100644
+index 0000000..b7d22f0
+--- /dev/null
++++ b/src/app/app.qss
+@@ -0,0 +1,415 @@
++/* DX11-Study palette 鈥?Fusion dark theme */
++
++QWidget {
++  background-color: #0f0f1a;
++  color: #ccd6f6;
++  font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
++  font-size: 13px;
++}
++
++QMainWindow {
++  background-color: #0f0f1a;
++}
++
++QMenuBar {
++  background-color: #1a1a2e;
++  border-bottom: 1px solid #2a2a4a;
++  padding: 2px 0;
++}
++
++QMenuBar::item {
++  background: transparent;
++  padding: 4px 10px;
++  border-radius: 4px;
++}
++
++QMenuBar::item:selected {
++  background-color: #16213e;
++  color: #61dafb;
++}
++
++QMenu {
++  background-color: #1a1a2e;
++  border: 1px solid #2a2a4a;
++  padding: 4px 0;
++}
++
++QMenu::item {
++  padding: 5px 24px 5px 12px;
++}
++
++QMenu::item:selected {
++  background-color: #16213e;
++  color: #61dafb;
++}
++
++QToolBar {
++  background-color: #1a1a2e;
++  border-bottom: 1px solid #2a2a4a;
++  spacing: 6px;
++  padding: 4px 8px;
++}
++
++QToolBar QToolButton {
++  background-color: #16213e;
++  color: #ccd6f6;
++  border: 1px solid #2a2a4a;
++  border-radius: 5px;
++  padding: 4px 10px;
++  min-height: 22px;
++}
++
++QToolBar QToolButton:hover {
++  background-color: #61dafb;
++  color: #0f0f1a;
++  border-color: #61dafb;
++}
++
++QToolBar QToolButton:pressed {
++  background-color: #4ecdc4;
++  color: #0f0f1a;
++}
++
++QDockWidget {
++  titlebar-close-icon: url(none);
++  titlebar-normal-icon: url(none);
++  color: #ccd6f6;
++}
++
++QDockWidget::title {
++  background-color: #1a1a2e;
++  border: 1px solid #2a2a4a;
++  border-radius: 5px;
++  padding: 6px 8px;
++  text-align: left;
++}
++
++QDockWidget::close-button,
++QDockWidget::float-button {
++  background: #16213e;
++  border: 1px solid #2a2a4a;
++  border-radius: 4px;
++  padding: 2px;
++}
++
++QDockWidget::close-button:hover,
++QDockWidget::float-button:hover {
++  background: #61dafb;
++}
++
++QGroupBox {
++  background-color: #16213e;
++  border: 1px solid #2a2a4a;
++  border-radius: 5px;
++  margin-top: 12px;
++  padding: 8px 8px 8px 8px;
++  font-weight: 600;
++}
++
++QGroupBox::title {
++  subcontrol-origin: margin;
++  subcontrol-position: top left;
++  padding: 0 6px;
++  color: #ccd6f6;
++}
++
++QGroupBox#sectionWorld {
++  border-left: 3px solid #ff6b6b;
++}
++
++QGroupBox#sectionWorld::title {
++  color: #ff6b6b;
++}
++
++QGroupBox#sectionView {
++  border-left: 3px solid #4ecdc4;
++}
++
++QGroupBox#sectionView::title {
++  color: #4ecdc4;
++}
++
++QGroupBox#sectionProjection {
++  border-left: 3px solid #f7b731;
++}
++
++QGroupBox#sectionProjection::title {
++  color: #f7b731;
++}
++
++QGroupBox#sectionMatrixW {
++  border-left: 3px solid #ff6b6b;
++}
++
++QGroupBox#sectionMatrixW::title {
++  color: #ff6b6b;
++}
++
++QGroupBox#sectionMatrixV {
++  border-left: 3px solid #4ecdc4;
++}
++
++QGroupBox#sectionMatrixV::title {
++  color: #4ecdc4;
++}
++
++QGroupBox#sectionMatrixP {
++  border-left: 3px solid #f7b731;
++}
++
++QGroupBox#sectionMatrixP::title {
++  color: #f7b731;
++}
++
++QGroupBox#sectionMVP {
++  border-left: 3px solid #a55eea;
++}
++
++QGroupBox#sectionMVP::title {
++  color: #a55eea;
++}
++
++QLabel {
++  background: transparent;
++  color: #ccd6f6;
++}
++
++QFormLayout QLabel,
++QHBoxLayout QLabel {
++  color: #8892b0;
++}
++
++QPushButton {
++  background-color: #16213e;
++  color: #ccd6f6;
++  border: 1px solid #2a2a4a;
++  border-radius: 5px;
++  padding: 4px 12px;
++  min-height: 22px;
++}
++
++QPushButton:hover {
++  background-color: #61dafb;
++  color: #0f0f1a;
++  border-color: #61dafb;
++}
++
++QPushButton:pressed {
++  background-color: #4ecdc4;
++  color: #0f0f1a;
++  border-color: #4ecdc4;
++}
++
++QPushButton:disabled {
++  background-color: #1a1a2e;
++  color: #8892b0;
++  border-color: #2a2a4a;
++}
++
++QPushButton#btnDemo {
++  background-color: #16213e;
++  color: #f7b731;
++  border: 1px solid #f7b731;
++}
++
++QPushButton#btnDemo:hover {
++  background-color: #61dafb;
++  color: #0f0f1a;
++  border-color: #61dafb;
++}
++
++QPushButton#btnDemo:pressed {
++  background-color: #61dafb;
++  color: #0f0f1a;
++  border-color: #61dafb;
++}
++
++QDoubleSpinBox,
++QSpinBox,
++QComboBox,
++QLineEdit {
++  background-color: #0d0d1a;
++  color: #ccd6f6;
++  border: 1px solid #2a2a4a;
++  border-radius: 5px;
++  padding: 3px 6px;
++  min-height: 22px;
++  selection-background-color: #61dafb;
++  selection-color: #0f0f1a;
++}
++
++QDoubleSpinBox:focus,
++QSpinBox:focus,
++QComboBox:focus,
++QLineEdit:focus {
++  border-color: #61dafb;
++}
++
++QDoubleSpinBox::up-button,
++QDoubleSpinBox::down-button,
++QSpinBox::up-button,
++QSpinBox::down-button {
++  background-color: #16213e;
++  border: none;
++  border-radius: 3px;
++  width: 16px;
++}
++
++QDoubleSpinBox::up-button:hover,
++QDoubleSpinBox::down-button:hover,
++QSpinBox::up-button:hover,
++QSpinBox::down-button:hover {
++  background-color: #61dafb;
++}
++
++QComboBox::drop-down {
++  border: none;
++  border-left: 1px solid #2a2a4a;
++  border-top-right-radius: 5px;
++  border-bottom-right-radius: 5px;
++  width: 20px;
++  background: #16213e;
++}
++
++QComboBox::down-arrow {
++  image: none;
++  border-left: 4px solid transparent;
++  border-right: 4px solid transparent;
++  border-top: 5px solid #8892b0;
++  margin-right: 6px;
++}
++
++QComboBox QAbstractItemView {
++  background-color: #1a1a2e;
++  color: #ccd6f6;
++  border: 1px solid #2a2a4a;
++  selection-background-color: #16213e;
++  selection-color: #61dafb;
++  outline: none;
++}
++
++QPlainTextEdit,
++QTextEdit {
++  background-color: #0d0d1a;
++  color: #ccd6f6;
++  border: 1px solid #2a2a4a;
++  border-radius: 5px;
++  padding: 6px;
++  font-family: "Consolas", "Courier New", monospace;
++  font-size: 12px;
++}
++
++QPlainTextEdit:focus,
++QTextEdit:focus {
++  border-color: #61dafb;
++}
++
++QScrollBar:vertical {
++  background: transparent;
++  width: 8px;
++  margin: 0;
++}
++
++QScrollBar::handle:vertical {
++  background: #2a2a4a;
++  border-radius: 4px;
++  min-height: 24px;
++}
++
++QScrollBar::handle:vertical:hover {
++  background: #4a4a7a;
++}
++
++QScrollBar::add-line:vertical,
++QScrollBar::sub-line:vertical,
++QScrollBar::add-page:vertical,
++QScrollBar::sub-page:vertical {
++  background: none;
++  height: 0;
++}
++
++QScrollBar:horizontal {
++  background: transparent;
++  height: 8px;
++  margin: 0;
++}
++
++QScrollBar::handle:horizontal {
++  background: #2a2a4a;
++  border-radius: 4px;
++  min-width: 24px;
++}
++
++QScrollBar::handle:horizontal:hover {
++  background: #4a4a7a;
++}
++
++QScrollBar::add-line:horizontal,
++QScrollBar::sub-line:horizontal,
++QScrollBar::add-page:horizontal,
++QScrollBar::sub-page:horizontal {
++  background: none;
++  width: 0;
++}
++
++QStatusBar {
++  background-color: #1a1a2e;
++  color: #8892b0;
++  border-top: 1px solid #2a2a4a;
++}
++
++QSplitter::handle {
++  background-color: #2a2a4a;
++}
++
++QSplitter::handle:hover {
++  background-color: #61dafb;
++}
++
++QCheckBox {
++  spacing: 6px;
++  color: #ccd6f6;
++}
++
++QCheckBox::indicator {
++  width: 14px;
++  height: 14px;
++  border: 1px solid #2a2a4a;
++  border-radius: 4px;
++  background: #0d0d1a;
++}
++
++QCheckBox::indicator:checked {
++  background: #61dafb;
++  border-color: #61dafb;
++}
++
++QTabWidget::pane {
++  border: 1px solid #2a2a4a;
++  border-radius: 5px;
++  background: #1a1a2e;
++}
++
++QTabBar::tab {
++  background: #16213e;
++  color: #8892b0;
++  border: 1px solid #2a2a4a;
++  border-bottom: none;
++  border-top-left-radius: 5px;
++  border-top-right-radius: 5px;
++  padding: 5px 12px;
++}
++
++QTabBar::tab:selected {
++  background: #1a1a2e;
++  color: #61dafb;
++  border-color: #61dafb;
++}
++
++QMessageBox {
++  background-color: #1a1a2e;
++}
++
++QFileDialog {
++  background-color: #1a1a2e;
++}
+diff --git a/src/main.cpp b/src/main.cpp
+index f8de416..feb4f5b 100644
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -1,9 +1,23 @@
+ #include "app/MainWindow.h"
+ #include <QApplication>
++#include <QCoreApplication>
++#include <QFile>
++#include <QStyleFactory>
++
++static void applyAppStyleSheet(QApplication& app) {
++  app.setStyle(QStyleFactory::create(QString::fromUtf8("Fusion")));
++  const QString qssPath =
++      QCoreApplication::applicationDirPath() + QString::fromUtf8("/app.qss");
++  QFile qssFile(qssPath);
++  if (qssFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
++    app.setStyleSheet(QString::fromUtf8(qssFile.readAll()));
++  }
++}
+ 
+ int main(int argc, char** argv) {
+   QApplication app(argc, argv);
++  applyAppStyleSheet(app);
+   MainWindow w;
+   w.show();
+   return app.exec();
+ }
+diff --git a/src/ui/MatrixBoardPanel.cpp b/src/ui/MatrixBoardPanel.cpp
+index 0fc3230..db18bb1 100644
+--- a/src/ui/MatrixBoardPanel.cpp
++++ b/src/ui/MatrixBoardPanel.cpp
+@@ -32,13 +32,17 @@ MatrixBoardPanel::MatrixBoardPanel(QWidget* parent)
+   DirectX::XMStoreFloat4x4(&m_p, DirectX::XMMatrixIdentity());
+   DirectX::XMStoreFloat4x4(&m_wvp, DirectX::XMMatrixIdentity());
+ 
+   QVBoxLayout* root = new QVBoxLayout(this);
+   QGroupBox* gw = new QGroupBox(QString::fromUtf8("M_W"), this);
++  gw->setObjectName(QString::fromUtf8("sectionMatrixW"));
+   QGroupBox* gv = new QGroupBox(QString::fromUtf8("M_V"), this);
++  gv->setObjectName(QString::fromUtf8("sectionMatrixV"));
+   QGroupBox* gp = new QGroupBox(QString::fromUtf8("M_P"), this);
++  gp->setObjectName(QString::fromUtf8("sectionMatrixP"));
+   QGroupBox* gm = new QGroupBox(QString::fromUtf8("MVP"), this);
++  gm->setObjectName(QString::fromUtf8("sectionMVP"));
+   QVBoxLayout* lw = new QVBoxLayout(gw);
+   QVBoxLayout* lv = new QVBoxLayout(gv);
+   QVBoxLayout* lp = new QVBoxLayout(gp);
+   QVBoxLayout* lm = new QVBoxLayout(gm);
+   m_mw = makeMatrixEdit(gw);
+diff --git a/src/ui/TransformPanel.cpp b/src/ui/TransformPanel.cpp
+index 06a36ce..67ffd93 100644
+--- a/src/ui/TransformPanel.cpp
++++ b/src/ui/TransformPanel.cpp
+@@ -28,10 +28,11 @@ TransformPanel::TransformPanel(QWidget* parent)
+     , m_nearZ(0)
+     , m_farZ(0) {
+   QVBoxLayout* root = new QVBoxLayout(this);
+ 
+   QGroupBox* world = new QGroupBox(QString::fromUtf8("World"), this);
++  world->setObjectName(QString::fromUtf8("sectionWorld"));
+   QFormLayout* worldForm = new QFormLayout(world);
+   m_posX = makeSpin(-50.0, 50.0, 0.1, 1);
+   m_posY = makeSpin(-50.0, 50.0, 0.1, 1);
+   m_posZ = makeSpin(-50.0, 50.0, 0.1, 1);
+   m_pitch = makeSpin(-180.0, 180.0, 1.0, 0);
+@@ -50,10 +51,11 @@ TransformPanel::TransformPanel(QWidget* parent)
+   worldForm->addRow(QString::fromUtf8("Scale Y"), m_scaleY);
+   worldForm->addRow(QString::fromUtf8("Scale Z"), m_scaleZ);
+   root->addWidget(world);
+ 
+   QGroupBox* view = new QGroupBox(QString::fromUtf8("View"), this);
++  view->setObjectName(QString::fromUtf8("sectionView"));
+   QFormLayout* viewForm = new QFormLayout(view);
+   m_camDistance = makeSpin(0.5, 50.0, 0.1, 1);
+   m_camPitch = makeSpin(-89.0, 89.0, 1.0, 0);
+   m_camYaw = makeSpin(-180.0, 180.0, 1.0, 0);
+   viewForm->addRow(QString::fromUtf8("Distance"), m_camDistance);
+@@ -70,10 +72,11 @@ TransformPanel::TransformPanel(QWidget* parent)
+   presets->addWidget(iso);
+   viewForm->addRow(presets);
+   root->addWidget(view);
+ 
+   QGroupBox* proj = new QGroupBox(QString::fromUtf8("Projection"), this);
++  proj->setObjectName(QString::fromUtf8("sectionProjection"));
+   QFormLayout* projForm = new QFormLayout(proj);
+   m_proj = new QComboBox(proj);
+   m_proj->addItem(QString::fromUtf8("Perspective"));
+   m_proj->addItem(QString::fromUtf8("Ortho"));
+   m_fov = makeSpin(10.0, 120.0, 1.0, 0);
+diff --git a/src/ui/TutorialPanel.cpp b/src/ui/TutorialPanel.cpp
+index 28bb8a5..9cff45d 100644
+--- a/src/ui/TutorialPanel.cpp
++++ b/src/ui/TutorialPanel.cpp
+@@ -17,10 +17,11 @@ TutorialPanel::TutorialPanel(QWidget* parent)
+ 
+   QHBoxLayout* row = new QHBoxLayout();
+   m_prev = new QPushButton(QString::fromUtf8("\xE4\xB8\x8A\xE4\xB8\x80\xE6\xAD\xA5"), this);
+   m_next = new QPushButton(QString::fromUtf8("\xE4\xB8\x8B\xE4\xB8\x80\xE6\xAD\xA5"), this);
+   QPushButton* demo = new QPushButton(QString::fromUtf8("\xE6\xBC\x94\xE7\xA4\xBA"), this);
++  demo->setObjectName(QString::fromUtf8("btnDemo"));
+   m_step = new QLabel(this);
+   row->addWidget(m_prev);
+   row->addWidget(m_next);
+   row->addWidget(demo);
+   row->addStretch(1);

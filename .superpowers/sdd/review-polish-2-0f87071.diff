@@ -1,0 +1,258 @@
+﻿# Review package: 42a17cca29006af38534c1ff1dc3dd4005c3b66a..0f870710fb248cc6f9deb0aeae4eaa7355f55cd8
+
+## Commits
+0f87071 Add MSAA swapchain and depth-biased debug lines.
+
+## Files changed
+ src/render/D3D11Renderer.cpp | 32 ++++++++++++++++++++++++++++----  src/render/D3D11Renderer.h   |  3 +++  src/render/DebugDraw.cpp     | 25 +++++++++++++++++++++++++  src/render/DebugDraw.h       |  6 +++++-  4 files changed, 61 insertions(+), 5 deletions(-)
+
+## Diff
+
+diff --git a/src/render/D3D11Renderer.cpp b/src/render/D3D11Renderer.cpp
+index c48b746..da58468 100644
+--- a/src/render/D3D11Renderer.cpp
++++ b/src/render/D3D11Renderer.cpp
+@@ -64,17 +64,19 @@ D3D11Renderer::D3D11Renderer(const std::wstring& shaderDir)
+     , m_hwnd(0)
+     , m_w(0)
+     , m_h(0)
+     , m_wantDebug(false)
+     , m_initialized(false)
+     , m_dead(false)
+     , m_fb(0)
+     , m_lastLoggedShadeX(-1.f)
+-    , m_loggedCb(false) {
++    , m_loggedCb(false)
++    , m_sampleCount(1)
++    , m_sampleQuality(0) {
+   std::memset(m_shaderVariant, 0, sizeof(m_shaderVariant));
+   std::memset(m_triedVariant, 0, sizeof(m_triedVariant));
+ }
+ 
+ bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, FeedbackQueue* fb) {
+   shutdown();
+   m_dead = false;
+   m_fb = fb;
+@@ -148,28 +150,29 @@ bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, Feedback
+     }
+   }
+   if (FAILED(hr) || !m_device || !m_context) {
+     pushFb(fb, FbError, "D3D11CreateDevice failed");
+     shutdown();
+     return false;
+   }
+   attachInfoQueue();
++  selectMultisampleLevel();
+ 
+   DXGI_SWAP_CHAIN_DESC sd = {};
+   sd.BufferCount = 2;
+   sd.BufferDesc.Width = static_cast<UINT>(m_w);
+   sd.BufferDesc.Height = static_cast<UINT>(m_h);
+   sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+   sd.BufferDesc.RefreshRate.Numerator = 60;
+   sd.BufferDesc.RefreshRate.Denominator = 1;
+   sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+   sd.OutputWindow = hwnd;
+-  sd.SampleDesc.Count = 1;
+-  sd.SampleDesc.Quality = 0;
++  sd.SampleDesc.Count = m_sampleCount;
++  sd.SampleDesc.Quality = m_sampleQuality;
+   sd.Windowed = TRUE;
+   sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+ 
+   hr = m_factory->CreateSwapChain(m_device.Get(), &sd, &m_swap);
+   if (FAILED(hr) || !m_swap) {
+     pushFb(fb, FbError, "CreateSwapChain failed");
+     shutdown();
+     return false;
+@@ -502,16 +505,36 @@ void D3D11Renderer::copyTriedName(const char* name) {
+   if (!name) {
+     return;
+   }
+   for (int i = 0; name[i] && i < 31; ++i) {
+     m_triedVariant[i] = name[i];
+   }
+ }
+ 
++void D3D11Renderer::selectMultisampleLevel() {
++  m_sampleCount = 1;
++  m_sampleQuality = 0;
++  if (!m_device) {
++    return;
++  }
++  static const UINT kCandidates[] = { 4, 2, 1 };
++  for (size_t i = 0; i < sizeof(kCandidates) / sizeof(kCandidates[0]); ++i) {
++    const UINT count = kCandidates[i];
++    UINT levels = 0;
++    m_device->CheckMultisampleQualityLevels(
++        DXGI_FORMAT_R8G8B8A8_UNORM, count, &levels);
++    if (levels > 0) {
++      m_sampleCount = count;
++      m_sampleQuality = 0;
++      return;
++    }
++  }
++}
++
+ void D3D11Renderer::attachInfoQueue() {
+ #ifdef _DEBUG
+   m_infoQueue.Reset();
+   if (!m_device) {
+     return;
+   }
+   m_device.As(&m_infoQueue);
+ #else
+@@ -577,17 +600,18 @@ bool D3D11Renderer::createSizeDependentResources() {
+   }
+ 
+   D3D11_TEXTURE2D_DESC dd = {};
+   dd.Width = static_cast<UINT>(m_w);
+   dd.Height = static_cast<UINT>(m_h);
+   dd.MipLevels = 1;
+   dd.ArraySize = 1;
+   dd.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+-  dd.SampleDesc.Count = 1;
++  dd.SampleDesc.Count = m_sampleCount;
++  dd.SampleDesc.Quality = m_sampleQuality;
+   dd.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+   hr = m_device->CreateTexture2D(&dd, 0, &m_depth);
+   if (FAILED(hr)) {
+     return false;
+   }
+   hr = m_device->CreateDepthStencilView(m_depth.Get(), 0, &m_dsv);
+   return SUCCEEDED(hr);
+ }
+diff --git a/src/render/D3D11Renderer.h b/src/render/D3D11Renderer.h
+index fcc5962..8b219db 100644
+--- a/src/render/D3D11Renderer.h
++++ b/src/render/D3D11Renderer.h
+@@ -26,16 +26,17 @@ private:
+   bool createSizeDependentResources();
+   bool createLabStates(FeedbackQueue* fb);
+   void bindLabStates(const StateSnapshot& snap);
+   void handlePresentResult(HRESULT hr);
+   void copyVariantName(const char* name);
+   void copyTriedName(const char* name);
+   void attachInfoQueue();
+   void pumpInfoQueue();
++  void selectMultisampleLevel();
+   std::wstring m_shaderDir;
+   HWND m_hwnd;
+   int m_w;
+   int m_h;
+   bool m_wantDebug;
+   bool m_initialized;
+   bool m_dead;
+   FeedbackQueue* m_fb;
+@@ -50,15 +51,17 @@ private:
+   Microsoft::WRL::ComPtr<ID3D11RasterizerState> m_raster[2][3];
+   Microsoft::WRL::ComPtr<ID3D11DepthStencilState> m_depthOn;
+   Microsoft::WRL::ComPtr<ID3D11DepthStencilState> m_depthOff;
+   char m_shaderVariant[32];
+   char m_triedVariant[32];
+   Microsoft::WRL::ComPtr<ID3D11InfoQueue> m_infoQueue;
+   float m_lastLoggedShadeX;
+   bool m_loggedCb;
++  UINT m_sampleCount;
++  UINT m_sampleQuality;
+   Microsoft::WRL::ComPtr<ID3D11Buffer> m_cb;
+   MeshGpu m_cube;
+   MeshGpu m_sphere;
+   MeshGpu m_cyl;
+   ShaderSet m_shaders;
+   DebugDraw m_debug;
+ };
+diff --git a/src/render/DebugDraw.cpp b/src/render/DebugDraw.cpp
+index fc86036..92a6b8b 100644
+--- a/src/render/DebugDraw.cpp
++++ b/src/render/DebugDraw.cpp
+@@ -66,24 +66,47 @@ void DebugDraw::create(ID3D11Device* device, const std::wstring& shaderDir) {
+   cbd.ByteWidth = sizeof(LineCBCpu);
+   cbd.Usage = D3D11_USAGE_DYNAMIC;
+   cbd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+   cbd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+   if (FAILED(device->CreateBuffer(&cbd, 0, &m_cb))) {
+     reset();
+     return;
+   }
++
++  D3D11_RASTERIZER_DESC rd = {};
++  rd.FillMode = D3D11_FILL_SOLID;
++  rd.CullMode = D3D11_CULL_NONE;
++  rd.DepthClipEnable = TRUE;
++  rd.DepthBias = 100000;
++  rd.DepthBiasClamp = 0.f;
++  rd.SlopeScaledDepthBias = -1.f;
++  if (FAILED(device->CreateRasterizerState(&rd, &m_raster))) {
++    reset();
++    return;
++  }
++
++  D3D11_DEPTH_STENCIL_DESC dsd = {};
++  dsd.DepthEnable = TRUE;
++  dsd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
++  dsd.DepthFunc = D3D11_COMPARISON_LESS;
++  if (FAILED(device->CreateDepthStencilState(&dsd, &m_depth))) {
++    reset();
++    return;
++  }
+ }
+ 
+ void DebugDraw::reset() {
+   m_vs.Reset();
+   m_ps.Reset();
+   m_layout.Reset();
+   m_vb.Reset();
+   m_cb.Reset();
++  m_raster.Reset();
++  m_depth.Reset();
+   m_vbCapacity = 0;
+ }
+ 
+ bool DebugDraw::compileLine(ID3D11Device* device, const std::wstring& shaderDir) {
+   const std::wstring path = shaderDir + L"/line.hlsl";
+   ComPtr<ID3DBlob> vsBlob;
+   ComPtr<ID3DBlob> psBlob;
+   ComPtr<ID3DBlob> err;
+@@ -237,10 +260,12 @@ void DebugDraw::draw(ID3D11DeviceContext* context,
+   context->VSSetShader(m_vs.Get(), 0, 0);
+   context->PSSetShader(m_ps.Get(), 0, 0);
+   context->IASetInputLayout(m_layout.Get());
+   UINT stride = sizeof(LineVertex);
+   UINT offset = 0;
+   ID3D11Buffer* vb = m_vb.Get();
+   context->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
+   context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
++  context->RSSetState(m_raster.Get());
++  context->OMSetDepthStencilState(m_depth.Get(), 0);
+   context->Draw(count, 0);
+ }
+diff --git a/src/render/DebugDraw.h b/src/render/DebugDraw.h
+index a8052a1..303f9d8 100644
+--- a/src/render/DebugDraw.h
++++ b/src/render/DebugDraw.h
+@@ -9,19 +9,23 @@ class DebugDraw {
+ public:
+   void create(ID3D11Device* device);
+   void create(ID3D11Device* device, const std::wstring& shaderDir);
+   void reset();
+   void draw(ID3D11DeviceContext* context,
+             const StateSnapshot& snap,
+             DirectX::FXMMATRIX view,
+             DirectX::FXMMATRIX proj);
+-  bool valid() const { return m_vs && m_ps && m_layout && m_vb && m_cb; }
++  bool valid() const {
++    return m_vs && m_ps && m_layout && m_vb && m_cb && m_raster && m_depth;
++  }
+ private:
+   bool compileLine(ID3D11Device* device, const std::wstring& shaderDir);
+ 
+   Microsoft::WRL::ComPtr<ID3D11VertexShader> m_vs;
+   Microsoft::WRL::ComPtr<ID3D11PixelShader> m_ps;
+   Microsoft::WRL::ComPtr<ID3D11InputLayout> m_layout;
+   Microsoft::WRL::ComPtr<ID3D11Buffer> m_vb;
+   Microsoft::WRL::ComPtr<ID3D11Buffer> m_cb;
++  Microsoft::WRL::ComPtr<ID3D11RasterizerState> m_raster;
++  Microsoft::WRL::ComPtr<ID3D11DepthStencilState> m_depth;
+   UINT m_vbCapacity = 0;
+ };

@@ -1,0 +1,219 @@
+﻿# Review package: b0070a679d422775f626d48581139de8b8bfbbc7..42a17cca29006af38534c1ff1dc3dd4005c3b66a
+
+## Commits
+42a17cc Fix orbit flicker by skipping no-op resize and throttling panel refresh.
+
+## Files changed
+ src/render/D3D11Renderer.cpp  |  3 +++  src/ui/Dx11ViewportWidget.cpp | 32 +++++++++++++++++++++++++++++++-  src/ui/Dx11ViewportWidget.h   |  6 ++++++  src/ui/MatrixBoardPanel.cpp   |  3 +++  4 files changed, 43 insertions(+), 1 deletion(-)
+
+## Diff
+
+diff --git a/src/render/D3D11Renderer.cpp b/src/render/D3D11Renderer.cpp
+index 578a7f4..c48b746 100644
+--- a/src/render/D3D11Renderer.cpp
++++ b/src/render/D3D11Renderer.cpp
+@@ -272,16 +272,19 @@ void D3D11Renderer::shutdown() {
+ 
+ bool D3D11Renderer::resize(int w, int h) {
+   if (w <= 0 || h <= 0) {
+     return true;
+   }
+   if (!m_swap || !m_context) {
+     return false;
+   }
++  if (w == m_w && h == m_h && m_rtv && m_dsv) {
++    return true;
++  }
+   m_w = w;
+   m_h = h;
+   m_context->OMSetRenderTargets(0, 0, 0);
+   m_rtv.Reset();
+   m_dsv.Reset();
+   m_depth.Reset();
+   const HRESULT hr = m_swap->ResizeBuffers(
+       2,
+diff --git a/src/ui/Dx11ViewportWidget.cpp b/src/ui/Dx11ViewportWidget.cpp
+index 88d4e0c..d5deef1 100644
+--- a/src/ui/Dx11ViewportWidget.cpp
++++ b/src/ui/Dx11ViewportWidget.cpp
+@@ -1,32 +1,39 @@
+ #include "ui/Dx11ViewportWidget.h"
+ #include "core/StateSnapshot.h"
+ #include <QCoreApplication>
+ #include <QHideEvent>
+ #include <QMouseEvent>
+ #include <QPaintEvent>
+ #include <QResizeEvent>
+ #include <QShowEvent>
++#include <QTimer>
+ #include <QWheelEvent>
+ #include <windows.h>
+ 
+ Dx11ViewportWidget::Dx11ViewportWidget(QWidget* parent)
+     : QWidget(parent)
+     , m_teaching(teachingStateDefault())
+     , m_lab(labStateDefault())
+-    , m_lastMouse(0, 0) {
++    , m_lastMouse(0, 0)
++    , m_orbitEditTimer(0)
++    , m_orbiting(false) {
+   setAttribute(Qt::WA_NativeWindow, true);
+   setAttribute(Qt::WA_DontCreateNativeAncestors, true);
+   setAttribute(Qt::WA_OpaquePaintEvent, true);
+   setAttribute(Qt::WA_NoSystemBackground, true);
+   setAutoFillBackground(false);
+   setMinimumSize(320, 180);
+   setMouseTracking(true);
+   setFocusPolicy(Qt::StrongFocus);
++  m_orbitEditTimer = new QTimer(this);
++  m_orbitEditTimer->setSingleShot(true);
++  m_orbitEditTimer->setInterval(50);
++  connect(m_orbitEditTimer, &QTimer::timeout, this, &Dx11ViewportWidget::flushTeachingEdited);
+ }
+ 
+ Dx11ViewportWidget::~Dx11ViewportWidget() {
+   stopRenderer();
+ }
+ 
+ void Dx11ViewportWidget::publishState(const TeachingState& t, const LabState& l) {
+   m_teaching = t;
+@@ -88,21 +95,34 @@ void Dx11ViewportWidget::resizeEvent(QResizeEvent* e) {
+ }
+ 
+ void Dx11ViewportWidget::paintEvent(QPaintEvent*) {
+ }
+ 
+ void Dx11ViewportWidget::mousePressEvent(QMouseEvent* e) {
+   if (e->button() == Qt::LeftButton) {
+     m_lastMouse = e->pos();
++    m_orbiting = true;
++    grabMouse();
+     setFocus(Qt::MouseFocusReason);
+   }
+   QWidget::mousePressEvent(e);
+ }
+ 
++void Dx11ViewportWidget::mouseReleaseEvent(QMouseEvent* e) {
++  if (e->button() == Qt::LeftButton && m_orbiting) {
++    m_orbiting = false;
++    releaseMouse();
++    m_orbitEditTimer->stop();
++    publishState(m_teaching, m_lab);
++    emit teachingEdited(m_teaching);
++  }
++  QWidget::mouseReleaseEvent(e);
++}
++
+ void Dx11ViewportWidget::mouseMoveEvent(QMouseEvent* e) {
+   if (e->buttons() & Qt::LeftButton) {
+     const QPoint p = e->pos();
+     const float dx = static_cast<float>(p.x() - m_lastMouse.x());
+     const float dy = static_cast<float>(p.y() - m_lastMouse.y());
+     m_lastMouse = p;
+     applyOrbitDrag(&m_teaching, dx, dy);
+     commitTeaching();
+@@ -146,14 +166,24 @@ void Dx11ViewportWidget::stopRenderer() {
+     return;
+   }
+   m_thread->requestStopAndJoin();
+   m_thread.reset();
+ }
+ 
+ void Dx11ViewportWidget::commitTeaching() {
+   publishState(m_teaching, m_lab);
++  if (!m_orbiting) {
++    emit teachingEdited(m_teaching);
++    return;
++  }
++  if (!m_orbitEditTimer->isActive()) {
++    m_orbitEditTimer->start();
++  }
++}
++
++void Dx11ViewportWidget::flushTeachingEdited() {
+   emit teachingEdited(m_teaching);
+ }
+ 
+ HWND Dx11ViewportWidget::hwnd() const {
+   return reinterpret_cast<HWND>(winId());
+ }
+diff --git a/src/ui/Dx11ViewportWidget.h b/src/ui/Dx11ViewportWidget.h
+index 316cd02..fd68bcb 100644
+--- a/src/ui/Dx11ViewportWidget.h
++++ b/src/ui/Dx11ViewportWidget.h
+@@ -2,37 +2,43 @@
+ #include "core/LabState.h"
+ #include "core/TeachingState.h"
+ #include "core/MakeUnique.h"
+ #include "render/RenderThread.h"
+ #include <QPoint>
+ #include <QWidget>
+ #include <memory>
+ 
++class QTimer;
++
+ class Dx11ViewportWidget : public QWidget {
+   Q_OBJECT
+ public:
+   explicit Dx11ViewportWidget(QWidget* parent = 0);
+   ~Dx11ViewportWidget();
+   void publishState(const TeachingState& t, const LabState& l);
+   void reloadShaders();
+   FeedbackQueue& feedback();
+ signals:
+   void teachingEdited(const TeachingState& t);
+ protected:
+   void showEvent(QShowEvent* e);
+   void hideEvent(QHideEvent* e);
+   void resizeEvent(QResizeEvent* e);
+   void paintEvent(QPaintEvent* e);
+   void mousePressEvent(QMouseEvent* e);
++  void mouseReleaseEvent(QMouseEvent* e);
+   void mouseMoveEvent(QMouseEvent* e);
+   void wheelEvent(QWheelEvent* e);
+   QPaintEngine* paintEngine() const;
+ private:
+   void startRenderer();
+   void stopRenderer();
+   void commitTeaching();
++  void flushTeachingEdited();
+   HWND hwnd() const;
+   std::unique_ptr<RenderThread> m_thread;
+   TeachingState m_teaching;
+   LabState m_lab;
+   QPoint m_lastMouse;
++  QTimer* m_orbitEditTimer;
++  bool m_orbiting;
+ };
+diff --git a/src/ui/MatrixBoardPanel.cpp b/src/ui/MatrixBoardPanel.cpp
+index a0f700b..0fc3230 100644
+--- a/src/ui/MatrixBoardPanel.cpp
++++ b/src/ui/MatrixBoardPanel.cpp
+@@ -1,24 +1,27 @@
+ #include "ui/MatrixBoardPanel.h"
+ #include <QFont>
++#include <QFontMetrics>
+ #include <QGroupBox>
+ #include <QPlainTextEdit>
+ #include <QVBoxLayout>
+ 
+ static QPlainTextEdit* makeMatrixEdit(QWidget* parent) {
+   QPlainTextEdit* edit = new QPlainTextEdit(parent);
+   edit->setReadOnly(true);
+   QFont font = edit->font();
+   font.setFamily(QString::fromUtf8("Consolas"));
+   font.setStyleHint(QFont::Monospace);
+   font.setFixedPitch(true);
+   edit->setFont(font);
+   edit->setLineWrapMode(QPlainTextEdit::NoWrap);
+   edit->setTabChangesFocus(true);
++  const QFontMetrics fm(edit->font());
++  edit->setMinimumHeight(fm.lineSpacing() * 4 + 28);
+   return edit;
+ }
+ 
+ MatrixBoardPanel::MatrixBoardPanel(QWidget* parent)
+     : QWidget(parent)
+     , m_order(MajorColumn)
+     , m_mw(0)
+     , m_mv(0)
