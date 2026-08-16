@@ -31,6 +31,7 @@ private:
   void copyTriedName(const char* name);
   void attachInfoQueue();
   void pumpInfoQueue();
+  void selectMultisampleLevel();
   std::wstring m_shaderDir;
   HWND m_hwnd;
   int m_w;
@@ -55,6 +56,8 @@ private:
   Microsoft::WRL::ComPtr<ID3D11InfoQueue> m_infoQueue;
   float m_lastLoggedShadeX;
   bool m_loggedCb;
+  UINT m_sampleCount;
+  UINT m_sampleQuality;
   Microsoft::WRL::ComPtr<ID3D11Buffer> m_cb;
   MeshGpu m_cube;
   MeshGpu m_sphere;

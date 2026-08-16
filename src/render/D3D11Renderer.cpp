@@ -69,7 +69,9 @@ D3D11Renderer::D3D11Renderer(const std::wstring& shaderDir)
     , m_dead(false)
     , m_fb(0)
     , m_lastLoggedShadeX(-1.f)
-    , m_loggedCb(false) {
+    , m_loggedCb(false)
+    , m_sampleCount(1)
+    , m_sampleQuality(0) {
   std::memset(m_shaderVariant, 0, sizeof(m_shaderVariant));
   std::memset(m_triedVariant, 0, sizeof(m_triedVariant));
 }
@@ -153,6 +155,7 @@ bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, Feedback
     return false;
   }
   attachInfoQueue();
+  selectMultisampleLevel();
 
   DXGI_SWAP_CHAIN_DESC sd = {};
   sd.BufferCount = 2;
@@ -163,8 +166,8 @@ bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, Feedback
   sd.BufferDesc.RefreshRate.Denominator = 1;
   sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
   sd.OutputWindow = hwnd;
-  sd.SampleDesc.Count = 1;
-  sd.SampleDesc.Quality = 0;
+  sd.SampleDesc.Count = m_sampleCount;
+  sd.SampleDesc.Quality = m_sampleQuality;
   sd.Windowed = TRUE;
   sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
 
@@ -507,6 +510,26 @@ void D3D11Renderer::copyTriedName(const char* name) {
   }
 }
 
+void D3D11Renderer::selectMultisampleLevel() {
+  m_sampleCount = 1;
+  m_sampleQuality = 0;
+  if (!m_device) {
+    return;
+  }
+  static const UINT kCandidates[] = { 4, 2, 1 };
+  for (size_t i = 0; i < sizeof(kCandidates) / sizeof(kCandidates[0]); ++i) {
+    const UINT count = kCandidates[i];
+    UINT levels = 0;
+    m_device->CheckMultisampleQualityLevels(
+        DXGI_FORMAT_R8G8B8A8_UNORM, count, &levels);
+    if (levels > 0) {
+      m_sampleCount = count;
+      m_sampleQuality = 0;
+      return;
+    }
+  }
+}
+
 void D3D11Renderer::attachInfoQueue() {
 #ifdef _DEBUG
   m_infoQueue.Reset();
@@ -582,7 +605,8 @@ bool D3D11Renderer::createSizeDependentResources() {
   dd.MipLevels = 1;
   dd.ArraySize = 1;
   dd.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
-  dd.SampleDesc.Count = 1;
+  dd.SampleDesc.Count = m_sampleCount;
+  dd.SampleDesc.Quality = m_sampleQuality;
   dd.BindFlags = D3D11_BIND_DEPTH_STENCIL;
   hr = m_device->CreateTexture2D(&dd, 0, &m_depth);
   if (FAILED(hr)) {

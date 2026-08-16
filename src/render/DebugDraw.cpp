@@ -71,6 +71,27 @@ void DebugDraw::create(ID3D11Device* device, const std::wstring& shaderDir) {
     reset();
     return;
   }
+
+  D3D11_RASTERIZER_DESC rd = {};
+  rd.FillMode = D3D11_FILL_SOLID;
+  rd.CullMode = D3D11_CULL_NONE;
+  rd.DepthClipEnable = TRUE;
+  rd.DepthBias = 100000;
+  rd.DepthBiasClamp = 0.f;
+  rd.SlopeScaledDepthBias = -1.f;
+  if (FAILED(device->CreateRasterizerState(&rd, &m_raster))) {
+    reset();
+    return;
+  }
+
+  D3D11_DEPTH_STENCIL_DESC dsd = {};
+  dsd.DepthEnable = TRUE;
+  dsd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+  dsd.DepthFunc = D3D11_COMPARISON_LESS;
+  if (FAILED(device->CreateDepthStencilState(&dsd, &m_depth))) {
+    reset();
+    return;
+  }
 }
 
 void DebugDraw::reset() {
@@ -79,6 +100,8 @@ void DebugDraw::reset() {
   m_layout.Reset();
   m_vb.Reset();
   m_cb.Reset();
+  m_raster.Reset();
+  m_depth.Reset();
   m_vbCapacity = 0;
 }
 
@@ -242,5 +265,7 @@ void DebugDraw::draw(ID3D11DeviceContext* context,
   ID3D11Buffer* vb = m_vb.Get();
   context->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
   context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
+  context->RSSetState(m_raster.Get());
+  context->OMSetDepthStencilState(m_depth.Get(), 0);
   context->Draw(count, 0);
 }

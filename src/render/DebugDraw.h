@@ -14,7 +14,9 @@ public:
             const StateSnapshot& snap,
             DirectX::FXMMATRIX view,
             DirectX::FXMMATRIX proj);
-  bool valid() const { return m_vs && m_ps && m_layout && m_vb && m_cb; }
+  bool valid() const {
+    return m_vs && m_ps && m_layout && m_vb && m_cb && m_raster && m_depth;
+  }
 private:
   bool compileLine(ID3D11Device* device, const std::wstring& shaderDir);
 
@@ -23,5 +25,7 @@ private:
   Microsoft::WRL::ComPtr<ID3D11InputLayout> m_layout;
   Microsoft::WRL::ComPtr<ID3D11Buffer> m_vb;
   Microsoft::WRL::ComPtr<ID3D11Buffer> m_cb;
+  Microsoft::WRL::ComPtr<ID3D11RasterizerState> m_raster;
+  Microsoft::WRL::ComPtr<ID3D11DepthStencilState> m_depth;
   UINT m_vbCapacity = 0;
 };
