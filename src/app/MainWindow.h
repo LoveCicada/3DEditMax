@@ -18,6 +18,7 @@ public:
 private slots:
   void onPollFeedback();
   void onTransformsChanged();
+  void onTeachingEdited(const TeachingState& t);
   void onToggleMajor();
   void onReset();
 private:

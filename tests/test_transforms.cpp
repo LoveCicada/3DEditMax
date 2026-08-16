@@ -53,4 +53,27 @@ void runTransformTests() {
   formatMatrix4(stored, MajorRow, lines);
   TEST_CHECK(std::strcmp(lines[0], "1.000 0.000 0.000 0.000") == 0);
   TEST_CHECK(std::strcmp(lines[3], "2.000 0.000 0.000 1.000") == 0);
+
+  /* viewport orbit / dolly (Task 10) */
+  TeachingState cam = teachingStateDefault();
+  applyOrbitDrag(&cam, 10.f, 5.f);
+  TEST_CHECK(near4(cam.camYawDeg, 48.f));
+  TEST_CHECK(near4(cam.camPitchDeg, 21.5f));
+  cam.camPitchDeg = 88.f;
+  applyOrbitDrag(&cam, 0.f, 20.f);
+  TEST_CHECK(near4(cam.camPitchDeg, 89.f));
+  cam.camPitchDeg = -88.f;
+  applyOrbitDrag(&cam, 0.f, -20.f);
+  TEST_CHECK(near4(cam.camPitchDeg, -89.f));
+  cam.camDistance = 5.f;
+  applyDollyWheel(&cam, 120);
+  TEST_CHECK(near4(cam.camDistance, 4.5f));
+  applyDollyWheel(&cam, -120);
+  TEST_CHECK(near4(cam.camDistance, 4.95f));
+  cam.camDistance = 0.5f;
+  applyDollyWheel(&cam, 1);
+  TEST_CHECK(near4(cam.camDistance, 0.5f));
+  cam.camDistance = 50.f;
+  applyDollyWheel(&cam, -1);
+  TEST_CHECK(near4(cam.camDistance, 50.f));
 }

@@ -3,6 +3,7 @@
 #include "core/TeachingState.h"
 #include "core/MakeUnique.h"
 #include "render/RenderThread.h"
+#include <QPoint>
 #include <QWidget>
 #include <memory>
 
@@ -13,17 +14,24 @@ public:
   ~Dx11ViewportWidget();
   void publishState(const TeachingState& t, const LabState& l);
   FeedbackQueue& feedback();
+signals:
+  void teachingEdited(const TeachingState& t);
 protected:
   void showEvent(QShowEvent* e);
   void hideEvent(QHideEvent* e);
   void resizeEvent(QResizeEvent* e);
   void paintEvent(QPaintEvent* e);
+  void mousePressEvent(QMouseEvent* e);
+  void mouseMoveEvent(QMouseEvent* e);
+  void wheelEvent(QWheelEvent* e);
   QPaintEngine* paintEngine() const;
 private:
   void startRenderer();
   void stopRenderer();
+  void commitTeaching();
   HWND hwnd() const;
   std::unique_ptr<RenderThread> m_thread;
   TeachingState m_teaching;
   LabState m_lab;
+  QPoint m_lastMouse;
 };

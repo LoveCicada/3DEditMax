@@ -60,6 +60,7 @@ MainWindow::MainWindow(QWidget* parent)
   viewMenu->addAction(dockDebug->toggleViewAction());
 
   connect(m_transforms, &TransformPanel::changed, this, &MainWindow::onTransformsChanged);
+  connect(m_viewport, &Dx11ViewportWidget::teachingEdited, this, &MainWindow::onTeachingEdited);
   connect(m_majorAction, &QAction::triggered, this, &MainWindow::onToggleMajor);
   connect(resetAction, &QAction::triggered, this, &MainWindow::onReset);
 
@@ -80,6 +81,12 @@ void MainWindow::onPollFeedback() {
 void MainWindow::onTransformsChanged() {
   m_teaching = m_transforms->state();
   m_viewport->publishState(m_teaching, m_lab);
+  refreshBoard();
+}
+
+void MainWindow::onTeachingEdited(const TeachingState& t) {
+  m_teaching = t;
+  m_transforms->setState(m_teaching);
   refreshBoard();
 }
 

@@ -62,6 +62,33 @@ inline TransformTRS transformIdentity() {
   return t;
 }
 
+inline void applyOrbitDrag(TeachingState* t, float dx, float dy) {
+  t->camYawDeg += dx * 0.3f;
+  t->camPitchDeg += dy * 0.3f;
+  if (t->camPitchDeg > 89.f) {
+    t->camPitchDeg = 89.f;
+  }
+  if (t->camPitchDeg < -89.f) {
+    t->camPitchDeg = -89.f;
+  }
+  while (t->camYawDeg > 180.f) {
+    t->camYawDeg -= 360.f;
+  }
+  while (t->camYawDeg < -180.f) {
+    t->camYawDeg += 360.f;
+  }
+}
+
+inline void applyDollyWheel(TeachingState* t, int delta) {
+  t->camDistance *= (delta > 0 ? 0.9f : 1.1f);
+  if (t->camDistance < 0.5f) {
+    t->camDistance = 0.5f;
+  }
+  if (t->camDistance > 50.f) {
+    t->camDistance = 50.f;
+  }
+}
+
 inline TeachingState teachingStateDefault() {
   TeachingState s;
   for (int i = 0; i < 3; ++i) {
