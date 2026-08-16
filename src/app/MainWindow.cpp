@@ -3,6 +3,7 @@
 #include "ui/DebugLogPanel.h"
 #include "ui/Dx11ViewportWidget.h"
 #include "ui/MatrixBoardPanel.h"
+#include "ui/ObjectPanel.h"
 #include "ui/TransformPanel.h"
 #include <QAction>
 #include <QDockWidget>
@@ -16,6 +17,7 @@ MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
     , m_viewport(0)
     , m_transforms(0)
+    , m_objects(0)
     , m_board(0)
     , m_log(0)
     , m_poll(0)
@@ -28,6 +30,7 @@ MainWindow::MainWindow(QWidget* parent)
 
   m_viewport = new Dx11ViewportWidget(this);
   m_transforms = new TransformPanel(this);
+  m_objects = new ObjectPanel(this);
   m_board = new MatrixBoardPanel(this);
   m_log = new DebugLogPanel(this);
   setCentralWidget(m_viewport);
@@ -36,6 +39,12 @@ MainWindow::MainWindow(QWidget* parent)
   dockTransforms->setObjectName(QString::fromUtf8("dockTransforms"));
   dockTransforms->setWidget(m_transforms);
   addDockWidget(Qt::LeftDockWidgetArea, dockTransforms);
+
+  QDockWidget* dockObject = new QDockWidget(QString::fromUtf8("\xE7\x89\xA9\xE4\xBD\x93"), this);
+  dockObject->setObjectName(QString::fromUtf8("dockObject"));
+  dockObject->setWidget(m_objects);
+  addDockWidget(Qt::LeftDockWidgetArea, dockObject);
+  splitDockWidget(dockTransforms, dockObject, Qt::Vertical);
 
   QDockWidget* dockMatrix = new QDockWidget(QString::fromUtf8("\xE7\x9F\xA9\xE9\x98\xB5\xE7\x9C\x8B\xE6\x9D\xBF"), this);
   dockMatrix->setObjectName(QString::fromUtf8("dockMatrix"));
@@ -56,15 +65,18 @@ MainWindow::MainWindow(QWidget* parent)
 
   QMenu* viewMenu = menuBar()->addMenu(QString::fromUtf8("\xE8\xA7\x86\xE5\x9B\xBE"));
   viewMenu->addAction(dockTransforms->toggleViewAction());
+  viewMenu->addAction(dockObject->toggleViewAction());
   viewMenu->addAction(dockMatrix->toggleViewAction());
   viewMenu->addAction(dockDebug->toggleViewAction());
 
   connect(m_transforms, &TransformPanel::changed, this, &MainWindow::onTransformsChanged);
+  connect(m_objects, &ObjectPanel::changed, this, &MainWindow::onObjectsChanged);
   connect(m_viewport, &Dx11ViewportWidget::teachingEdited, this, &MainWindow::onTeachingEdited);
   connect(m_majorAction, &QAction::triggered, this, &MainWindow::onToggleMajor);
   connect(resetAction, &QAction::triggered, this, &MainWindow::onReset);
 
   m_transforms->setState(m_teaching);
+  m_objects->setState(m_teaching);
   m_viewport->publishState(m_teaching, m_lab);
   refreshBoard();
 
@@ -80,6 +92,14 @@ void MainWindow::onPollFeedback() {
 
 void MainWindow::onTransformsChanged() {
   m_teaching = m_transforms->state();
+  m_objects->setState(m_teaching);
+  m_viewport->publishState(m_teaching, m_lab);
+  refreshBoard();
+}
+
+void MainWindow::onObjectsChanged() {
+  m_teaching = m_objects->state();
+  m_transforms->setState(m_teaching);
   m_viewport->publishState(m_teaching, m_lab);
   refreshBoard();
 }
@@ -87,6 +107,7 @@ void MainWindow::onTransformsChanged() {
 void MainWindow::onTeachingEdited(const TeachingState& t) {
   m_teaching = t;
   m_transforms->setState(m_teaching);
+  m_objects->setState(m_teaching);
   refreshBoard();
 }
 
@@ -99,6 +120,7 @@ void MainWindow::onToggleMajor() {
 void MainWindow::onReset() {
   m_teaching = teachingStateDefault();
   m_transforms->setState(m_teaching);
+  m_objects->setState(m_teaching);
   m_viewport->publishState(m_teaching, m_lab);
   refreshBoard();
 }

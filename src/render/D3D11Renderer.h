@@ -39,8 +39,11 @@ private:
   Microsoft::WRL::ComPtr<ID3D11Texture2D> m_depth;
   Microsoft::WRL::ComPtr<ID3D11DepthStencilView> m_dsv;
   Microsoft::WRL::ComPtr<ID3D11RasterizerState> m_raster;
+  Microsoft::WRL::ComPtr<ID3D11RasterizerState> m_rasterWire;
   Microsoft::WRL::ComPtr<ID3D11DepthStencilState> m_depthState;
   Microsoft::WRL::ComPtr<ID3D11Buffer> m_cb;
   MeshGpu m_cube;
+  MeshGpu m_sphere;
+  MeshGpu m_cyl;
   ShaderSet m_shaders;
 };

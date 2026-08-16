@@ -32,6 +32,8 @@ add_executable(3DEditMax
   src/ui/DebugLogPanel.cpp
   src/ui/TransformPanel.h
   src/ui/TransformPanel.cpp
+  src/ui/ObjectPanel.h
+  src/ui/ObjectPanel.cpp
   src/ui/MatrixBoardPanel.h
   src/ui/MatrixBoardPanel.cpp
   src/core/SnapshotBuffer.cpp
@@ -43,6 +45,7 @@ add_executable(3DEditMax
   src/render/MeshGpu.cpp
   src/render/ShaderSet.cpp
   src/teach/Transforms.cpp
+  src/teach/MeshBuild.cpp
 )
 
 target_include_directories(3DEditMax PRIVATE "${CMAKE_SOURCE_DIR}/src")
@@ -67,6 +70,7 @@ add_executable(3deditmax_tests
   src/core/SnapshotBuffer.cpp
   src/core/MatrixFormat.cpp
   src/teach/Transforms.cpp
+  src/teach/MeshBuild.cpp
 )
 target_include_directories(3deditmax_tests PRIVATE
   "${CMAKE_SOURCE_DIR}/src"

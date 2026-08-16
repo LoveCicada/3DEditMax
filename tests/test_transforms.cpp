@@ -1,9 +1,11 @@
 #include "test_harness.h"
 #include "core/MatrixFormat.h"
+#include "teach/MeshBuild.h"
 #include "teach/Transforms.h"
 #include <DirectXMath.h>
 #include <cmath>
 #include <cstring>
+#include <vector>
 
 static bool near4(float a, float b) {
   return fabsf(a - b) < 1e-4f;
@@ -76,4 +78,27 @@ void runTransformTests() {
   cam.camDistance = 50.f;
   applyDollyWheel(&cam, -1);
   TEST_CHECK(near4(cam.camDistance, 50.f));
+
+  /* Task 11: CPU mesh builders */
+  TEST_CHECK(cubeVertexCount() > 0);
+  std::vector<MeshVertex> cubeV;
+  std::vector<unsigned short> cubeI;
+  buildCube(&cubeV, &cubeI);
+  TEST_CHECK(cubeI.size() == 36);
+  TEST_CHECK(cubeV.size() == static_cast<size_t>(cubeVertexCount()));
+
+  const int slices = 16;
+  const int stacks = 24;
+  std::vector<MeshVertex> sphereV;
+  std::vector<unsigned short> sphereI;
+  buildSphere(&sphereV, &sphereI, slices, stacks);
+  TEST_CHECK(static_cast<int>(sphereV.size()) == (stacks + 1) * (slices + 1));
+  TEST_CHECK(sphereV.size() > 0);
+  TEST_CHECK(sphereI.size() > 0);
+
+  std::vector<MeshVertex> cylV;
+  std::vector<unsigned short> cylI;
+  buildCylinder(&cylV, &cylI, 24);
+  TEST_CHECK(cylV.size() > 0);
+  TEST_CHECK(cylI.size() > 0);
 }

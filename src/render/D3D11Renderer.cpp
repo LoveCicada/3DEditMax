@@ -23,6 +23,7 @@ struct FrameCBCpu {
   XMFLOAT4X4 v;
   XMFLOAT4X4 p;
   XMFLOAT4X4 wvp;
+  XMFLOAT4 shadingMode;
 };
 
 }  // namespace
@@ -154,6 +155,13 @@ bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, Feedback
     shutdown();
     return false;
   }
+  rd.FillMode = D3D11_FILL_WIREFRAME;
+  hr = m_device->CreateRasterizerState(&rd, &m_rasterWire);
+  if (FAILED(hr)) {
+    pushFb(fb, FbError, "CreateRasterizerState wire failed");
+    shutdown();
+    return false;
+  }
 
   D3D11_DEPTH_STENCIL_DESC dsd = {};
   dsd.DepthEnable = TRUE;
@@ -167,7 +175,7 @@ bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, Feedback
   }
 
   D3D11_BUFFER_DESC cbd = {};
-  cbd.ByteWidth = sizeof(float) * 16 * 4;
+  cbd.ByteWidth = sizeof(FrameCBCpu);
   cbd.Usage = D3D11_USAGE_DYNAMIC;
   cbd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
   cbd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
@@ -181,6 +189,18 @@ bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, Feedback
   m_cube = MeshGpu::createCube(m_device.Get());
   if (!m_cube.valid()) {
     pushFb(fb, FbError, "createCube failed");
+    shutdown();
+    return false;
+  }
+  m_sphere = MeshGpu::createSphere(m_device.Get(), 16, 24);
+  if (!m_sphere.valid()) {
+    pushFb(fb, FbError, "createSphere failed");
+    shutdown();
+    return false;
+  }
+  m_cyl = MeshGpu::createCylinder(m_device.Get(), 24);
+  if (!m_cyl.valid()) {
+    pushFb(fb, FbError, "createCylinder failed");
     shutdown();
     return false;
   }
@@ -204,8 +224,11 @@ void D3D11Renderer::shutdown() {
   }
   m_shaders = ShaderSet();
   m_cube = MeshGpu();
+  m_sphere = MeshGpu();
+  m_cyl = MeshGpu();
   m_cb.Reset();
   m_depthState.Reset();
+  m_rasterWire.Reset();
   m_raster.Reset();
   m_dsv.Reset();
   m_depth.Reset();
@@ -284,22 +307,13 @@ void D3D11Renderer::render(const StateSnapshot& snap) {
   const float aspect = t.aspectFollowViewport
       ? (static_cast<float>(m_w) / static_cast<float>(m_h))
       : t.aspect;
-  const XMMATRIX W = BuildWorld(t.objects[0].trs);
   const XMMATRIX V = BuildView(t.camDistance, t.camPitchDeg, t.camYawDeg);
   const XMMATRIX P = BuildProjection(t, aspect);
-  const XMMATRIX WVP = W * V * P;
-
-  FrameCBCpu cb;
-  XMStoreFloat4x4(&cb.w, XMMatrixTranspose(W));
-  XMStoreFloat4x4(&cb.v, XMMatrixTranspose(V));
-  XMStoreFloat4x4(&cb.p, XMMatrixTranspose(P));
-  XMStoreFloat4x4(&cb.wvp, XMMatrixTranspose(WVP));
-
-  D3D11_MAPPED_SUBRESOURCE mapped = {};
-  if (SUCCEEDED(m_context->Map(m_cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
-    std::memcpy(mapped.pData, &cb, sizeof(cb));
-    m_context->Unmap(m_cb.Get(), 0);
-  }
+  const int count = (t.layout == LayoutThree) ? 3 : 1;
+  const bool wire = (t.shading == ShadeWire);
+  const float shadeX = (t.shading == ShadeNormal) ? 1.f
+      : (t.shading == ShadeChecker) ? 2.f
+      : 0.f;
 
   ID3D11Buffer* cbuf = m_cb.Get();
   m_context->VSSetConstantBuffers(0, 1, &cbuf);
@@ -307,9 +321,35 @@ void D3D11Renderer::render(const StateSnapshot& snap) {
   m_context->VSSetShader(m_shaders.vs(), 0, 0);
   m_context->PSSetShader(m_shaders.ps(), 0, 0);
   m_context->IASetInputLayout(m_shaders.layout());
-  m_context->RSSetState(m_raster.Get());
+  m_context->RSSetState(wire ? m_rasterWire.Get() : m_raster.Get());
   m_context->OMSetDepthStencilState(m_depthState.Get(), 0);
-  m_cube.draw(m_context.Get());
+
+  for (int oi = 0; oi < count; ++oi) {
+    const TeachingObject& obj = t.objects[oi];
+    const XMMATRIX W = BuildWorld(obj.trs);
+    const XMMATRIX WVP = W * V * P;
+
+    FrameCBCpu cb;
+    XMStoreFloat4x4(&cb.w, XMMatrixTranspose(W));
+    XMStoreFloat4x4(&cb.v, XMMatrixTranspose(V));
+    XMStoreFloat4x4(&cb.p, XMMatrixTranspose(P));
+    XMStoreFloat4x4(&cb.wvp, XMMatrixTranspose(WVP));
+    cb.shadingMode = XMFLOAT4(shadeX, 0.f, 0.f, 0.f);
+
+    D3D11_MAPPED_SUBRESOURCE mapped = {};
+    if (SUCCEEDED(m_context->Map(m_cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+      std::memcpy(mapped.pData, &cb, sizeof(cb));
+      m_context->Unmap(m_cb.Get(), 0);
+    }
+
+    const MeshGpu* mesh = &m_cube;
+    if (obj.mesh == MeshSphere) {
+      mesh = &m_sphere;
+    } else if (obj.mesh == MeshCylinder) {
+      mesh = &m_cyl;
+    }
+    mesh->draw(m_context.Get());
+  }
 
   const HRESULT hr = m_swap->Present(1, 0);
   handlePresentResult(hr);

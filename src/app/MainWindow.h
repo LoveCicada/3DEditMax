@@ -7,6 +7,7 @@
 class DebugLogPanel;
 class Dx11ViewportWidget;
 class MatrixBoardPanel;
+class ObjectPanel;
 class QAction;
 class QTimer;
 class TransformPanel;
@@ -18,6 +19,7 @@ public:
 private slots:
   void onPollFeedback();
   void onTransformsChanged();
+  void onObjectsChanged();
   void onTeachingEdited(const TeachingState& t);
   void onToggleMajor();
   void onReset();
@@ -27,6 +29,7 @@ private:
 
   Dx11ViewportWidget* m_viewport;
   TransformPanel* m_transforms;
+  ObjectPanel* m_objects;
   MatrixBoardPanel* m_board;
   DebugLogPanel* m_log;
   QTimer* m_poll;
