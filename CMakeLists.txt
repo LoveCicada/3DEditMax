@@ -26,6 +26,10 @@ add_executable(3DEditMax
   src/main.cpp
   src/app/MainWindow.h
   src/app/MainWindow.cpp
+  src/ui/Dx11ViewportWidget.h
+  src/ui/Dx11ViewportWidget.cpp
+  src/ui/DebugLogPanel.h
+  src/ui/DebugLogPanel.cpp
   src/core/SnapshotBuffer.cpp
   src/render/CommandQueue.cpp
   src/render/FeedbackQueue.cpp
