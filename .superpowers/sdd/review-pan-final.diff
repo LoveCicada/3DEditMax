@@ -1,0 +1,681 @@
+﻿# Final pan/layout review: 45ba068b01d954da314118b24d21978903d12dc7..1846d288084a99f3f30c6d1fc3f86735824d3598
+1846d28 Fix TransformPanel collapsible groups to hide spinboxes. 15e6959 Loosen lab shell docks with defaults and collapsible transform sections. bd9396f Add camera target and right-button pan for the viewport. 826adae Stop matrix board refresh during viewport drag to prevent flicker.
+ src/app/MainWindow.cpp        | 10 +++++--  src/app/app.qss               |  6 ++--  src/core/TeachingState.h      | 53 +++++++++++++++++++++++++++++++++  src/render/D3D11Renderer.cpp  |  2 +-  src/teach/JsonIo.cpp          |  6 ++++  src/teach/Transforms.cpp      | 10 ++++---  src/teach/Transforms.h        |  3 +-  src/ui/Dx11ViewportWidget.cpp | 46 +++++++++++++++--------------  src/ui/Dx11ViewportWidget.h   |  4 +--  src/ui/ObjectPanel.cpp        | 18 ++++++++++++  src/ui/TransformPanel.cpp     | 68 ++++++++++++++++++++++++++++++++-----------  src/ui/TransformPanel.h       |  5 +++-  tests/test_json.cpp           | 43 +++++++++++++++++++++++++++  tests/test_transforms.cpp     | 45 ++++++++++++++++++++++++++++  14 files changed, 265 insertions(+), 54 deletions(-)
+
+diff --git a/src/app/MainWindow.cpp b/src/app/MainWindow.cpp
+index 7cd01a7..1dbe4fd 100644
+--- a/src/app/MainWindow.cpp
++++ b/src/app/MainWindow.cpp
+@@ -90,6 +90,12 @@ MainWindow::MainWindow(QWidget* parent)
+   dockTutorial->setWidget(m_tutorial);
+   addDockWidget(Qt::BottomDockWidgetArea, dockTutorial);
+ 
++  QTimer::singleShot(0, this, [this, dockTransforms, dockObject, dockMatrix, dockTutorial]() {
++    resizeDocks({dockTransforms, dockObject}, {300, 300}, Qt::Horizontal);
++    resizeDocks({dockMatrix}, {380}, Qt::Horizontal);
++    resizeDocks({dockTutorial}, {140}, Qt::Vertical);
++  });
++
+   QToolBar* toolbar = addToolBar(QString::fromUtf8("Teach"));
+   toolbar->setObjectName(QString::fromUtf8("toolbarTeach"));
+   m_majorAction = toolbar->addAction(QString());
+@@ -284,7 +290,7 @@ void MainWindow::refreshBoard() {
+              static_cast<float>(m_viewport->height());
+   }
+   const XMMATRIX W = BuildWorld(t.objects[0].trs);
+-  const XMMATRIX V = BuildView(t.camDistance, t.camPitchDeg, t.camYawDeg);
++  const XMMATRIX V = BuildView(t.camDistance, t.camPitchDeg, t.camYawDeg, t.camTarget);
+   const XMMATRIX P = BuildProjection(t, aspect);
+   const XMMATRIX WVP = W * V * P;
+   XMFLOAT4X4 w;
+@@ -325,7 +331,7 @@ void MainWindow::refreshTracker() {
+              static_cast<float>(m_viewport->height());
+   }
+   const XMMATRIX W = BuildWorld(t.objects[0].trs);
+-  const XMMATRIX V = BuildView(t.camDistance, t.camPitchDeg, t.camYawDeg);
++  const XMMATRIX V = BuildView(t.camDistance, t.camPitchDeg, t.camYawDeg, t.camTarget);
+   const XMMATRIX P = BuildProjection(t, aspect);
+   const XMFLOAT3 model(t.trackModel[0], t.trackModel[1], t.trackModel[2]);
+   m_tracker->setTrackResult(TrackPoint(model, W, V, P));
+diff --git a/src/app/app.qss b/src/app/app.qss
+index b7d22f0..662a6f6 100644
+--- a/src/app/app.qss
++++ b/src/app/app.qss
+@@ -80,7 +80,7 @@ QDockWidget::title {
+   background-color: #1a1a2e;
+   border: 1px solid #2a2a4a;
+   border-radius: 5px;
+-  padding: 6px 8px;
++  padding: 4px 6px;
+   text-align: left;
+ }
+ 
+@@ -101,8 +101,8 @@ QGroupBox {
+   background-color: #16213e;
+   border: 1px solid #2a2a4a;
+   border-radius: 5px;
+-  margin-top: 12px;
+-  padding: 8px 8px 8px 8px;
++  margin-top: 8px;
++  padding: 6px;
+   font-weight: 600;
+ }
+ 
+diff --git a/src/core/TeachingState.h b/src/core/TeachingState.h
+index 13fc58c..8d7d389 100644
+--- a/src/core/TeachingState.h
++++ b/src/core/TeachingState.h
+@@ -1,4 +1,12 @@
+ #pragma once
++#include <cmath>
++
++#ifdef near
++#undef near
++#endif
++#ifdef far
++#undef far
++#endif
+ 
+ enum MeshId {
+   MeshCube = 0,
+@@ -43,6 +51,7 @@ struct TeachingState {
+   float camDistance;
+   float camPitchDeg;
+   float camYawDeg;
++  float camTarget[3];
+   ProjMode proj;
+   float fovDeg;
+   float aspect;
+@@ -79,6 +88,47 @@ inline void applyOrbitDrag(TeachingState* t, float dx, float dy) {
+   }
+ }
+ 
++inline void applyPanDrag(TeachingState* t, float dx, float dy, float viewportW,
++                         float viewportH) {
++  const float denom =
++      (viewportH > 1.f) ? viewportH : ((viewportW > 1.f) ? viewportW : 1.f);
++  const float scale = t->camDistance / denom;
++  const float kDeg = 3.14159265f / 180.f;
++  const float pitch = t->camPitchDeg * kDeg;
++  const float yaw = t->camYawDeg * kDeg;
++  const float cp = cosf(pitch);
++  const float sp = sinf(pitch);
++  const float sy = sinf(yaw);
++  const float cy = cosf(yaw);
++  const float fx = -sy * cp;
++  const float fy = -sp;
++  const float fz = -cy * cp;
++  float rx = fz;
++  float ry = 0.f;
++  float rz = -fx;
++  float rlen = sqrtf(rx * rx + ry * ry + rz * rz);
++  if (rlen < 1e-8f) {
++    rx = cy;
++    ry = 0.f;
++    rz = -sy;
++    rlen = sqrtf(rx * rx + rz * rz);
++    if (rlen < 1e-8f) {
++      rlen = 1.f;
++    }
++  }
++  rx /= rlen;
++  ry /= rlen;
++  rz /= rlen;
++  const float ux = fy * rz - fz * ry;
++  const float uy = fz * rx - fx * rz;
++  const float uz = fx * ry - fy * rx;
++  const float moveR = dx * scale;
++  const float moveU = -dy * scale;
++  t->camTarget[0] += rx * moveR + ux * moveU;
++  t->camTarget[1] += ry * moveR + uy * moveU;
++  t->camTarget[2] += rz * moveR + uz * moveU;
++}
++
+ inline void applyDollyWheel(TeachingState* t, int delta) {
+   t->camDistance *= (delta > 0 ? 0.9f : 1.1f);
+   if (t->camDistance < 0.5f) {
+@@ -101,6 +151,9 @@ inline TeachingState teachingStateDefault() {
+   s.camDistance = 5.f;
+   s.camPitchDeg = 20.f;
+   s.camYawDeg = 45.f;
++  s.camTarget[0] = 0.f;
++  s.camTarget[1] = 0.f;
++  s.camTarget[2] = 0.f;
+   s.proj = ProjPerspective;
+   s.fovDeg = 60.f;
+   s.aspect = 16.f / 9.f;
+diff --git a/src/render/D3D11Renderer.cpp b/src/render/D3D11Renderer.cpp
+index c70aaaf..cec6efb 100644
+--- a/src/render/D3D11Renderer.cpp
++++ b/src/render/D3D11Renderer.cpp
+@@ -455,7 +455,7 @@ void D3D11Renderer::render(const StateSnapshot& snap) {
+   const float aspect = t.aspectFollowViewport
+       ? (static_cast<float>(m_w) / static_cast<float>(m_h))
+       : t.aspect;
+-  const XMMATRIX V = BuildView(t.camDistance, t.camPitchDeg, t.camYawDeg);
++  const XMMATRIX V = BuildView(t.camDistance, t.camPitchDeg, t.camYawDeg, t.camTarget);
+   const XMMATRIX P = BuildProjection(t, aspect);
+   const int count = (t.layout == LayoutThree) ? 3 : 1;
+   const float shadeX = labShadeModeX(snap.lab.shaderVariant, static_cast<int>(t.shading));
+diff --git a/src/teach/JsonIo.cpp b/src/teach/JsonIo.cpp
+index 4ceb3d2..01eef4f 100644
+--- a/src/teach/JsonIo.cpp
++++ b/src/teach/JsonIo.cpp
+@@ -334,6 +334,8 @@ bool teachingToJson(const TeachingState& s, std::string* out) {
+   appendNum(&o, s.camPitchDeg);
+   o += ",\n  \"camYawDeg\":";
+   appendNum(&o, s.camYawDeg);
++  o += ",\n  \"camTarget\":";
++  appendVec3(&o, s.camTarget);
+   o += ",\n  \"proj\":";
+   appendInt(&o, static_cast<int>(s.proj));
+   o += ",\n  \"fovDeg\":";
+@@ -407,6 +409,10 @@ bool teachingFromJson(const std::string& in, TeachingState* out) {
+         return false;
+       }
+       seen |= F_camYawDeg;
++    } else if (key == "camTarget") {
++      if (!pr.parseVec3(tmp.camTarget)) {
++        return false;
++      }
+     } else if (key == "proj") {
+       int v = 0;
+       if (!pr.parseInt(&v)) {
+diff --git a/src/teach/Transforms.cpp b/src/teach/Transforms.cpp
+index ee67bcf..b28c074 100644
+--- a/src/teach/Transforms.cpp
++++ b/src/teach/Transforms.cpp
+@@ -12,15 +12,17 @@ XMMATRIX BuildWorld(const TransformTRS& trs) {
+   return s * r * t;
+ }
+ 
+-XMMATRIX BuildView(float distance, float pitchDeg, float yawDeg) {
++XMMATRIX BuildView(float distance, float pitchDeg, float yawDeg,
++                   const float target[3]) {
+   const float pitch = XMConvertToRadians(pitchDeg);
+   const float yaw = XMConvertToRadians(yawDeg);
+-  const XMVECTOR eye = XMVectorSet(
++  const XMVECTOR at = XMVectorSet(target[0], target[1], target[2], 1.f);
++  const XMVECTOR offset = XMVectorSet(
+       distance * sinf(yaw) * cosf(pitch),
+       distance * sinf(pitch),
+       distance * cosf(yaw) * cosf(pitch),
+-      1.f);
+-  const XMVECTOR at = XMVectorZero();
++      0.f);
++  const XMVECTOR eye = XMVectorAdd(at, offset);
+   const XMVECTOR up = XMVectorSet(0.f, 1.f, 0.f, 0.f);
+   return XMMatrixLookAtLH(eye, at, up);
+ }
+diff --git a/src/teach/Transforms.h b/src/teach/Transforms.h
+index 013e6aa..ab92a82 100644
+--- a/src/teach/Transforms.h
++++ b/src/teach/Transforms.h
+@@ -4,7 +4,8 @@
+ #include <cmath>
+ 
+ DirectX::XMMATRIX BuildWorld(const TransformTRS& trs);
+-DirectX::XMMATRIX BuildView(float distance, float pitchDeg, float yawDeg);
++DirectX::XMMATRIX BuildView(float distance, float pitchDeg, float yawDeg,
++                            const float target[3]);
+ DirectX::XMMATRIX BuildProjection(const TeachingState& s, float aspect);
+ 
+ struct TrackResult {
+diff --git a/src/ui/Dx11ViewportWidget.cpp b/src/ui/Dx11ViewportWidget.cpp
+index ce3bd0c..c8f8fae 100644
+--- a/src/ui/Dx11ViewportWidget.cpp
++++ b/src/ui/Dx11ViewportWidget.cpp
+@@ -9,7 +9,6 @@
+ #include <QPaintEvent>
+ #include <QResizeEvent>
+ #include <QShowEvent>
+-#include <QTimer>
+ #include <QVBoxLayout>
+ #include <QWheelEvent>
+ #include <windows.h>
+@@ -19,9 +18,9 @@ Dx11ViewportWidget::Dx11ViewportWidget(QWidget* parent)
+     , m_teaching(teachingStateDefault())
+     , m_lab(labStateDefault())
+     , m_lastMouse(0, 0)
+-    , m_orbitEditTimer(0)
+     , m_axisLegend(0)
+-    , m_orbiting(false) {
++    , m_orbiting(false)
++    , m_panning(false) {
+   setAttribute(Qt::WA_NativeWindow, true);
+   setAttribute(Qt::WA_DontCreateNativeAncestors, true);
+   setAttribute(Qt::WA_OpaquePaintEvent, true);
+@@ -30,10 +29,7 @@ Dx11ViewportWidget::Dx11ViewportWidget(QWidget* parent)
+   setMinimumSize(320, 180);
+   setMouseTracking(true);
+   setFocusPolicy(Qt::StrongFocus);
+-  m_orbitEditTimer = new QTimer(this);
+-  m_orbitEditTimer->setSingleShot(true);
+-  m_orbitEditTimer->setInterval(50);
+-  connect(m_orbitEditTimer, &QTimer::timeout, this, &Dx11ViewportWidget::flushTeachingEdited);
++  setContextMenuPolicy(Qt::NoContextMenu);
+   buildAxisLegend();
+ }
+ 
+@@ -103,11 +99,16 @@ void Dx11ViewportWidget::paintEvent(QPaintEvent*) {
+ }
+ 
+ void Dx11ViewportWidget::mousePressEvent(QMouseEvent* e) {
+-  if (e->button() == Qt::LeftButton) {
++  if (e->button() == Qt::LeftButton && !m_panning) {
+     m_lastMouse = e->pos();
+     m_orbiting = true;
+     grabMouse();
+     setFocus(Qt::MouseFocusReason);
++  } else if (e->button() == Qt::RightButton && !m_orbiting) {
++    m_lastMouse = e->pos();
++    m_panning = true;
++    grabMouse();
++    setFocus(Qt::MouseFocusReason);
+   }
+   QWidget::mousePressEvent(e);
+ }
+@@ -116,7 +117,11 @@ void Dx11ViewportWidget::mouseReleaseEvent(QMouseEvent* e) {
+   if (e->button() == Qt::LeftButton && m_orbiting) {
+     m_orbiting = false;
+     releaseMouse();
+-    m_orbitEditTimer->stop();
++    publishState(m_teaching, m_lab);
++    emit teachingEdited(m_teaching);
++  } else if (e->button() == Qt::RightButton && m_panning) {
++    m_panning = false;
++    releaseMouse();
+     publishState(m_teaching, m_lab);
+     emit teachingEdited(m_teaching);
+   }
+@@ -124,13 +129,18 @@ void Dx11ViewportWidget::mouseReleaseEvent(QMouseEvent* e) {
+ }
+ 
+ void Dx11ViewportWidget::mouseMoveEvent(QMouseEvent* e) {
+-  if (e->buttons() & Qt::LeftButton) {
+-    const QPoint p = e->pos();
+-    const float dx = static_cast<float>(p.x() - m_lastMouse.x());
+-    const float dy = static_cast<float>(p.y() - m_lastMouse.y());
++  const QPoint p = e->pos();
++  const float dx = static_cast<float>(p.x() - m_lastMouse.x());
++  const float dy = static_cast<float>(p.y() - m_lastMouse.y());
++  if (m_orbiting && (e->buttons() & Qt::LeftButton)) {
+     m_lastMouse = p;
+     applyOrbitDrag(&m_teaching, dx, dy);
+     commitTeaching();
++  } else if (m_panning && (e->buttons() & Qt::RightButton)) {
++    m_lastMouse = p;
++    applyPanDrag(&m_teaching, dx, dy, static_cast<float>(width()),
++                 static_cast<float>(height()));
++    commitTeaching();
+   }
+   QWidget::mouseMoveEvent(e);
+ }
+@@ -172,17 +182,9 @@ void Dx11ViewportWidget::stopRenderer() {
+ 
+ void Dx11ViewportWidget::commitTeaching() {
+   publishState(m_teaching, m_lab);
+-  if (!m_orbiting) {
++  if (!m_orbiting && !m_panning) {
+     emit teachingEdited(m_teaching);
+-    return;
+   }
+-  if (!m_orbitEditTimer->isActive()) {
+-    m_orbitEditTimer->start();
+-  }
+-}
+-
+-void Dx11ViewportWidget::flushTeachingEdited() {
+-  emit teachingEdited(m_teaching);
+ }
+ 
+ void Dx11ViewportWidget::buildAxisLegend() {
+diff --git a/src/ui/Dx11ViewportWidget.h b/src/ui/Dx11ViewportWidget.h
+index 9f992a5..38f3247 100644
+--- a/src/ui/Dx11ViewportWidget.h
++++ b/src/ui/Dx11ViewportWidget.h
+@@ -8,7 +8,6 @@
+ #include <memory>
+ 
+ class QFrame;
+-class QTimer;
+ 
+ class Dx11ViewportWidget : public QWidget {
+   Q_OBJECT
+@@ -34,14 +33,13 @@ private:
+   void startRenderer();
+   void stopRenderer();
+   void commitTeaching();
+-  void flushTeachingEdited();
+   void buildAxisLegend();
+   HWND hwnd() const;
+   std::unique_ptr<RenderThread> m_thread;
+   TeachingState m_teaching;
+   LabState m_lab;
+   QPoint m_lastMouse;
+-  QTimer* m_orbitEditTimer;
+   QFrame* m_axisLegend;
+   bool m_orbiting;
++  bool m_panning;
+ };
+diff --git a/src/ui/ObjectPanel.cpp b/src/ui/ObjectPanel.cpp
+index f868dcd..17a81e3 100644
+--- a/src/ui/ObjectPanel.cpp
++++ b/src/ui/ObjectPanel.cpp
+@@ -8,6 +8,22 @@
+ #include <QRadioButton>
+ #include <QVBoxLayout>
+ 
++namespace {
++
++void makeCheckableGroup(QGroupBox* box) {
++  box->setCheckable(true);
++  box->setChecked(true);
++  QObject::connect(box, &QGroupBox::toggled, box, [box](bool checked) {
++    const QList<QWidget*> children =
++        box->findChildren<QWidget*>(QString(), Qt::FindDirectChildrenOnly);
++    for (QWidget* child : children) {
++      child->setVisible(checked);
++    }
++  });
++}
++
++}  // namespace
++
+ ObjectPanel::ObjectPanel(QWidget* parent)
+     : QWidget(parent)
+     , m_state(teachingStateDefault())
+@@ -29,6 +45,7 @@ ObjectPanel::ObjectPanel(QWidget* parent)
+   meshRow->addWidget(cube);
+   meshRow->addWidget(sphere);
+   meshRow->addWidget(cyl);
++  makeCheckableGroup(meshBox);
+   root->addWidget(meshBox);
+ 
+   QGroupBox* scene = new QGroupBox(QString::fromUtf8("Scene"), this);
+@@ -43,6 +60,7 @@ ObjectPanel::ObjectPanel(QWidget* parent)
+   m_shading->addItem(QString::fromUtf8("Wire"));
+   form->addRow(QString::fromUtf8("Layout"), m_layout);
+   form->addRow(QString::fromUtf8("Shading"), m_shading);
++  makeCheckableGroup(scene);
+   root->addWidget(scene);
+   root->addStretch(1);
+ 
+diff --git a/src/ui/TransformPanel.cpp b/src/ui/TransformPanel.cpp
+index 67ffd93..7c3a953 100644
+--- a/src/ui/TransformPanel.cpp
++++ b/src/ui/TransformPanel.cpp
+@@ -7,6 +7,22 @@
+ #include <QPushButton>
+ #include <QVBoxLayout>
+ 
++namespace {
++
++void makeCheckableGroup(QGroupBox* box) {
++  box->setCheckable(true);
++  box->setChecked(true);
++  QObject::connect(box, &QGroupBox::toggled, box, [box](bool checked) {
++    const QList<QWidget*> children =
++        box->findChildren<QWidget*>(QString(), Qt::FindDirectChildrenOnly);
++    for (QWidget* child : children) {
++      child->setVisible(checked);
++    }
++  });
++}
++
++}  // namespace
++
+ TransformPanel::TransformPanel(QWidget* parent)
+     : QWidget(parent)
+     , m_state(teachingStateDefault())
+@@ -23,6 +39,9 @@ TransformPanel::TransformPanel(QWidget* parent)
+     , m_camDistance(0)
+     , m_camPitch(0)
+     , m_camYaw(0)
++    , m_camTargetX(0)
++    , m_camTargetY(0)
++    , m_camTargetZ(0)
+     , m_proj(0)
+     , m_fov(0)
+     , m_nearZ(0)
+@@ -32,15 +51,15 @@ TransformPanel::TransformPanel(QWidget* parent)
+   QGroupBox* world = new QGroupBox(QString::fromUtf8("World"), this);
+   world->setObjectName(QString::fromUtf8("sectionWorld"));
+   QFormLayout* worldForm = new QFormLayout(world);
+-  m_posX = makeSpin(-50.0, 50.0, 0.1, 1);
+-  m_posY = makeSpin(-50.0, 50.0, 0.1, 1);
+-  m_posZ = makeSpin(-50.0, 50.0, 0.1, 1);
+-  m_pitch = makeSpin(-180.0, 180.0, 1.0, 0);
+-  m_yaw = makeSpin(-180.0, 180.0, 1.0, 0);
+-  m_roll = makeSpin(-180.0, 180.0, 1.0, 0);
+-  m_scaleX = makeSpin(0.01, 10.0, 0.01, 2);
+-  m_scaleY = makeSpin(0.01, 10.0, 0.01, 2);
+-  m_scaleZ = makeSpin(0.01, 10.0, 0.01, 2);
++  m_posX = makeSpin(world, -50.0, 50.0, 0.1, 1);
++  m_posY = makeSpin(world, -50.0, 50.0, 0.1, 1);
++  m_posZ = makeSpin(world, -50.0, 50.0, 0.1, 1);
++  m_pitch = makeSpin(world, -180.0, 180.0, 1.0, 0);
++  m_yaw = makeSpin(world, -180.0, 180.0, 1.0, 0);
++  m_roll = makeSpin(world, -180.0, 180.0, 1.0, 0);
++  m_scaleX = makeSpin(world, 0.01, 10.0, 0.01, 2);
++  m_scaleY = makeSpin(world, 0.01, 10.0, 0.01, 2);
++  m_scaleZ = makeSpin(world, 0.01, 10.0, 0.01, 2);
+   worldForm->addRow(QString::fromUtf8("Pos X"), m_posX);
+   worldForm->addRow(QString::fromUtf8("Pos Y"), m_posY);
+   worldForm->addRow(QString::fromUtf8("Pos Z"), m_posZ);
+@@ -50,17 +69,24 @@ TransformPanel::TransformPanel(QWidget* parent)
+   worldForm->addRow(QString::fromUtf8("Scale X"), m_scaleX);
+   worldForm->addRow(QString::fromUtf8("Scale Y"), m_scaleY);
+   worldForm->addRow(QString::fromUtf8("Scale Z"), m_scaleZ);
++  makeCheckableGroup(world);
+   root->addWidget(world);
+ 
+   QGroupBox* view = new QGroupBox(QString::fromUtf8("View"), this);
+   view->setObjectName(QString::fromUtf8("sectionView"));
+   QFormLayout* viewForm = new QFormLayout(view);
+-  m_camDistance = makeSpin(0.5, 50.0, 0.1, 1);
+-  m_camPitch = makeSpin(-89.0, 89.0, 1.0, 0);
+-  m_camYaw = makeSpin(-180.0, 180.0, 1.0, 0);
++  m_camDistance = makeSpin(view, 0.5, 50.0, 0.1, 1);
++  m_camPitch = makeSpin(view, -89.0, 89.0, 1.0, 0);
++  m_camYaw = makeSpin(view, -180.0, 180.0, 1.0, 0);
++  m_camTargetX = makeSpin(view, -200.0, 200.0, 0.1, 1);
++  m_camTargetY = makeSpin(view, -200.0, 200.0, 0.1, 1);
++  m_camTargetZ = makeSpin(view, -200.0, 200.0, 0.1, 1);
+   viewForm->addRow(QString::fromUtf8("Distance"), m_camDistance);
+   viewForm->addRow(QString::fromUtf8("Pitch"), m_camPitch);
+   viewForm->addRow(QString::fromUtf8("Yaw"), m_camYaw);
++  viewForm->addRow(QString::fromUtf8("Target X"), m_camTargetX);
++  viewForm->addRow(QString::fromUtf8("Target Y"), m_camTargetY);
++  viewForm->addRow(QString::fromUtf8("Target Z"), m_camTargetZ);
+   QHBoxLayout* presets = new QHBoxLayout();
+   QPushButton* front = new QPushButton(QString::fromUtf8("Front"), view);
+   QPushButton* side = new QPushButton(QString::fromUtf8("Side"), view);
+@@ -71,6 +97,7 @@ TransformPanel::TransformPanel(QWidget* parent)
+   presets->addWidget(top);
+   presets->addWidget(iso);
+   viewForm->addRow(presets);
++  makeCheckableGroup(view);
+   root->addWidget(view);
+ 
+   QGroupBox* proj = new QGroupBox(QString::fromUtf8("Projection"), this);
+@@ -79,13 +106,14 @@ TransformPanel::TransformPanel(QWidget* parent)
+   m_proj = new QComboBox(proj);
+   m_proj->addItem(QString::fromUtf8("Perspective"));
+   m_proj->addItem(QString::fromUtf8("Ortho"));
+-  m_fov = makeSpin(10.0, 120.0, 1.0, 0);
+-  m_nearZ = makeSpin(0.01, 10.0, 0.01, 2);
+-  m_farZ = makeSpin(1.0, 1000.0, 1.0, 1);
++  m_fov = makeSpin(proj, 10.0, 120.0, 1.0, 0);
++  m_nearZ = makeSpin(proj, 0.01, 10.0, 0.01, 2);
++  m_farZ = makeSpin(proj, 1.0, 1000.0, 1.0, 1);
+   projForm->addRow(QString::fromUtf8("Mode"), m_proj);
+   projForm->addRow(QString::fromUtf8("FOV"), m_fov);
+   projForm->addRow(QString::fromUtf8("Near"), m_nearZ);
+   projForm->addRow(QString::fromUtf8("Far"), m_farZ);
++  makeCheckableGroup(proj);
+   root->addWidget(proj);
+   root->addStretch(1);
+ 
+@@ -101,8 +129,8 @@ TransformPanel::TransformPanel(QWidget* parent)
+   m_block = false;
+ }
+ 
+-QDoubleSpinBox* TransformPanel::makeSpin(double minv, double maxv, double step, int decimals) {
+-  QDoubleSpinBox* s = new QDoubleSpinBox(this);
++QDoubleSpinBox* TransformPanel::makeSpin(QWidget* parent, double minv, double maxv, double step, int decimals) {
++  QDoubleSpinBox* s = new QDoubleSpinBox(parent);
+   s->setRange(minv, maxv);
+   s->setSingleStep(step);
+   s->setDecimals(decimals);
+@@ -133,6 +161,9 @@ TeachingState TransformPanel::state() const {
+   s.camDistance = static_cast<float>(m_camDistance->value());
+   s.camPitchDeg = static_cast<float>(m_camPitch->value());
+   s.camYawDeg = static_cast<float>(m_camYaw->value());
++  s.camTarget[0] = static_cast<float>(m_camTargetX->value());
++  s.camTarget[1] = static_cast<float>(m_camTargetY->value());
++  s.camTarget[2] = static_cast<float>(m_camTargetZ->value());
+   s.proj = (m_proj->currentIndex() == 1) ? ProjOrtho : ProjPerspective;
+   s.fovDeg = static_cast<float>(m_fov->value());
+   s.nearZ = static_cast<float>(m_nearZ->value());
+@@ -188,6 +219,9 @@ void TransformPanel::loadWidgets(const TeachingState& s) {
+   m_camDistance->setValue(s.camDistance);
+   m_camPitch->setValue(s.camPitchDeg);
+   m_camYaw->setValue(s.camYawDeg);
++  m_camTargetX->setValue(s.camTarget[0]);
++  m_camTargetY->setValue(s.camTarget[1]);
++  m_camTargetZ->setValue(s.camTarget[2]);
+   m_proj->setCurrentIndex(s.proj == ProjOrtho ? 1 : 0);
+   m_fov->setValue(s.fovDeg);
+   m_nearZ->setValue(s.nearZ);
+diff --git a/src/ui/TransformPanel.h b/src/ui/TransformPanel.h
+index 95126d7..38a0e15 100644
+--- a/src/ui/TransformPanel.h
++++ b/src/ui/TransformPanel.h
+@@ -20,7 +20,7 @@ private slots:
+   void onPresetTop();
+   void onPresetIso();
+ private:
+-  QDoubleSpinBox* makeSpin(double minv, double maxv, double step, int decimals);
++  QDoubleSpinBox* makeSpin(QWidget* parent, double minv, double maxv, double step, int decimals);
+   void applyViewPreset(double pitch, double yaw);
+   void loadWidgets(const TeachingState& s);
+ 
+@@ -38,6 +38,9 @@ private:
+   QDoubleSpinBox* m_camDistance;
+   QDoubleSpinBox* m_camPitch;
+   QDoubleSpinBox* m_camYaw;
++  QDoubleSpinBox* m_camTargetX;
++  QDoubleSpinBox* m_camTargetY;
++  QDoubleSpinBox* m_camTargetZ;
+   QComboBox* m_proj;
+   QDoubleSpinBox* m_fov;
+   QDoubleSpinBox* m_nearZ;
+diff --git a/tests/test_json.cpp b/tests/test_json.cpp
+index 825825d..5c4adf1 100644
+--- a/tests/test_json.cpp
++++ b/tests/test_json.cpp
+@@ -22,4 +22,47 @@ void runJsonTests() {
+   TEST_CHECK(teachingFromJson(std::string("{}"), &missing) == false);
+   TEST_CHECK(teachingToJson(s, 0) == false);
+   TEST_CHECK(teachingFromJson(json, 0) == false);
++
++  /* Task 2: camTarget round-trip; missing key stays origin */
++  TeachingState withT = teachingStateDefault();
++  withT.camTarget[0] = 1.25f;
++  withT.camTarget[1] = -2.5f;
++  withT.camTarget[2] = 3.f;
++  std::string withJson;
++  TEST_CHECK(teachingToJson(withT, &withJson) == true);
++  TeachingState withOut;
++  TEST_CHECK(teachingFromJson(withJson, &withOut) == true);
++  TEST_CHECK(nearf(withOut.camTarget[0], 1.25f));
++  TEST_CHECK(nearf(withOut.camTarget[1], -2.5f));
++  TEST_CHECK(nearf(withOut.camTarget[2], 3.f));
++
++  std::string noTargetJson;
++  TEST_CHECK(teachingToJson(teachingStateDefault(), &noTargetJson) == true);
++  const std::string camKey = "\"camTarget\":";
++  std::string::size_type keyPos = noTargetJson.find(camKey);
++  if (keyPos != std::string::npos) {
++    std::string::size_type close = noTargetJson.find(']', keyPos);
++    TEST_CHECK(close != std::string::npos);
++    std::string::size_type eraseEnd = close + 1;
++    if (eraseEnd < noTargetJson.size() && noTargetJson[eraseEnd] == ',') {
++      ++eraseEnd;
++    }
++    std::string::size_type eraseStart = keyPos;
++    if (eraseEnd == close + 1) {
++      std::string::size_type comma = noTargetJson.rfind(',', keyPos);
++      if (comma != std::string::npos) {
++        eraseStart = comma;
++      }
++    }
++    noTargetJson.erase(eraseStart, eraseEnd - eraseStart);
++  }
++  TEST_CHECK(noTargetJson.find(camKey) == std::string::npos);
++  TeachingState noTargetOut;
++  noTargetOut.camTarget[0] = 9.f;
++  noTargetOut.camTarget[1] = 9.f;
++  noTargetOut.camTarget[2] = 9.f;
++  TEST_CHECK(teachingFromJson(noTargetJson, &noTargetOut) == true);
++  TEST_CHECK(nearf(noTargetOut.camTarget[0], 0.f));
++  TEST_CHECK(nearf(noTargetOut.camTarget[1], 0.f));
++  TEST_CHECK(nearf(noTargetOut.camTarget[2], 0.f));
+ }
+diff --git a/tests/test_transforms.cpp b/tests/test_transforms.cpp
+index 2e7d168..156bf62 100644
+--- a/tests/test_transforms.cpp
++++ b/tests/test_transforms.cpp
+@@ -79,6 +79,51 @@ void runTransformTests() {
+   applyDollyWheel(&cam, -1);
+   TEST_CHECK(near4(cam.camDistance, 50.f));
+ 
++  /* Task 2: camera target + screen-space pan */
++  TeachingState defCam = teachingStateDefault();
++  TEST_CHECK(near4(defCam.camTarget[0], 0.f) && near4(defCam.camTarget[1], 0.f) &&
++             near4(defCam.camTarget[2], 0.f));
++
++  const float originT[3] = {0.f, 0.f, 0.f};
++  const float pitch20 = DirectX::XMConvertToRadians(20.f);
++  const float yaw45 = DirectX::XMConvertToRadians(45.f);
++  DirectX::XMMATRIX Vorg = BuildView(5.f, 20.f, 45.f, originT);
++  DirectX::XMVECTOR eyeOrg = DirectX::XMVectorSet(
++      5.f * sinf(yaw45) * cosf(pitch20),
++      5.f * sinf(pitch20),
++      5.f * cosf(yaw45) * cosf(pitch20),
++      1.f);
++  DirectX::XMMATRIX Vexp = DirectX::XMMatrixLookAtLH(
++      eyeOrg, DirectX::XMVectorZero(), DirectX::XMVectorSet(0.f, 1.f, 0.f, 0.f));
++  DirectX::XMFLOAT4X4 gotV;
++  DirectX::XMFLOAT4X4 expV;
++  DirectX::XMStoreFloat4x4(&gotV, Vorg);
++  DirectX::XMStoreFloat4x4(&expV, Vexp);
++  TEST_CHECK(near4(gotV._11, expV._11) && near4(gotV._22, expV._22) &&
++             near4(gotV._33, expV._33) && near4(gotV._41, expV._41) &&
++             near4(gotV._42, expV._42) && near4(gotV._43, expV._43));
++
++  const float tgt[3] = {1.f, 2.f, 3.f};
++  DirectX::XMMATRIX Vt = BuildView(5.f, 0.f, 0.f, tgt);
++  DirectX::XMVECTOR at = DirectX::XMVectorSet(1.f, 2.f, 3.f, 1.f);
++  DirectX::XMVECTOR viewAt = DirectX::XMVector4Transform(at, Vt);
++  TEST_CHECK(near4(DirectX::XMVectorGetX(viewAt), 0.f));
++  TEST_CHECK(near4(DirectX::XMVectorGetY(viewAt), 0.f));
++  TEST_CHECK(near4(DirectX::XMVectorGetZ(viewAt), 5.f));
++
++  TeachingState pan = teachingStateDefault();
++  pan.camPitchDeg = 0.f;
++  pan.camYawDeg = 0.f;
++  pan.camDistance = 10.f;
++  applyPanDrag(&pan, 100.f, 0.f, 200.f, 200.f);
++  TEST_CHECK(near4(pan.camTarget[0], -5.f));
++  TEST_CHECK(near4(pan.camTarget[1], 0.f));
++  TEST_CHECK(near4(pan.camTarget[2], 0.f));
++  applyPanDrag(&pan, 0.f, 40.f, 200.f, 200.f);
++  TEST_CHECK(near4(pan.camTarget[0], -5.f));
++  TEST_CHECK(near4(pan.camTarget[1], -2.f));
++  TEST_CHECK(near4(pan.camTarget[2], 0.f));
++
+   /* Task 11: CPU mesh builders */
+   TEST_CHECK(cubeVertexCount() > 0);
+   std::vector<MeshVertex> cubeV;

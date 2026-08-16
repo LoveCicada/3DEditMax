@@ -1,0 +1,144 @@
+﻿# Review package: 45ba068..826adaea93951d1e8d8bd81c648e0c7ba7277a73
+
+## Commits
+826adae Stop matrix board refresh during viewport drag to prevent flicker.
+
+## Files
+ src/ui/Dx11ViewportWidget.cpp | 15 ---------------  src/ui/Dx11ViewportWidget.h   |  3 ---  2 files changed, 18 deletions(-)
+
+## Diff
+
+diff --git a/src/ui/Dx11ViewportWidget.cpp b/src/ui/Dx11ViewportWidget.cpp
+index ce3bd0c..19989cd 100644
+--- a/src/ui/Dx11ViewportWidget.cpp
++++ b/src/ui/Dx11ViewportWidget.cpp
+@@ -4,41 +4,35 @@
+ #include <QFrame>
+ #include <QGridLayout>
+ #include <QHideEvent>
+ #include <QLabel>
+ #include <QMouseEvent>
+ #include <QPaintEvent>
+ #include <QResizeEvent>
+ #include <QShowEvent>
+-#include <QTimer>
+ #include <QVBoxLayout>
+ #include <QWheelEvent>
+ #include <windows.h>
+ 
+ Dx11ViewportWidget::Dx11ViewportWidget(QWidget* parent)
+     : QWidget(parent)
+     , m_teaching(teachingStateDefault())
+     , m_lab(labStateDefault())
+     , m_lastMouse(0, 0)
+-    , m_orbitEditTimer(0)
+     , m_axisLegend(0)
+     , m_orbiting(false) {
+   setAttribute(Qt::WA_NativeWindow, true);
+   setAttribute(Qt::WA_DontCreateNativeAncestors, true);
+   setAttribute(Qt::WA_OpaquePaintEvent, true);
+   setAttribute(Qt::WA_NoSystemBackground, true);
+   setAutoFillBackground(false);
+   setMinimumSize(320, 180);
+   setMouseTracking(true);
+   setFocusPolicy(Qt::StrongFocus);
+-  m_orbitEditTimer = new QTimer(this);
+-  m_orbitEditTimer->setSingleShot(true);
+-  m_orbitEditTimer->setInterval(50);
+-  connect(m_orbitEditTimer, &QTimer::timeout, this, &Dx11ViewportWidget::flushTeachingEdited);
+   buildAxisLegend();
+ }
+ 
+ Dx11ViewportWidget::~Dx11ViewportWidget() {
+   stopRenderer();
+ }
+ 
+ void Dx11ViewportWidget::publishState(const TeachingState& t, const LabState& l) {
+@@ -111,17 +105,16 @@ void Dx11ViewportWidget::mousePressEvent(QMouseEvent* e) {
+   }
+   QWidget::mousePressEvent(e);
+ }
+ 
+ void Dx11ViewportWidget::mouseReleaseEvent(QMouseEvent* e) {
+   if (e->button() == Qt::LeftButton && m_orbiting) {
+     m_orbiting = false;
+     releaseMouse();
+-    m_orbitEditTimer->stop();
+     publishState(m_teaching, m_lab);
+     emit teachingEdited(m_teaching);
+   }
+   QWidget::mouseReleaseEvent(e);
+ }
+ 
+ void Dx11ViewportWidget::mouseMoveEvent(QMouseEvent* e) {
+   if (e->buttons() & Qt::LeftButton) {
+@@ -169,27 +162,19 @@ void Dx11ViewportWidget::stopRenderer() {
+   m_thread->requestStopAndJoin();
+   m_thread.reset();
+ }
+ 
+ void Dx11ViewportWidget::commitTeaching() {
+   publishState(m_teaching, m_lab);
+   if (!m_orbiting) {
+     emit teachingEdited(m_teaching);
+-    return;
+-  }
+-  if (!m_orbitEditTimer->isActive()) {
+-    m_orbitEditTimer->start();
+   }
+ }
+ 
+-void Dx11ViewportWidget::flushTeachingEdited() {
+-  emit teachingEdited(m_teaching);
+-}
+-
+ void Dx11ViewportWidget::buildAxisLegend() {
+   m_axisLegend = new QFrame(this);
+   m_axisLegend->setObjectName(QString::fromUtf8("axisLegend"));
+   m_axisLegend->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+   m_axisLegend->setStyleSheet(QString::fromUtf8(
+       "QFrame#axisLegend {"
+       "  background-color: rgba(10, 10, 24, 184);"
+       "  border: 1px solid rgba(97, 218, 251, 71);"
+diff --git a/src/ui/Dx11ViewportWidget.h b/src/ui/Dx11ViewportWidget.h
+index 9f992a5..9fe9c28 100644
+--- a/src/ui/Dx11ViewportWidget.h
++++ b/src/ui/Dx11ViewportWidget.h
+@@ -3,17 +3,16 @@
+ #include "core/TeachingState.h"
+ #include "core/MakeUnique.h"
+ #include "render/RenderThread.h"
+ #include <QPoint>
+ #include <QWidget>
+ #include <memory>
+ 
+ class QFrame;
+-class QTimer;
+ 
+ class Dx11ViewportWidget : public QWidget {
+   Q_OBJECT
+ public:
+   explicit Dx11ViewportWidget(QWidget* parent = 0);
+   ~Dx11ViewportWidget();
+   void publishState(const TeachingState& t, const LabState& l);
+   void reloadShaders();
+@@ -29,19 +28,17 @@ protected:
+   void mouseReleaseEvent(QMouseEvent* e);
+   void mouseMoveEvent(QMouseEvent* e);
+   void wheelEvent(QWheelEvent* e);
+   QPaintEngine* paintEngine() const;
+ private:
+   void startRenderer();
+   void stopRenderer();
+   void commitTeaching();
+-  void flushTeachingEdited();
+   void buildAxisLegend();
+   HWND hwnd() const;
+   std::unique_ptr<RenderThread> m_thread;
+   TeachingState m_teaching;
+   LabState m_lab;
+   QPoint m_lastMouse;
+-  QTimer* m_orbitEditTimer;
+   QFrame* m_axisLegend;
+   bool m_orbiting;
+ };

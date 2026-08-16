@@ -1,0 +1,179 @@
+﻿# Review: bd9396fb65efcd51d9530188c0ee814cd4e1929b..15e6959dc4c59cf33cdc763f7b8a00bd24734ab5
+15e6959 Loosen lab shell docks with defaults and collapsible transform sections.
+ src/app/MainWindow.cpp    |  6 ++++++  src/app/app.qss           |  6 +++---  src/ui/ObjectPanel.cpp    | 18 ++++++++++++++++++  src/ui/TransformPanel.cpp | 19 +++++++++++++++++++  4 files changed, 46 insertions(+), 3 deletions(-)
+
+diff --git a/src/app/MainWindow.cpp b/src/app/MainWindow.cpp
+index af2b2f0..1dbe4fd 100644
+--- a/src/app/MainWindow.cpp
++++ b/src/app/MainWindow.cpp
+@@ -88,10 +88,16 @@ MainWindow::MainWindow(QWidget* parent)
+   QDockWidget* dockTutorial = new QDockWidget(QString::fromUtf8("\xE6\x95\x99\xE7\xA8\x8B"), this);
+   dockTutorial->setObjectName(QString::fromUtf8("dockTutorial"));
+   dockTutorial->setWidget(m_tutorial);
+   addDockWidget(Qt::BottomDockWidgetArea, dockTutorial);
+ 
++  QTimer::singleShot(0, this, [this, dockTransforms, dockObject, dockMatrix, dockTutorial]() {
++    resizeDocks({dockTransforms, dockObject}, {300, 300}, Qt::Horizontal);
++    resizeDocks({dockMatrix}, {380}, Qt::Horizontal);
++    resizeDocks({dockTutorial}, {140}, Qt::Vertical);
++  });
++
+   QToolBar* toolbar = addToolBar(QString::fromUtf8("Teach"));
+   toolbar->setObjectName(QString::fromUtf8("toolbarTeach"));
+   m_majorAction = toolbar->addAction(QString());
+   QAction* resetAction = toolbar->addAction(QString::fromUtf8("\xE9\x87\x8D\xE7\xBD\xAE"));
+   syncMajorActionText();
+diff --git a/src/app/app.qss b/src/app/app.qss
+index b7d22f0..662a6f6 100644
+--- a/src/app/app.qss
++++ b/src/app/app.qss
+@@ -78,11 +78,11 @@ QDockWidget {
+ 
+ QDockWidget::title {
+   background-color: #1a1a2e;
+   border: 1px solid #2a2a4a;
+   border-radius: 5px;
+-  padding: 6px 8px;
++  padding: 4px 6px;
+   text-align: left;
+ }
+ 
+ QDockWidget::close-button,
+ QDockWidget::float-button {
+@@ -99,12 +99,12 @@ QDockWidget::float-button:hover {
+ 
+ QGroupBox {
+   background-color: #16213e;
+   border: 1px solid #2a2a4a;
+   border-radius: 5px;
+-  margin-top: 12px;
+-  padding: 8px 8px 8px 8px;
++  margin-top: 8px;
++  padding: 6px;
+   font-weight: 600;
+ }
+ 
+ QGroupBox::title {
+   subcontrol-origin: margin;
+diff --git a/src/ui/ObjectPanel.cpp b/src/ui/ObjectPanel.cpp
+index f868dcd..17a81e3 100644
+--- a/src/ui/ObjectPanel.cpp
++++ b/src/ui/ObjectPanel.cpp
+@@ -6,10 +6,26 @@
+ #include <QGroupBox>
+ #include <QHBoxLayout>
+ #include <QRadioButton>
+ #include <QVBoxLayout>
+ 
++namespace {
++
++void makeCheckableGroup(QGroupBox* box) {
++  box->setCheckable(true);
++  box->setChecked(true);
++  QObject::connect(box, &QGroupBox::toggled, box, [box](bool checked) {
++    const QList<QWidget*> children =
++        box->findChildren<QWidget*>(QString(), Qt::FindDirectChildrenOnly);
++    for (QWidget* child : children) {
++      child->setVisible(checked);
++    }
++  });
++}
++
++}  // namespace
++
+ ObjectPanel::ObjectPanel(QWidget* parent)
+     : QWidget(parent)
+     , m_state(teachingStateDefault())
+     , m_block(false)
+     , m_mesh(0)
+@@ -27,10 +43,11 @@ ObjectPanel::ObjectPanel(QWidget* parent)
+   m_mesh->addButton(sphere, MeshSphere);
+   m_mesh->addButton(cyl, MeshCylinder);
+   meshRow->addWidget(cube);
+   meshRow->addWidget(sphere);
+   meshRow->addWidget(cyl);
++  makeCheckableGroup(meshBox);
+   root->addWidget(meshBox);
+ 
+   QGroupBox* scene = new QGroupBox(QString::fromUtf8("Scene"), this);
+   QFormLayout* form = new QFormLayout(scene);
+   m_layout = new QComboBox(scene);
+@@ -41,10 +58,11 @@ ObjectPanel::ObjectPanel(QWidget* parent)
+   m_shading->addItem(QString::fromUtf8("Normal"));
+   m_shading->addItem(QString::fromUtf8("Checker"));
+   m_shading->addItem(QString::fromUtf8("Wire"));
+   form->addRow(QString::fromUtf8("Layout"), m_layout);
+   form->addRow(QString::fromUtf8("Shading"), m_shading);
++  makeCheckableGroup(scene);
+   root->addWidget(scene);
+   root->addStretch(1);
+ 
+   connect(m_mesh, &QButtonGroup::idClicked, this, &ObjectPanel::onEdited);
+   connect(m_layout, static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged),
+diff --git a/src/ui/TransformPanel.cpp b/src/ui/TransformPanel.cpp
+index a327f29..f24d881 100644
+--- a/src/ui/TransformPanel.cpp
++++ b/src/ui/TransformPanel.cpp
+@@ -5,10 +5,26 @@
+ #include <QGroupBox>
+ #include <QHBoxLayout>
+ #include <QPushButton>
+ #include <QVBoxLayout>
+ 
++namespace {
++
++void makeCheckableGroup(QGroupBox* box) {
++  box->setCheckable(true);
++  box->setChecked(true);
++  QObject::connect(box, &QGroupBox::toggled, box, [box](bool checked) {
++    const QList<QWidget*> children =
++        box->findChildren<QWidget*>(QString(), Qt::FindDirectChildrenOnly);
++    for (QWidget* child : children) {
++      child->setVisible(checked);
++    }
++  });
++}
++
++}  // namespace
++
+ TransformPanel::TransformPanel(QWidget* parent)
+     : QWidget(parent)
+     , m_state(teachingStateDefault())
+     , m_block(false)
+     , m_posX(0)
+@@ -51,10 +67,11 @@ TransformPanel::TransformPanel(QWidget* parent)
+   worldForm->addRow(QString::fromUtf8("Yaw"), m_yaw);
+   worldForm->addRow(QString::fromUtf8("Roll"), m_roll);
+   worldForm->addRow(QString::fromUtf8("Scale X"), m_scaleX);
+   worldForm->addRow(QString::fromUtf8("Scale Y"), m_scaleY);
+   worldForm->addRow(QString::fromUtf8("Scale Z"), m_scaleZ);
++  makeCheckableGroup(world);
+   root->addWidget(world);
+ 
+   QGroupBox* view = new QGroupBox(QString::fromUtf8("View"), this);
+   view->setObjectName(QString::fromUtf8("sectionView"));
+   QFormLayout* viewForm = new QFormLayout(view);
+@@ -78,10 +95,11 @@ TransformPanel::TransformPanel(QWidget* parent)
+   presets->addWidget(front);
+   presets->addWidget(side);
+   presets->addWidget(top);
+   presets->addWidget(iso);
+   viewForm->addRow(presets);
++  makeCheckableGroup(view);
+   root->addWidget(view);
+ 
+   QGroupBox* proj = new QGroupBox(QString::fromUtf8("Projection"), this);
+   proj->setObjectName(QString::fromUtf8("sectionProjection"));
+   QFormLayout* projForm = new QFormLayout(proj);
+@@ -93,10 +111,11 @@ TransformPanel::TransformPanel(QWidget* parent)
+   m_farZ = makeSpin(1.0, 1000.0, 1.0, 1);
+   projForm->addRow(QString::fromUtf8("Mode"), m_proj);
+   projForm->addRow(QString::fromUtf8("FOV"), m_fov);
+   projForm->addRow(QString::fromUtf8("Near"), m_nearZ);
+   projForm->addRow(QString::fromUtf8("Far"), m_farZ);
++  makeCheckableGroup(proj);
+   root->addWidget(proj);
+   root->addStretch(1);
+ 
+   connect(front, &QPushButton::clicked, this, &TransformPanel::onPresetFront);
+   connect(side, &QPushButton::clicked, this, &TransformPanel::onPresetSide);

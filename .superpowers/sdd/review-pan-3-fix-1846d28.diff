@@ -1,0 +1,137 @@
+﻿# Fix review 15e6959dc4c59cf33cdc763f7b8a00bd24734ab5..1846d288084a99f3f30c6d1fc3f86735824d3598
+1846d28 Fix TransformPanel collapsible groups to hide spinboxes.
+ src/ui/TransformPanel.cpp | 40 ++++++++++++++++++++--------------------  src/ui/TransformPanel.h   |  2 +-  2 files changed, 21 insertions(+), 21 deletions(-)
+
+diff --git a/src/ui/TransformPanel.cpp b/src/ui/TransformPanel.cpp
+index f24d881..7c3a953 100644
+--- a/src/ui/TransformPanel.cpp
++++ b/src/ui/TransformPanel.cpp
+@@ -46,46 +46,46 @@ TransformPanel::TransformPanel(QWidget* parent)
+     , m_fov(0)
+     , m_nearZ(0)
+     , m_farZ(0) {
+   QVBoxLayout* root = new QVBoxLayout(this);
+ 
+   QGroupBox* world = new QGroupBox(QString::fromUtf8("World"), this);
+   world->setObjectName(QString::fromUtf8("sectionWorld"));
+   QFormLayout* worldForm = new QFormLayout(world);
+-  m_posX = makeSpin(-50.0, 50.0, 0.1, 1);
+-  m_posY = makeSpin(-50.0, 50.0, 0.1, 1);
+-  m_posZ = makeSpin(-50.0, 50.0, 0.1, 1);
+-  m_pitch = makeSpin(-180.0, 180.0, 1.0, 0);
+-  m_yaw = makeSpin(-180.0, 180.0, 1.0, 0);
+-  m_roll = makeSpin(-180.0, 180.0, 1.0, 0);
+-  m_scaleX = makeSpin(0.01, 10.0, 0.01, 2);
+-  m_scaleY = makeSpin(0.01, 10.0, 0.01, 2);
+-  m_scaleZ = makeSpin(0.01, 10.0, 0.01, 2);
++  m_posX = makeSpin(world, -50.0, 50.0, 0.1, 1);
++  m_posY = makeSpin(world, -50.0, 50.0, 0.1, 1);
++  m_posZ = makeSpin(world, -50.0, 50.0, 0.1, 1);
++  m_pitch = makeSpin(world, -180.0, 180.0, 1.0, 0);
++  m_yaw = makeSpin(world, -180.0, 180.0, 1.0, 0);
++  m_roll = makeSpin(world, -180.0, 180.0, 1.0, 0);
++  m_scaleX = makeSpin(world, 0.01, 10.0, 0.01, 2);
++  m_scaleY = makeSpin(world, 0.01, 10.0, 0.01, 2);
++  m_scaleZ = makeSpin(world, 0.01, 10.0, 0.01, 2);
+   worldForm->addRow(QString::fromUtf8("Pos X"), m_posX);
+   worldForm->addRow(QString::fromUtf8("Pos Y"), m_posY);
+   worldForm->addRow(QString::fromUtf8("Pos Z"), m_posZ);
+   worldForm->addRow(QString::fromUtf8("Pitch"), m_pitch);
+   worldForm->addRow(QString::fromUtf8("Yaw"), m_yaw);
+   worldForm->addRow(QString::fromUtf8("Roll"), m_roll);
+   worldForm->addRow(QString::fromUtf8("Scale X"), m_scaleX);
+   worldForm->addRow(QString::fromUtf8("Scale Y"), m_scaleY);
+   worldForm->addRow(QString::fromUtf8("Scale Z"), m_scaleZ);
+   makeCheckableGroup(world);
+   root->addWidget(world);
+ 
+   QGroupBox* view = new QGroupBox(QString::fromUtf8("View"), this);
+   view->setObjectName(QString::fromUtf8("sectionView"));
+   QFormLayout* viewForm = new QFormLayout(view);
+-  m_camDistance = makeSpin(0.5, 50.0, 0.1, 1);
+-  m_camPitch = makeSpin(-89.0, 89.0, 1.0, 0);
+-  m_camYaw = makeSpin(-180.0, 180.0, 1.0, 0);
+-  m_camTargetX = makeSpin(-200.0, 200.0, 0.1, 1);
+-  m_camTargetY = makeSpin(-200.0, 200.0, 0.1, 1);
+-  m_camTargetZ = makeSpin(-200.0, 200.0, 0.1, 1);
++  m_camDistance = makeSpin(view, 0.5, 50.0, 0.1, 1);
++  m_camPitch = makeSpin(view, -89.0, 89.0, 1.0, 0);
++  m_camYaw = makeSpin(view, -180.0, 180.0, 1.0, 0);
++  m_camTargetX = makeSpin(view, -200.0, 200.0, 0.1, 1);
++  m_camTargetY = makeSpin(view, -200.0, 200.0, 0.1, 1);
++  m_camTargetZ = makeSpin(view, -200.0, 200.0, 0.1, 1);
+   viewForm->addRow(QString::fromUtf8("Distance"), m_camDistance);
+   viewForm->addRow(QString::fromUtf8("Pitch"), m_camPitch);
+   viewForm->addRow(QString::fromUtf8("Yaw"), m_camYaw);
+   viewForm->addRow(QString::fromUtf8("Target X"), m_camTargetX);
+   viewForm->addRow(QString::fromUtf8("Target Y"), m_camTargetY);
+   viewForm->addRow(QString::fromUtf8("Target Z"), m_camTargetZ);
+   QHBoxLayout* presets = new QHBoxLayout();
+   QPushButton* front = new QPushButton(QString::fromUtf8("Front"), view);
+@@ -101,19 +101,19 @@ TransformPanel::TransformPanel(QWidget* parent)
+   root->addWidget(view);
+ 
+   QGroupBox* proj = new QGroupBox(QString::fromUtf8("Projection"), this);
+   proj->setObjectName(QString::fromUtf8("sectionProjection"));
+   QFormLayout* projForm = new QFormLayout(proj);
+   m_proj = new QComboBox(proj);
+   m_proj->addItem(QString::fromUtf8("Perspective"));
+   m_proj->addItem(QString::fromUtf8("Ortho"));
+-  m_fov = makeSpin(10.0, 120.0, 1.0, 0);
+-  m_nearZ = makeSpin(0.01, 10.0, 0.01, 2);
+-  m_farZ = makeSpin(1.0, 1000.0, 1.0, 1);
++  m_fov = makeSpin(proj, 10.0, 120.0, 1.0, 0);
++  m_nearZ = makeSpin(proj, 0.01, 10.0, 0.01, 2);
++  m_farZ = makeSpin(proj, 1.0, 1000.0, 1.0, 1);
+   projForm->addRow(QString::fromUtf8("Mode"), m_proj);
+   projForm->addRow(QString::fromUtf8("FOV"), m_fov);
+   projForm->addRow(QString::fromUtf8("Near"), m_nearZ);
+   projForm->addRow(QString::fromUtf8("Far"), m_farZ);
+   makeCheckableGroup(proj);
+   root->addWidget(proj);
+   root->addStretch(1);
+ 
+@@ -124,18 +124,18 @@ TransformPanel::TransformPanel(QWidget* parent)
+   connect(m_proj, static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged),
+           this, &TransformPanel::onEdited);
+ 
+   m_block = true;
+   loadWidgets(m_state);
+   m_block = false;
+ }
+ 
+-QDoubleSpinBox* TransformPanel::makeSpin(double minv, double maxv, double step, int decimals) {
+-  QDoubleSpinBox* s = new QDoubleSpinBox(this);
++QDoubleSpinBox* TransformPanel::makeSpin(QWidget* parent, double minv, double maxv, double step, int decimals) {
++  QDoubleSpinBox* s = new QDoubleSpinBox(parent);
+   s->setRange(minv, maxv);
+   s->setSingleStep(step);
+   s->setDecimals(decimals);
+   connect(s, static_cast<void (QDoubleSpinBox::*)(double)>(&QDoubleSpinBox::valueChanged),
+           this, &TransformPanel::onEdited);
+   return s;
+ }
+ 
+diff --git a/src/ui/TransformPanel.h b/src/ui/TransformPanel.h
+index 40bb1a8..38a0e15 100644
+--- a/src/ui/TransformPanel.h
++++ b/src/ui/TransformPanel.h
+@@ -15,17 +15,17 @@ signals:
+   void changed();
+ private slots:
+   void onEdited();
+   void onPresetFront();
+   void onPresetSide();
+   void onPresetTop();
+   void onPresetIso();
+ private:
+-  QDoubleSpinBox* makeSpin(double minv, double maxv, double step, int decimals);
++  QDoubleSpinBox* makeSpin(QWidget* parent, double minv, double maxv, double step, int decimals);
+   void applyViewPreset(double pitch, double yaw);
+   void loadWidgets(const TeachingState& s);
+ 
+   TeachingState m_state;
+   bool m_block;
+   QDoubleSpinBox* m_posX;
+   QDoubleSpinBox* m_posY;
+   QDoubleSpinBox* m_posZ;
