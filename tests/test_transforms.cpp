@@ -87,6 +87,25 @@ void runTransformTests() {
   TEST_CHECK(cubeI.size() == 36);
   TEST_CHECK(cubeV.size() == static_cast<size_t>(cubeVertexCount()));
 
+  /* default / preset tracker point is a MeshBuild cube corner (±0.5) */
+  TeachingState track = teachingStateDefault();
+  bool onCorner = false;
+  for (size_t vi = 0; vi < cubeV.size(); ++vi) {
+    if (near4(cubeV[vi].px, track.trackModel[0]) &&
+        near4(cubeV[vi].py, track.trackModel[1]) &&
+        near4(cubeV[vi].pz, track.trackModel[2])) {
+      onCorner = true;
+      break;
+    }
+  }
+  TEST_CHECK(onCorner);
+  DirectX::XMMATRIX ident = DirectX::XMMatrixIdentity();
+  TrackResult corner = TrackPoint(
+      DirectX::XMFLOAT3(track.trackModel[0], track.trackModel[1], track.trackModel[2]),
+      ident, ident, ident);
+  TEST_CHECK(near4(corner.world.x, 0.5f) && near4(corner.world.y, 0.5f) &&
+             near4(corner.world.z, 0.5f));
+
   const int slices = 16;
   const int stacks = 24;
   std::vector<MeshVertex> sphereV;

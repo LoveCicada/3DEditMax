@@ -107,9 +107,9 @@ inline TeachingState teachingStateDefault() {
   s.aspectFollowViewport = true;
   s.nearZ = 0.1f;
   s.farZ = 100.f;
-  s.trackModel[0] = 1.f;
-  s.trackModel[1] = 1.f;
-  s.trackModel[2] = 1.f;
+  s.trackModel[0] = 0.5f;
+  s.trackModel[1] = 0.5f;
+  s.trackModel[2] = 0.5f;
   s.tutorialStep = 0;
   s.demoPlaying = false;
   return s;

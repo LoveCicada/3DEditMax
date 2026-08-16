@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 #include <windows.h>
 
 using Microsoft::WRL::ComPtr;
@@ -70,6 +71,7 @@ D3D11Renderer::D3D11Renderer(const std::wstring& shaderDir)
     , m_lastLoggedShadeX(-1.f)
     , m_loggedCb(false) {
   std::memset(m_shaderVariant, 0, sizeof(m_shaderVariant));
+  std::memset(m_triedVariant, 0, sizeof(m_triedVariant));
 }
 
 bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, FeedbackQueue* fb) {
@@ -150,6 +152,7 @@ bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, Feedback
     shutdown();
     return false;
   }
+  attachInfoQueue();
 
   DXGI_SWAP_CHAIN_DESC sd = {};
   sd.BufferCount = 2;
@@ -216,6 +219,7 @@ bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, Feedback
   }
 
   copyVariantName("unlit");
+  copyTriedName("unlit");
   if (!m_shaders.compileVariant(m_device.Get(), m_shaderDir, m_shaderVariant, fb)) {
     shutdown();
     return false;
@@ -228,6 +232,7 @@ bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, Feedback
   m_initialized = true;
   pushFb(fb, FbLog, "D3D11 device ready");
   pushFb(fb, FbDeviceOk, "");
+  pumpInfoQueue();
   return true;
 }
 
@@ -250,6 +255,8 @@ void D3D11Renderer::shutdown() {
     }
   }
   std::memset(m_shaderVariant, 0, sizeof(m_shaderVariant));
+  std::memset(m_triedVariant, 0, sizeof(m_triedVariant));
+  m_infoQueue.Reset();
   m_lastLoggedShadeX = -1.f;
   m_loggedCb = false;
   m_dsv.Reset();
@@ -326,12 +333,13 @@ void D3D11Renderer::render(const StateSnapshot& snap) {
   m_context->ClearDepthStencilView(m_dsv.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.f, 0);
 
   const TeachingState& t = snap.teaching;
-  if (std::strcmp(snap.lab.shaderVariant, m_shaderVariant) != 0) {
+  if (std::strcmp(snap.lab.shaderVariant, m_triedVariant) != 0) {
     ShaderSet next;
     if (next.compileVariant(m_device.Get(), m_shaderDir, snap.lab.shaderVariant, m_fb)) {
       m_shaders = next;
       copyVariantName(snap.lab.shaderVariant);
     }
+    copyTriedName(snap.lab.shaderVariant);
   }
   const float aspect = t.aspectFollowViewport
       ? (static_cast<float>(m_w) / static_cast<float>(m_h))
@@ -385,12 +393,14 @@ void D3D11Renderer::render(const StateSnapshot& snap) {
 
   const HRESULT hr = m_swap->Present(1, 0);
   handlePresentResult(hr);
+  pumpInfoQueue();
 }
 
 bool D3D11Renderer::reloadShaders(FeedbackQueue* fb) {
   if (!m_device) {
     return false;
   }
+  std::memset(m_triedVariant, 0, sizeof(m_triedVariant));
   const char* variant = m_shaderVariant[0] ? m_shaderVariant : "unlit";
   ShaderSet next;
   if (!next.compileVariant(m_device.Get(), m_shaderDir, variant, fb)) {
@@ -482,6 +492,71 @@ void D3D11Renderer::copyVariantName(const char* name) {
   for (int i = 0; name[i] && i < 31; ++i) {
     m_shaderVariant[i] = name[i];
   }
+}
+
+void D3D11Renderer::copyTriedName(const char* name) {
+  std::memset(m_triedVariant, 0, sizeof(m_triedVariant));
+  if (!name) {
+    return;
+  }
+  for (int i = 0; name[i] && i < 31; ++i) {
+    m_triedVariant[i] = name[i];
+  }
+}
+
+void D3D11Renderer::attachInfoQueue() {
+#ifdef _DEBUG
+  m_infoQueue.Reset();
+  if (!m_device) {
+    return;
+  }
+  m_device.As(&m_infoQueue);
+#else
+  m_infoQueue.Reset();
+#endif
+}
+
+void D3D11Renderer::pumpInfoQueue() {
+#ifdef _DEBUG
+  if (!m_infoQueue) {
+    return;
+  }
+  const UINT64 stored = m_infoQueue->GetNumStoredMessages();
+  const UINT64 n = (stored > 64ull) ? 64ull : stored;
+  for (UINT64 i = 0; i < n; ++i) {
+    SIZE_T bytes = 0;
+    m_infoQueue->GetMessage(i, 0, &bytes);
+    if (bytes == 0) {
+      continue;
+    }
+    std::vector<char> buf(bytes);
+    D3D11_MESSAGE* msg = reinterpret_cast<D3D11_MESSAGE*>(&buf[0]);
+    if (FAILED(m_infoQueue->GetMessage(i, msg, &bytes))) {
+      continue;
+    }
+    FeedbackKind kind = FbLog;
+    if (msg->Severity == D3D11_MESSAGE_SEVERITY_CORRUPTION ||
+        msg->Severity == D3D11_MESSAGE_SEVERITY_ERROR) {
+      kind = FbError;
+    } else if (msg->Severity == D3D11_MESSAGE_SEVERITY_WARNING) {
+      kind = FbWarn;
+    }
+    if (msg->pDescription && msg->DescriptionByteLength > 0) {
+      std::string text(msg->pDescription, msg->pDescription + msg->DescriptionByteLength);
+      while (!text.empty()) {
+        const char c = text[text.size() - 1];
+        if (c != '\0' && c != '\n' && c != '\r') {
+          break;
+        }
+        text.resize(text.size() - 1);
+      }
+      if (!text.empty()) {
+        pushFb(m_fb, kind, text.c_str());
+      }
+    }
+  }
+  m_infoQueue->ClearStoredMessages();
+#endif
 }
 
 bool D3D11Renderer::createSizeDependentResources() {

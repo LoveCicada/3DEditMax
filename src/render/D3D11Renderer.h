@@ -5,6 +5,7 @@
 #include "render/MeshGpu.h"
 #include "render/ShaderSet.h"
 #include <d3d11.h>
+#include <d3d11sdklayers.h>
 #include <dxgi.h>
 #include <wrl/client.h>
 #include <string>
@@ -27,6 +28,9 @@ private:
   void bindLabStates(const StateSnapshot& snap);
   void handlePresentResult(HRESULT hr);
   void copyVariantName(const char* name);
+  void copyTriedName(const char* name);
+  void attachInfoQueue();
+  void pumpInfoQueue();
   std::wstring m_shaderDir;
   HWND m_hwnd;
   int m_w;
@@ -47,6 +51,8 @@ private:
   Microsoft::WRL::ComPtr<ID3D11DepthStencilState> m_depthOn;
   Microsoft::WRL::ComPtr<ID3D11DepthStencilState> m_depthOff;
   char m_shaderVariant[32];
+  char m_triedVariant[32];
+  Microsoft::WRL::ComPtr<ID3D11InfoQueue> m_infoQueue;
   float m_lastLoggedShadeX;
   bool m_loggedCb;
   Microsoft::WRL::ComPtr<ID3D11Buffer> m_cb;

@@ -45,11 +45,11 @@ TrackerPanel::TrackerPanel(QWidget* parent)
   QGroupBox* corners = new QGroupBox(QString::fromUtf8("Cube corners"), this);
   QGridLayout* grid = new QGridLayout(corners);
   static const float kCorner[8][3] = {
-      {1.f, 1.f, 1.f},   {1.f, 1.f, -1.f},  {1.f, -1.f, 1.f},  {1.f, -1.f, -1.f},
-      {-1.f, 1.f, 1.f},  {-1.f, 1.f, -1.f}, {-1.f, -1.f, 1.f}, {-1.f, -1.f, -1.f},
+      {0.5f, 0.5f, 0.5f},   {0.5f, 0.5f, -0.5f},  {0.5f, -0.5f, 0.5f},  {0.5f, -0.5f, -0.5f},
+      {-0.5f, 0.5f, 0.5f},  {-0.5f, 0.5f, -0.5f}, {-0.5f, -0.5f, 0.5f}, {-0.5f, -0.5f, -0.5f},
   };
   for (int i = 0; i < 8; ++i) {
-    const QString text = QString::asprintf("%+.0f %+.0f %+.0f",
+    const QString text = QString::asprintf("%+.1f %+.1f %+.1f",
                                            static_cast<double>(kCorner[i][0]),
                                            static_cast<double>(kCorner[i][1]),
                                            static_cast<double>(kCorner[i][2]));

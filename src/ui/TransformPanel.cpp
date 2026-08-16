@@ -54,7 +54,7 @@ TransformPanel::TransformPanel(QWidget* parent)
   QGroupBox* view = new QGroupBox(QString::fromUtf8("View"), this);
   QFormLayout* viewForm = new QFormLayout(view);
   m_camDistance = makeSpin(0.5, 50.0, 0.1, 1);
-  m_camPitch = makeSpin(-180.0, 180.0, 1.0, 0);
+  m_camPitch = makeSpin(-89.0, 89.0, 1.0, 0);
   m_camYaw = makeSpin(-180.0, 180.0, 1.0, 0);
   viewForm->addRow(QString::fromUtf8("Distance"), m_camDistance);
   viewForm->addRow(QString::fromUtf8("Pitch"), m_camPitch);
