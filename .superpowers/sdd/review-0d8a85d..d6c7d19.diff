@@ -1,0 +1,98 @@
+﻿# Review package: 0d8a85daec48699712cf648491be4011b6e68169..d6c7d192ae1f33a5615a5532ef3a77c68e5afa5f
+
+## Commits
+d6c7d19 Fix View-menu UTF-8 and transpose WVP for HLSL.
+
+## Files changed
+ CMakeLists.txt               | 3 +++  src/app/MainWindow.cpp       | 2 +-  src/render/D3D11Renderer.cpp | 8 ++++----  3 files changed, 8 insertions(+), 5 deletions(-)
+
+## Diff
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index b204dda..b84294e 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -35,20 +35,23 @@ add_executable(3DEditMax
+   src/render/FeedbackQueue.cpp
+   src/render/RenderThread.cpp
+   src/render/D3D11Renderer.cpp
+   src/render/MeshGpu.cpp
+   src/render/ShaderSet.cpp
+   src/teach/Transforms.cpp
+ )
+ 
+ target_include_directories(3DEditMax PRIVATE "${CMAKE_SOURCE_DIR}/src")
+ target_link_libraries(3DEditMax PRIVATE Qt5::Widgets d3d11 dxgi d3dcompiler)
++if(MSVC)
++  target_compile_options(3DEditMax PRIVATE /utf-8)
++endif()
+ 
+ add_custom_command(TARGET 3DEditMax POST_BUILD
+   COMMAND ${CMAKE_COMMAND} -E copy_directory
+     "${CMAKE_SOURCE_DIR}/assets/shaders"
+     "$<TARGET_FILE_DIR:3DEditMax>/shaders")
+ 
+ enable_testing()
+ add_executable(3deditmax_tests
+   tests/test_main.cpp
+   tests/test_queues.cpp
+diff --git a/src/app/MainWindow.cpp b/src/app/MainWindow.cpp
+index 0e7542a..dd67dc4 100644
+--- a/src/app/MainWindow.cpp
++++ b/src/app/MainWindow.cpp
+@@ -18,21 +18,21 @@ MainWindow::MainWindow(QWidget* parent)
+ 
+   m_viewport = new Dx11ViewportWidget(this);
+   m_log = new DebugLogPanel(this);
+   setCentralWidget(m_viewport);
+ 
+   QDockWidget* dock = new QDockWidget(QString::fromUtf8("DX11 Lab / Debug"), this);
+   dock->setObjectName(QString::fromUtf8("dockDebug"));
+   dock->setWidget(m_log);
+   addDockWidget(Qt::RightDockWidgetArea, dock);
+ 
+-  QMenu* viewMenu = menuBar()->addMenu(QString::fromUtf8("瑙嗗浘"));
++  QMenu* viewMenu = menuBar()->addMenu(QString::fromUtf8("\xE8\xA7\x86\xE5\x9B\xBE"));
+   viewMenu->addAction(dock->toggleViewAction());
+ 
+   m_poll = new QTimer(this);
+   m_poll->setInterval(100);
+   connect(m_poll, &QTimer::timeout, this, &MainWindow::onPollFeedback);
+   m_poll->start();
+ }
+ 
+ void MainWindow::onPollFeedback() {
+   m_log->drain(m_viewport->feedback());
+diff --git a/src/render/D3D11Renderer.cpp b/src/render/D3D11Renderer.cpp
+index 2476b4e..ebc3472 100644
+--- a/src/render/D3D11Renderer.cpp
++++ b/src/render/D3D11Renderer.cpp
+@@ -283,24 +283,24 @@ void D3D11Renderer::render(const StateSnapshot& snap) {
+   const TeachingState& t = snap.teaching;
+   const float aspect = t.aspectFollowViewport
+       ? (static_cast<float>(m_w) / static_cast<float>(m_h))
+       : t.aspect;
+   const XMMATRIX W = BuildWorld(t.objects[0].trs);
+   const XMMATRIX V = BuildView(t.camDistance, t.camPitchDeg, t.camYawDeg);
+   const XMMATRIX P = BuildProjection(t, aspect);
+   const XMMATRIX WVP = W * V * P;
+ 
+   FrameCBCpu cb;
+-  XMStoreFloat4x4(&cb.w, W);
+-  XMStoreFloat4x4(&cb.v, V);
+-  XMStoreFloat4x4(&cb.p, P);
+-  XMStoreFloat4x4(&cb.wvp, WVP);
++  XMStoreFloat4x4(&cb.w, XMMatrixTranspose(W));
++  XMStoreFloat4x4(&cb.v, XMMatrixTranspose(V));
++  XMStoreFloat4x4(&cb.p, XMMatrixTranspose(P));
++  XMStoreFloat4x4(&cb.wvp, XMMatrixTranspose(WVP));
+ 
+   D3D11_MAPPED_SUBRESOURCE mapped = {};
+   if (SUCCEEDED(m_context->Map(m_cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+     std::memcpy(mapped.pData, &cb, sizeof(cb));
+     m_context->Unmap(m_cb.Get(), 0);
+   }
+ 
+   ID3D11Buffer* cbuf = m_cb.Get();
+   m_context->VSSetConstantBuffers(0, 1, &cbuf);
+   m_context->PSSetConstantBuffers(0, 1, &cbuf);

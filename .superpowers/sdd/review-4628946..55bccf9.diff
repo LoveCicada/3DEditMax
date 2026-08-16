@@ -1,0 +1,998 @@
+﻿# Review package: 46289464cfd3aafc05a83a7cd4e3132d0efe7aae..55bccf94905933a7e208198a9d6780482ce3d7f0
+
+## Commits
+55bccf9 Add D3D11 renderer, cube mesh, and unlit shader.
+
+## Files changed
+ CMakeLists.txt               |  17 +-  assets/shaders/unlit.hlsl    |  31 ++++  src/render/D3D11Renderer.cpp | 362 +++++++++++++++++++++++++++++++++++++++++++  src/render/D3D11Renderer.h   |  45 ++++++  src/render/MeshGpu.cpp       |  93 +++++++++++  src/render/MeshGpu.h         |  22 +++  src/render/RenderThread.cpp  |  55 ++++++-  src/render/RenderThread.h    |  12 ++  src/render/ShaderSet.cpp     | 132 ++++++++++++++++  src/render/ShaderSet.h       |  18 +++  src/teach/Transforms.cpp     |  35 +++++  src/teach/Transforms.h       |   7 +  12 files changed, 826 insertions(+), 3 deletions(-)
+
+## Diff
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index eb5e8a5..6de7719 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -19,29 +19,44 @@ if(DEFINED ENV{QT_DIR})
+   list(PREPEND CMAKE_PREFIX_PATH "${_qt_dir}")
+   message(STATUS "Qt prefix from QT_DIR: ${_qt_dir}")
+ endif()
+ 
+ find_package(Qt5 5.15 REQUIRED COMPONENTS Widgets)
+ 
+ add_executable(3DEditMax
+   src/main.cpp
+   src/app/MainWindow.h
+   src/app/MainWindow.cpp
++  src/core/SnapshotBuffer.cpp
++  src/render/CommandQueue.cpp
++  src/render/FeedbackQueue.cpp
++  src/render/RenderThread.cpp
++  src/render/D3D11Renderer.cpp
++  src/render/MeshGpu.cpp
++  src/render/ShaderSet.cpp
++  src/teach/Transforms.cpp
+ )
+ 
+ target_include_directories(3DEditMax PRIVATE "${CMAKE_SOURCE_DIR}/src")
+-target_link_libraries(3DEditMax PRIVATE Qt5::Widgets)
++target_link_libraries(3DEditMax PRIVATE Qt5::Widgets d3d11 dxgi d3dcompiler)
++
++add_custom_command(TARGET 3DEditMax POST_BUILD
++  COMMAND ${CMAKE_COMMAND} -E copy_directory
++    "${CMAKE_SOURCE_DIR}/assets/shaders"
++    "$<TARGET_FILE_DIR:3DEditMax>/shaders")
+ 
+ enable_testing()
+ add_executable(3deditmax_tests
+   tests/test_main.cpp
+   tests/test_queues.cpp
+   src/render/CommandQueue.cpp
+   src/render/FeedbackQueue.cpp
+   src/render/RenderThread.cpp
+   src/core/SnapshotBuffer.cpp
++  src/teach/Transforms.cpp
+ )
+ target_include_directories(3deditmax_tests PRIVATE
+   "${CMAKE_SOURCE_DIR}/src"
+   "${CMAKE_SOURCE_DIR}/tests"
+ )
++target_compile_definitions(3deditmax_tests PRIVATE D3DEDITMAX_NO_D3D)
+ add_test(NAME 3deditmax_tests COMMAND 3deditmax_tests)
+diff --git a/assets/shaders/unlit.hlsl b/assets/shaders/unlit.hlsl
+new file mode 100644
+index 0000000..37ce7b8
+--- /dev/null
++++ b/assets/shaders/unlit.hlsl
+@@ -0,0 +1,31 @@
++cbuffer FrameCB : register(b0) {
++  float4x4 world;
++  float4x4 view;
++  float4x4 proj;
++  float4x4 worldViewProj;
++};
++
++struct VSIn {
++  float3 pos : POSITION;
++  float3 nrm : NORMAL;
++  float2 uv  : TEXCOORD0;
++};
++
++struct VSOut {
++  float4 pos : SV_POSITION;
++  float3 nrm : COLOR0;
++  float2 uv  : TEXCOORD0;
++};
++
++VSOut vs_main(VSIn i) {
++  VSOut o;
++  o.pos = mul(float4(i.pos, 1.0), worldViewProj);
++  o.nrm = i.nrm;
++  o.uv = i.uv;
++  return o;
++}
++
++float4 ps_main(VSOut i) : SV_TARGET {
++  float3 c = 0.35 + 0.65 * saturate(i.nrm * 0.5 + 0.5);
++  return float4(c, 1.0);
++}
+diff --git a/src/render/D3D11Renderer.cpp b/src/render/D3D11Renderer.cpp
+new file mode 100644
+index 0000000..d6cdfca
+--- /dev/null
++++ b/src/render/D3D11Renderer.cpp
+@@ -0,0 +1,362 @@
++#include "render/D3D11Renderer.h"
++#include "teach/Transforms.h"
++#include <cstring>
++
++using Microsoft::WRL::ComPtr;
++using namespace DirectX;
++
++namespace {
++
++void pushFb(FeedbackQueue* fb, FeedbackKind kind, const char* text) {
++  if (!fb) {
++    return;
++  }
++  FeedbackItem item;
++  item.kind = kind;
++  item.text = text;
++  item.ms = 0.f;
++  fb->push(item);
++}
++
++struct FrameCBCpu {
++  XMFLOAT4X4 w;
++  XMFLOAT4X4 v;
++  XMFLOAT4X4 p;
++  XMFLOAT4X4 wvp;
++};
++
++}  // namespace
++
++D3D11Renderer::D3D11Renderer(const std::wstring& shaderDir)
++    : m_shaderDir(shaderDir)
++    , m_hwnd(0)
++    , m_w(0)
++    , m_h(0)
++    , m_wantDebug(false)
++    , m_initialized(false)
++    , m_dead(false)
++    , m_fb(0) {}
++
++bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, FeedbackQueue* fb) {
++  shutdown();
++  m_dead = false;
++  m_fb = fb;
++  m_hwnd = hwnd;
++  m_w = (w > 1) ? w : 1;
++  m_h = (h > 1) ? h : 1;
++  m_wantDebug = wantDebug;
++
++  HRESULT hr = CreateDXGIFactory1(__uuidof(IDXGIFactory1), reinterpret_cast<void**>(m_factory.ReleaseAndGetAddressOf()));
++  if (FAILED(hr) || !m_factory) {
++    pushFb(fb, FbError, "CreateDXGIFactory1 failed");
++    shutdown();
++    return false;
++  }
++
++  ComPtr<IDXGIAdapter1> adapter;
++  for (UINT i = 0; m_factory->EnumAdapters1(i, adapter.ReleaseAndGetAddressOf()) != DXGI_ERROR_NOT_FOUND; ++i) {
++    DXGI_ADAPTER_DESC1 desc;
++    if (FAILED(adapter->GetDesc1(&desc))) {
++      continue;
++    }
++    if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) {
++      continue;
++    }
++    m_adapter = adapter;
++    break;
++  }
++  if (!m_adapter) {
++    pushFb(fb, FbError, "No hardware DXGI adapter");
++    shutdown();
++    return false;
++  }
++
++  UINT flags = 0;
++  if (wantDebug) {
++    flags |= D3D11_CREATE_DEVICE_DEBUG;
++  }
++  const D3D_FEATURE_LEVEL levels[] = {
++      D3D_FEATURE_LEVEL_11_1,
++      D3D_FEATURE_LEVEL_11_0,
++      D3D_FEATURE_LEVEL_10_1,
++      D3D_FEATURE_LEVEL_10_0,
++  };
++  D3D_FEATURE_LEVEL got = D3D_FEATURE_LEVEL_11_0;
++  hr = D3D11CreateDevice(
++      m_adapter.Get(),
++      D3D_DRIVER_TYPE_UNKNOWN,
++      0,
++      flags,
++      levels,
++      4,
++      D3D11_SDK_VERSION,
++      &m_device,
++      &got,
++      &m_context);
++  if (FAILED(hr) && (flags & D3D11_CREATE_DEVICE_DEBUG)) {
++    flags &= ~D3D11_CREATE_DEVICE_DEBUG;
++    hr = D3D11CreateDevice(
++        m_adapter.Get(),
++        D3D_DRIVER_TYPE_UNKNOWN,
++        0,
++        flags,
++        levels,
++        4,
++        D3D11_SDK_VERSION,
++        &m_device,
++        &got,
++        &m_context);
++    if (SUCCEEDED(hr)) {
++      pushFb(fb, FbWarn, "D3D11 debug runtime missing");
++    }
++  }
++  if (FAILED(hr) || !m_device || !m_context) {
++    pushFb(fb, FbError, "D3D11CreateDevice failed");
++    shutdown();
++    return false;
++  }
++
++  DXGI_SWAP_CHAIN_DESC sd = {};
++  sd.BufferCount = 2;
++  sd.BufferDesc.Width = static_cast<UINT>(m_w);
++  sd.BufferDesc.Height = static_cast<UINT>(m_h);
++  sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
++  sd.BufferDesc.RefreshRate.Numerator = 60;
++  sd.BufferDesc.RefreshRate.Denominator = 1;
++  sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
++  sd.OutputWindow = hwnd;
++  sd.SampleDesc.Count = 1;
++  sd.SampleDesc.Quality = 0;
++  sd.Windowed = TRUE;
++  sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
++
++  hr = m_factory->CreateSwapChain(m_device.Get(), &sd, &m_swap);
++  if (FAILED(hr) || !m_swap) {
++    pushFb(fb, FbError, "CreateSwapChain failed");
++    shutdown();
++    return false;
++  }
++  m_factory->MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER);
++
++  if (!createSizeDependentResources()) {
++    pushFb(fb, FbError, "Create RTV/DSV failed");
++    shutdown();
++    return false;
++  }
++
++  D3D11_RASTERIZER_DESC rd = {};
++  rd.FillMode = D3D11_FILL_SOLID;
++  rd.CullMode = D3D11_CULL_BACK;
++  rd.DepthClipEnable = TRUE;
++  hr = m_device->CreateRasterizerState(&rd, &m_raster);
++  if (FAILED(hr)) {
++    pushFb(fb, FbError, "CreateRasterizerState failed");
++    shutdown();
++    return false;
++  }
++
++  D3D11_DEPTH_STENCIL_DESC dsd = {};
++  dsd.DepthEnable = TRUE;
++  dsd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
++  dsd.DepthFunc = D3D11_COMPARISON_LESS;
++  hr = m_device->CreateDepthStencilState(&dsd, &m_depthState);
++  if (FAILED(hr)) {
++    pushFb(fb, FbError, "CreateDepthStencilState failed");
++    shutdown();
++    return false;
++  }
++
++  D3D11_BUFFER_DESC cbd = {};
++  cbd.ByteWidth = sizeof(float) * 16 * 4;
++  cbd.Usage = D3D11_USAGE_DYNAMIC;
++  cbd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
++  cbd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
++  hr = m_device->CreateBuffer(&cbd, 0, &m_cb);
++  if (FAILED(hr)) {
++    pushFb(fb, FbError, "Create FrameCB failed");
++    shutdown();
++    return false;
++  }
++
++  m_cube = MeshGpu::createCube(m_device.Get());
++  if (!m_cube.valid()) {
++    pushFb(fb, FbError, "createCube failed");
++    shutdown();
++    return false;
++  }
++
++  const std::wstring shaderPath = m_shaderDir + L"/unlit.hlsl";
++  if (!m_shaders.compileFromFile(m_device.Get(), shaderPath, fb)) {
++    shutdown();
++    return false;
++  }
++
++  m_initialized = true;
++  pushFb(fb, FbLog, "D3D11 device ready");
++  pushFb(fb, FbDeviceOk, "");
++  return true;
++}
++
++void D3D11Renderer::shutdown() {
++  if (m_context) {
++    m_context->ClearState();
++    m_context->Flush();
++  }
++  m_shaders = ShaderSet();
++  m_cube = MeshGpu();
++  m_cb.Reset();
++  m_depthState.Reset();
++  m_raster.Reset();
++  m_dsv.Reset();
++  m_depth.Reset();
++  m_rtv.Reset();
++  m_swap.Reset();
++  m_context.Reset();
++  m_device.Reset();
++  m_adapter.Reset();
++  m_factory.Reset();
++  m_initialized = false;
++}
++
++bool D3D11Renderer::resize(int w, int h) {
++  if (w <= 0 || h <= 0) {
++    return true;
++  }
++  if (!m_swap || !m_context) {
++    return false;
++  }
++  m_w = w;
++  m_h = h;
++  m_context->OMSetRenderTargets(0, 0, 0);
++  m_rtv.Reset();
++  m_dsv.Reset();
++  m_depth.Reset();
++  const HRESULT hr = m_swap->ResizeBuffers(
++      2,
++      static_cast<UINT>(w),
++      static_cast<UINT>(h),
++      DXGI_FORMAT_R8G8B8A8_UNORM,
++      0);
++  if (FAILED(hr)) {
++    return false;
++  }
++  return createSizeDependentResources();
++}
++
++void D3D11Renderer::render(const StateSnapshot& snap) {
++  if (m_dead || !m_initialized || !m_context || !m_swap) {
++    return;
++  }
++  if (m_w <= 0 || m_h <= 0) {
++    return;
++  }
++
++  ID3D11RenderTargetView* rtv = m_rtv.Get();
++  m_context->OMSetRenderTargets(1, &rtv, m_dsv.Get());
++
++  D3D11_VIEWPORT vp = {};
++  vp.Width = static_cast<float>(m_w);
++  vp.Height = static_cast<float>(m_h);
++  vp.MinDepth = 0.f;
++  vp.MaxDepth = 1.f;
++  m_context->RSSetViewports(1, &vp);
++
++  const float clear[4] = {0.08f, 0.10f, 0.14f, 1.f};
++  m_context->ClearRenderTargetView(m_rtv.Get(), clear);
++  m_context->ClearDepthStencilView(m_dsv.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.f, 0);
++
++  const TeachingState& t = snap.teaching;
++  const float aspect = t.aspectFollowViewport
++      ? (static_cast<float>(m_w) / static_cast<float>(m_h))
++      : t.aspect;
++  const XMMATRIX W = BuildWorld(t.objects[0].trs);
++  const XMMATRIX V = BuildView(t.camDistance, t.camPitchDeg, t.camYawDeg);
++  const XMMATRIX P = BuildProjection(t, aspect);
++  const XMMATRIX WVP = W * V * P;
++
++  FrameCBCpu cb;
++  XMStoreFloat4x4(&cb.w, W);
++  XMStoreFloat4x4(&cb.v, V);
++  XMStoreFloat4x4(&cb.p, P);
++  XMStoreFloat4x4(&cb.wvp, WVP);
++
++  D3D11_MAPPED_SUBRESOURCE mapped = {};
++  if (SUCCEEDED(m_context->Map(m_cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
++    std::memcpy(mapped.pData, &cb, sizeof(cb));
++    m_context->Unmap(m_cb.Get(), 0);
++  }
++
++  ID3D11Buffer* cbuf = m_cb.Get();
++  m_context->VSSetConstantBuffers(0, 1, &cbuf);
++  m_context->PSSetConstantBuffers(0, 1, &cbuf);
++  m_context->VSSetShader(m_shaders.vs(), 0, 0);
++  m_context->PSSetShader(m_shaders.ps(), 0, 0);
++  m_context->IASetInputLayout(m_shaders.layout());
++  m_context->RSSetState(m_raster.Get());
++  m_context->OMSetDepthStencilState(m_depthState.Get(), 0);
++  m_cube.draw(m_context.Get());
++
++  const HRESULT hr = m_swap->Present(1, 0);
++  handlePresentResult(hr);
++}
++
++bool D3D11Renderer::reloadShaders(FeedbackQueue* fb) {
++  if (!m_device) {
++    return false;
++  }
++  ShaderSet next;
++  const std::wstring shaderPath = m_shaderDir + L"/unlit.hlsl";
++  if (!next.compileFromFile(m_device.Get(), shaderPath, fb)) {
++    return false;
++  }
++  m_shaders = next;
++  return true;
++}
++
++bool D3D11Renderer::createSizeDependentResources() {
++  if (!m_device || !m_swap) {
++    return false;
++  }
++  ComPtr<ID3D11Texture2D> back;
++  HRESULT hr = m_swap->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(back.ReleaseAndGetAddressOf()));
++  if (FAILED(hr)) {
++    return false;
++  }
++  hr = m_device->CreateRenderTargetView(back.Get(), 0, &m_rtv);
++  if (FAILED(hr)) {
++    return false;
++  }
++
++  D3D11_TEXTURE2D_DESC dd = {};
++  dd.Width = static_cast<UINT>(m_w);
++  dd.Height = static_cast<UINT>(m_h);
++  dd.MipLevels = 1;
++  dd.ArraySize = 1;
++  dd.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
++  dd.SampleDesc.Count = 1;
++  dd.BindFlags = D3D11_BIND_DEPTH_STENCIL;
++  hr = m_device->CreateTexture2D(&dd, 0, &m_depth);
++  if (FAILED(hr)) {
++    return false;
++  }
++  hr = m_device->CreateDepthStencilView(m_depth.Get(), 0, &m_dsv);
++  return SUCCEEDED(hr);
++}
++
++void D3D11Renderer::handlePresentResult(HRESULT hr) {
++  if (hr != DXGI_ERROR_DEVICE_REMOVED && hr != DXGI_ERROR_DEVICE_RESET) {
++    return;
++  }
++  pushFb(m_fb, FbDeviceLost, "");
++  const HWND hwnd = m_hwnd;
++  const int w = m_w;
++  const int h = m_h;
++  const bool wantDebug = m_wantDebug;
++  FeedbackQueue* fb = m_fb;
++  const std::wstring shaderDir = m_shaderDir;
++  shutdown();
++  m_shaderDir = shaderDir;
++  if (!initialize(hwnd, w, h, wantDebug, fb)) {
++    m_dead = true;
++  }
++}
+diff --git a/src/render/D3D11Renderer.h b/src/render/D3D11Renderer.h
+new file mode 100644
+index 0000000..072a768
+--- /dev/null
++++ b/src/render/D3D11Renderer.h
+@@ -0,0 +1,45 @@
++#pragma once
++#include "core/StateSnapshot.h"
++#include "render/FeedbackQueue.h"
++#include "render/MeshGpu.h"
++#include "render/ShaderSet.h"
++#include <d3d11.h>
++#include <dxgi.h>
++#include <wrl/client.h>
++#include <string>
++
++class D3D11Renderer {
++public:
++  explicit D3D11Renderer(const std::wstring& shaderDir);
++  bool initialize(HWND hwnd, int w, int h, bool wantDebug, FeedbackQueue* fb);
++  void shutdown();
++  bool resize(int w, int h);
++  void render(const StateSnapshot& snap);
++  bool reloadShaders(FeedbackQueue* fb);
++  bool dead() const { return m_dead; }
++  bool initialized() const { return m_initialized; }
++private:
++  bool createSizeDependentResources();
++  void handlePresentResult(HRESULT hr);
++  std::wstring m_shaderDir;
++  HWND m_hwnd;
++  int m_w;
++  int m_h;
++  bool m_wantDebug;
++  bool m_initialized;
++  bool m_dead;
++  FeedbackQueue* m_fb;
++  Microsoft::WRL::ComPtr<IDXGIFactory1> m_factory;
++  Microsoft::WRL::ComPtr<IDXGIAdapter1> m_adapter;
++  Microsoft::WRL::ComPtr<ID3D11Device> m_device;
++  Microsoft::WRL::ComPtr<ID3D11DeviceContext> m_context;
++  Microsoft::WRL::ComPtr<IDXGISwapChain> m_swap;
++  Microsoft::WRL::ComPtr<ID3D11RenderTargetView> m_rtv;
++  Microsoft::WRL::ComPtr<ID3D11Texture2D> m_depth;
++  Microsoft::WRL::ComPtr<ID3D11DepthStencilView> m_dsv;
++  Microsoft::WRL::ComPtr<ID3D11RasterizerState> m_raster;
++  Microsoft::WRL::ComPtr<ID3D11DepthStencilState> m_depthState;
++  Microsoft::WRL::ComPtr<ID3D11Buffer> m_cb;
++  MeshGpu m_cube;
++  ShaderSet m_shaders;
++};
+diff --git a/src/render/MeshGpu.cpp b/src/render/MeshGpu.cpp
+new file mode 100644
+index 0000000..81e0afa
+--- /dev/null
++++ b/src/render/MeshGpu.cpp
+@@ -0,0 +1,93 @@
++#include "render/MeshGpu.h"
++
++static_assert(sizeof(MeshVertex) == 32, "MeshVertex is 32 bytes");
++
++MeshGpu MeshGpu::createCube(ID3D11Device* device) {
++  MeshGpu mesh;
++  if (!device) {
++    return mesh;
++  }
++
++  // Clockwise winding when viewed from outside (D3D11 default front face).
++  static const MeshVertex kVerts[24] = {
++      // +Z
++      {-0.5f, 0.5f, 0.5f, 0.f, 0.f, 1.f, 0.f, 0.f},
++      {0.5f, 0.5f, 0.5f, 0.f, 0.f, 1.f, 1.f, 0.f},
++      {0.5f, -0.5f, 0.5f, 0.f, 0.f, 1.f, 1.f, 1.f},
++      {-0.5f, -0.5f, 0.5f, 0.f, 0.f, 1.f, 0.f, 1.f},
++      // -Z
++      {0.5f, 0.5f, -0.5f, 0.f, 0.f, -1.f, 0.f, 0.f},
++      {-0.5f, 0.5f, -0.5f, 0.f, 0.f, -1.f, 1.f, 0.f},
++      {-0.5f, -0.5f, -0.5f, 0.f, 0.f, -1.f, 1.f, 1.f},
++      {0.5f, -0.5f, -0.5f, 0.f, 0.f, -1.f, 0.f, 1.f},
++      // +X
++      {0.5f, 0.5f, 0.5f, 1.f, 0.f, 0.f, 0.f, 0.f},
++      {0.5f, 0.5f, -0.5f, 1.f, 0.f, 0.f, 1.f, 0.f},
++      {0.5f, -0.5f, -0.5f, 1.f, 0.f, 0.f, 1.f, 1.f},
++      {0.5f, -0.5f, 0.5f, 1.f, 0.f, 0.f, 0.f, 1.f},
++      // -X
++      {-0.5f, 0.5f, -0.5f, -1.f, 0.f, 0.f, 0.f, 0.f},
++      {-0.5f, 0.5f, 0.5f, -1.f, 0.f, 0.f, 1.f, 0.f},
++      {-0.5f, -0.5f, 0.5f, -1.f, 0.f, 0.f, 1.f, 1.f},
++      {-0.5f, -0.5f, -0.5f, -1.f, 0.f, 0.f, 0.f, 1.f},
++      // +Y
++      {-0.5f, 0.5f, -0.5f, 0.f, 1.f, 0.f, 0.f, 0.f},
++      {0.5f, 0.5f, -0.5f, 0.f, 1.f, 0.f, 1.f, 0.f},
++      {0.5f, 0.5f, 0.5f, 0.f, 1.f, 0.f, 1.f, 1.f},
++      {-0.5f, 0.5f, 0.5f, 0.f, 1.f, 0.f, 0.f, 1.f},
++      // -Y
++      {-0.5f, -0.5f, 0.5f, 0.f, -1.f, 0.f, 0.f, 0.f},
++      {0.5f, -0.5f, 0.5f, 0.f, -1.f, 0.f, 1.f, 0.f},
++      {0.5f, -0.5f, -0.5f, 0.f, -1.f, 0.f, 1.f, 1.f},
++      {-0.5f, -0.5f, -0.5f, 0.f, -1.f, 0.f, 0.f, 1.f},
++  };
++  static const UINT kIdx[36] = {
++      0,  1,  2,  0,  2,  3,  4,  5,  6,  4,  6,  7,
++      8,  9,  10, 8,  10, 11, 12, 13, 14, 12, 14, 15,
++      16, 17, 18, 16, 18, 19, 20, 21, 22, 20, 22, 23,
++  };
++
++  D3D11_BUFFER_DESC vbd = {};
++  vbd.ByteWidth = sizeof(kVerts);
++  vbd.Usage = D3D11_USAGE_DEFAULT;
++  vbd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
++  D3D11_SUBRESOURCE_DATA vrd = {};
++  vrd.pSysMem = kVerts;
++  if (FAILED(device->CreateBuffer(&vbd, &vrd, &mesh.m_vb))) {
++    return MeshGpu();
++  }
++
++  D3D11_BUFFER_DESC ibd = {};
++  ibd.ByteWidth = sizeof(kIdx);
++  ibd.Usage = D3D11_USAGE_DEFAULT;
++  ibd.BindFlags = D3D11_BIND_INDEX_BUFFER;
++  D3D11_SUBRESOURCE_DATA ird = {};
++  ird.pSysMem = kIdx;
++  if (FAILED(device->CreateBuffer(&ibd, &ird, &mesh.m_ib))) {
++    return MeshGpu();
++  }
++
++  mesh.m_indexCount = 36;
++  return mesh;
++}
++
++MeshGpu MeshGpu::createSphere(ID3D11Device*) {
++  return MeshGpu();
++}
++
++MeshGpu MeshGpu::createCylinder(ID3D11Device*) {
++  return MeshGpu();
++}
++
++void MeshGpu::draw(ID3D11DeviceContext* context) const {
++  if (!context || !valid()) {
++    return;
++  }
++  UINT stride = sizeof(MeshVertex);
++  UINT offset = 0;
++  ID3D11Buffer* vb = m_vb.Get();
++  context->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
++  context->IASetIndexBuffer(m_ib.Get(), DXGI_FORMAT_R32_UINT, 0);
++  context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
++  context->DrawIndexed(m_indexCount, 0, 0);
++}
+diff --git a/src/render/MeshGpu.h b/src/render/MeshGpu.h
+new file mode 100644
+index 0000000..6b42187
+--- /dev/null
++++ b/src/render/MeshGpu.h
+@@ -0,0 +1,22 @@
++#pragma once
++#include <d3d11.h>
++#include <wrl/client.h>
++
++struct MeshVertex {
++  float px, py, pz;
++  float nx, ny, nz;
++  float u, v;
++};
++
++class MeshGpu {
++public:
++  static MeshGpu createCube(ID3D11Device* device);
++  static MeshGpu createSphere(ID3D11Device* device);
++  static MeshGpu createCylinder(ID3D11Device* device);
++  void draw(ID3D11DeviceContext* context) const;
++  bool valid() const { return m_vb && m_ib && m_indexCount > 0; }
++private:
++  Microsoft::WRL::ComPtr<ID3D11Buffer> m_vb;
++  Microsoft::WRL::ComPtr<ID3D11Buffer> m_ib;
++  UINT m_indexCount = 0;
++};
+diff --git a/src/render/RenderThread.cpp b/src/render/RenderThread.cpp
+index 3651b1e..8b7262f 100644
+--- a/src/render/RenderThread.cpp
++++ b/src/render/RenderThread.cpp
+@@ -1,14 +1,26 @@
+ #include "render/RenderThread.h"
+ #include <chrono>
+ 
+-RenderThread::RenderThread() : m_running(false) {}
++RenderThread::RenderThread() : RenderThread(std::wstring()) {}
++
++RenderThread::RenderThread(const std::wstring& shaderDir)
++#ifndef D3DEDITMAX_NO_D3D
++    : m_renderer(shaderDir)
++    , m_hwnd(0)
++#else
++    : m_hwnd(0)
++#endif
++    , m_w(0)
++    , m_h(0)
++    , m_shaderDir(shaderDir)
++    , m_running(false) {}
+ 
+ RenderThread::~RenderThread() {
+   requestStopAndJoin();
+ }
+ 
+ void RenderThread::start() {
+   if (m_thread.joinable()) {
+     return;
+   }
+   m_running.store(true);
+@@ -23,25 +35,64 @@ void RenderThread::requestStopAndJoin() {
+   stop.type = CmdStop;
+   stop.hwnd = 0;
+   stop.width = 0;
+   stop.height = 0;
+   m_commands.push(stop);
+   m_thread.join();
+   m_running.store(false);
+ }
+ 
+ void RenderThread::threadMain() {
++  int frames = 0;
+   for (;;) {
+     RenderCommand cmd;
+     bool stop = false;
+     while (m_commands.tryPop(&cmd)) {
+-      if (cmd.type == CmdStop) {
++      if (cmd.type == CmdInit) {
++        m_hwnd = cmd.hwnd;
++        m_w = cmd.width;
++        m_h = cmd.height;
++#ifndef D3DEDITMAX_NO_D3D
++        m_renderer.initialize(cmd.hwnd, cmd.width, cmd.height, true, &m_feedback);
++#endif
++      } else if (cmd.type == CmdResize) {
++        m_w = cmd.width;
++        m_h = cmd.height;
++#ifndef D3DEDITMAX_NO_D3D
++        m_renderer.resize(cmd.width, cmd.height);
++#endif
++      } else if (cmd.type == CmdReloadShader) {
++#ifndef D3DEDITMAX_NO_D3D
++        m_renderer.reloadShaders(&m_feedback);
++#endif
++      } else if (cmd.type == CmdStop) {
++#ifndef D3DEDITMAX_NO_D3D
++        m_renderer.shutdown();
++#endif
+         stop = true;
+       }
+     }
+     if (stop) {
+       break;
+     }
++#ifndef D3DEDITMAX_NO_D3D
++    if (m_renderer.initialized() && !m_renderer.dead()) {
++      const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
++      m_renderer.render(m_snapshots.consume());
++      const std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
++      ++frames;
++      if (frames % 30 == 0) {
++        FeedbackItem fps;
++        fps.kind = FbFps;
++        fps.text = "";
++        fps.ms = std::chrono::duration<float, std::milli>(t1 - t0).count();
++        m_feedback.push(fps);
++      }
++    } else {
++      std::this_thread::sleep_for(std::chrono::milliseconds(1));
++    }
++#else
+     (void)m_snapshots.consume();
+     std::this_thread::sleep_for(std::chrono::milliseconds(1));
++#endif
+   }
+ }
+diff --git a/src/render/RenderThread.h b/src/render/RenderThread.h
+index 2138cbd..17002ad 100644
+--- a/src/render/RenderThread.h
++++ b/src/render/RenderThread.h
+@@ -1,24 +1,36 @@
+ #pragma once
+ #include "core/SnapshotBuffer.h"
+ #include "render/CommandQueue.h"
+ #include "render/FeedbackQueue.h"
++#ifndef D3DEDITMAX_NO_D3D
++#include "render/D3D11Renderer.h"
++#endif
+ #include <atomic>
++#include <string>
+ #include <thread>
+ 
+ class RenderThread {
+ public:
+   RenderThread();
++  explicit RenderThread(const std::wstring& shaderDir);
+   ~RenderThread();
+   void start();
+   void requestStopAndJoin();
+   CommandQueue& commands() { return m_commands; }
+   FeedbackQueue& feedback() { return m_feedback; }
+   SnapshotBuffer& snapshots() { return m_snapshots; }
+ private:
+   void threadMain();
+   CommandQueue m_commands;
+   FeedbackQueue m_feedback;
+   SnapshotBuffer m_snapshots;
++#ifndef D3DEDITMAX_NO_D3D
++  D3D11Renderer m_renderer;
++#endif
++  HWND m_hwnd;
++  int m_w;
++  int m_h;
++  std::wstring m_shaderDir;
+   std::thread m_thread;
+   std::atomic<bool> m_running;
+ };
+diff --git a/src/render/ShaderSet.cpp b/src/render/ShaderSet.cpp
+new file mode 100644
+index 0000000..950edfb
+--- /dev/null
++++ b/src/render/ShaderSet.cpp
+@@ -0,0 +1,132 @@
++#include "render/ShaderSet.h"
++#include <d3dcompiler.h>
++
++static void pushCompileError(FeedbackQueue* fb, ID3DBlob* err) {
++  if (!fb) {
++    return;
++  }
++  FeedbackItem item;
++  item.kind = FbError;
++  item.ms = 0.f;
++  if (err && err->GetBufferPointer() && err->GetBufferSize() > 0) {
++    const char* text = static_cast<const char*>(err->GetBufferPointer());
++    item.text.assign(text, text + err->GetBufferSize());
++  } else {
++    item.text = "HLSL compile failed";
++  }
++  fb->push(item);
++}
++
++bool ShaderSet::compileFromFile(ID3D11Device* device, const std::wstring& path, FeedbackQueue* fb) {
++  if (!device) {
++    if (fb) {
++      FeedbackItem item;
++      item.kind = FbError;
++      item.text = "ShaderSet: null device";
++      item.ms = 0.f;
++      fb->push(item);
++    }
++    return false;
++  }
++
++  Microsoft::WRL::ComPtr<ID3DBlob> vsBlob;
++  Microsoft::WRL::ComPtr<ID3DBlob> psBlob;
++  Microsoft::WRL::ComPtr<ID3DBlob> err;
++
++  HRESULT hr = D3DCompileFromFile(
++      path.c_str(),
++      0,
++      D3D_COMPILE_STANDARD_FILE_INCLUDE,
++      "vs_main",
++      "vs_5_0",
++      0,
++      0,
++      &vsBlob,
++      &err);
++  if (FAILED(hr)) {
++    pushCompileError(fb, err.Get());
++    return false;
++  }
++
++  err.Reset();
++  hr = D3DCompileFromFile(
++      path.c_str(),
++      0,
++      D3D_COMPILE_STANDARD_FILE_INCLUDE,
++      "ps_main",
++      "ps_5_0",
++      0,
++      0,
++      &psBlob,
++      &err);
++  if (FAILED(hr)) {
++    pushCompileError(fb, err.Get());
++    return false;
++  }
++
++  Microsoft::WRL::ComPtr<ID3D11VertexShader> vs;
++  Microsoft::WRL::ComPtr<ID3D11PixelShader> ps;
++  Microsoft::WRL::ComPtr<ID3D11InputLayout> layout;
++
++  hr = device->CreateVertexShader(
++      vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), 0, &vs);
++  if (FAILED(hr)) {
++    if (fb) {
++      FeedbackItem item;
++      item.kind = FbError;
++      item.text = "CreateVertexShader failed";
++      item.ms = 0.f;
++      fb->push(item);
++    }
++    return false;
++  }
++
++  hr = device->CreatePixelShader(
++      psBlob->GetBufferPointer(), psBlob->GetBufferSize(), 0, &ps);
++  if (FAILED(hr)) {
++    if (fb) {
++      FeedbackItem item;
++      item.kind = FbError;
++      item.text = "CreatePixelShader failed";
++      item.ms = 0.f;
++      fb->push(item);
++    }
++    return false;
++  }
++
++  D3D11_INPUT_ELEMENT_DESC elems[3] = {};
++  elems[0].SemanticName = "POSITION";
++  elems[0].Format = DXGI_FORMAT_R32G32B32_FLOAT;
++  elems[0].AlignedByteOffset = 0;
++  elems[0].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
++  elems[1].SemanticName = "NORMAL";
++  elems[1].Format = DXGI_FORMAT_R32G32B32_FLOAT;
++  elems[1].AlignedByteOffset = 12;
++  elems[1].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
++  elems[2].SemanticName = "TEXCOORD";
++  elems[2].Format = DXGI_FORMAT_R32G32_FLOAT;
++  elems[2].AlignedByteOffset = 24;
++  elems[2].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
++
++  hr = device->CreateInputLayout(
++      elems,
++      3,
++      vsBlob->GetBufferPointer(),
++      vsBlob->GetBufferSize(),
++      &layout);
++  if (FAILED(hr)) {
++    if (fb) {
++      FeedbackItem item;
++      item.kind = FbError;
++      item.text = "CreateInputLayout failed";
++      item.ms = 0.f;
++      fb->push(item);
++    }
++    return false;
++  }
++
++  m_vs = vs;
++  m_ps = ps;
++  m_layout = layout;
++  return true;
++}
+diff --git a/src/render/ShaderSet.h b/src/render/ShaderSet.h
+new file mode 100644
+index 0000000..3e3b68a
+--- /dev/null
++++ b/src/render/ShaderSet.h
+@@ -0,0 +1,18 @@
++#pragma once
++#include "render/FeedbackQueue.h"
++#include <d3d11.h>
++#include <wrl/client.h>
++#include <string>
++
++class ShaderSet {
++public:
++  bool compileFromFile(ID3D11Device* device, const std::wstring& path, FeedbackQueue* fb);
++  ID3D11VertexShader* vs() const { return m_vs.Get(); }
++  ID3D11PixelShader* ps() const { return m_ps.Get(); }
++  ID3D11InputLayout* layout() const { return m_layout.Get(); }
++  bool valid() const { return m_vs && m_ps && m_layout; }
++private:
++  Microsoft::WRL::ComPtr<ID3D11VertexShader> m_vs;
++  Microsoft::WRL::ComPtr<ID3D11PixelShader> m_ps;
++  Microsoft::WRL::ComPtr<ID3D11InputLayout> m_layout;
++};
+diff --git a/src/teach/Transforms.cpp b/src/teach/Transforms.cpp
+new file mode 100644
+index 0000000..ee67bcf
+--- /dev/null
++++ b/src/teach/Transforms.cpp
+@@ -0,0 +1,35 @@
++#include "teach/Transforms.h"
++
++using namespace DirectX;
++
++XMMATRIX BuildWorld(const TransformTRS& trs) {
++  const XMMATRIX s = XMMatrixScaling(trs.scale[0], trs.scale[1], trs.scale[2]);
++  const XMMATRIX r = XMMatrixRotationRollPitchYaw(
++      XMConvertToRadians(trs.pitchDeg),
++      XMConvertToRadians(trs.yawDeg),
++      XMConvertToRadians(trs.rollDeg));
++  const XMMATRIX t = XMMatrixTranslation(trs.pos[0], trs.pos[1], trs.pos[2]);
++  return s * r * t;
++}
++
++XMMATRIX BuildView(float distance, float pitchDeg, float yawDeg) {
++  const float pitch = XMConvertToRadians(pitchDeg);
++  const float yaw = XMConvertToRadians(yawDeg);
++  const XMVECTOR eye = XMVectorSet(
++      distance * sinf(yaw) * cosf(pitch),
++      distance * sinf(pitch),
++      distance * cosf(yaw) * cosf(pitch),
++      1.f);
++  const XMVECTOR at = XMVectorZero();
++  const XMVECTOR up = XMVectorSet(0.f, 1.f, 0.f, 0.f);
++  return XMMatrixLookAtLH(eye, at, up);
++}
++
++XMMATRIX BuildProjection(const TeachingState& s, float aspect) {
++  const float a = (aspect > 0.01f) ? aspect : (16.f / 9.f);
++  if (s.proj == ProjOrtho) {
++    const float h = s.camDistance;
++    return XMMatrixOrthographicLH(h * a, h, s.nearZ, s.farZ);
++  }
++  return XMMatrixPerspectiveFovLH(XMConvertToRadians(s.fovDeg), a, s.nearZ, s.farZ);
++}
+diff --git a/src/teach/Transforms.h b/src/teach/Transforms.h
+new file mode 100644
+index 0000000..699c324
+--- /dev/null
++++ b/src/teach/Transforms.h
+@@ -0,0 +1,7 @@
++#pragma once
++#include "core/TeachingState.h"
++#include <DirectXMath.h>
++
++DirectX::XMMATRIX BuildWorld(const TransformTRS& trs);
++DirectX::XMMATRIX BuildView(float distance, float pitchDeg, float yawDeg);
++DirectX::XMMATRIX BuildProjection(const TeachingState& s, float aspect);

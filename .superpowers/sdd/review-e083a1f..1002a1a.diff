@@ -1,0 +1,744 @@
+﻿# Review package: e083a1f66469ba854455c6a3128c59303b898983..1002a1a4cbd99ac63244d7ab927babe3c97f5b1e
+
+## Commits
+1002a1a Add transform docks and column-major matrix board.
+
+## Files changed
+ CMakeLists.txt              |   6 ++  src/app/MainWindow.cpp      | 101 +++++++++++++++++++++--  src/app/MainWindow.h        |  14 ++++  src/core/MatrixFormat.cpp   |  32 ++++++++  src/core/MatrixFormat.h     |   9 +++  src/ui/MatrixBoardPanel.cpp |  99 +++++++++++++++++++++++  src/ui/MatrixBoardPanel.h   |  34 ++++++++  src/ui/TransformPanel.cpp   | 192 ++++++++++++++++++++++++++++++++++++++++++++  src/ui/TransformPanel.h     |  45 +++++++++++  tests/test_transforms.cpp   |  25 ++++++  10 files changed, 551 insertions(+), 6 deletions(-)
+
+## Diff
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 1167e22..5ba4a4c 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -23,21 +23,26 @@ endif()
+ find_package(Qt5 5.15 REQUIRED COMPONENTS Widgets)
+ 
+ add_executable(3DEditMax
+   src/main.cpp
+   src/app/MainWindow.h
+   src/app/MainWindow.cpp
+   src/ui/Dx11ViewportWidget.h
+   src/ui/Dx11ViewportWidget.cpp
+   src/ui/DebugLogPanel.h
+   src/ui/DebugLogPanel.cpp
++  src/ui/TransformPanel.h
++  src/ui/TransformPanel.cpp
++  src/ui/MatrixBoardPanel.h
++  src/ui/MatrixBoardPanel.cpp
+   src/core/SnapshotBuffer.cpp
++  src/core/MatrixFormat.cpp
+   src/render/CommandQueue.cpp
+   src/render/FeedbackQueue.cpp
+   src/render/RenderThread.cpp
+   src/render/D3D11Renderer.cpp
+   src/render/MeshGpu.cpp
+   src/render/ShaderSet.cpp
+   src/teach/Transforms.cpp
+ )
+ 
+ target_include_directories(3DEditMax PRIVATE "${CMAKE_SOURCE_DIR}/src")
+@@ -53,18 +58,19 @@ add_custom_command(TARGET 3DEditMax POST_BUILD
+ 
+ enable_testing()
+ add_executable(3deditmax_tests
+   tests/test_main.cpp
+   tests/test_queues.cpp
+   tests/test_transforms.cpp
+   src/render/CommandQueue.cpp
+   src/render/FeedbackQueue.cpp
+   src/render/RenderThread.cpp
+   src/core/SnapshotBuffer.cpp
++  src/core/MatrixFormat.cpp
+   src/teach/Transforms.cpp
+ )
+ target_include_directories(3deditmax_tests PRIVATE
+   "${CMAKE_SOURCE_DIR}/src"
+   "${CMAKE_SOURCE_DIR}/tests"
+ )
+ target_compile_definitions(3deditmax_tests PRIVATE D3DEDITMAX_NO_D3D)
+ add_test(NAME 3deditmax_tests COMMAND 3deditmax_tests)
+diff --git a/src/app/MainWindow.cpp b/src/app/MainWindow.cpp
+index dd67dc4..b5c290d 100644
+--- a/src/app/MainWindow.cpp
++++ b/src/app/MainWindow.cpp
+@@ -1,39 +1,128 @@
+ #include "app/MainWindow.h"
++#include "teach/Transforms.h"
+ #include "ui/DebugLogPanel.h"
+ #include "ui/Dx11ViewportWidget.h"
++#include "ui/MatrixBoardPanel.h"
++#include "ui/TransformPanel.h"
++#include <QAction>
+ #include <QDockWidget>
+ #include <QMenu>
+ #include <QMenuBar>
+ #include <QTimer>
++#include <QToolBar>
++#include <DirectXMath.h>
+ 
+ MainWindow::MainWindow(QWidget* parent)
+     : QMainWindow(parent)
+     , m_viewport(0)
++    , m_transforms(0)
++    , m_board(0)
+     , m_log(0)
+     , m_poll(0)
++    , m_majorAction(0)
+     , m_teaching(teachingStateDefault())
+-    , m_lab(labStateDefault()) {
++    , m_lab(labStateDefault())
++    , m_major(MajorColumn) {
+   setWindowTitle(QString::fromUtf8("3DEditMax"));
+   resize(1280, 720);
+ 
+   m_viewport = new Dx11ViewportWidget(this);
++  m_transforms = new TransformPanel(this);
++  m_board = new MatrixBoardPanel(this);
+   m_log = new DebugLogPanel(this);
+   setCentralWidget(m_viewport);
+ 
+-  QDockWidget* dock = new QDockWidget(QString::fromUtf8("DX11 Lab / Debug"), this);
+-  dock->setObjectName(QString::fromUtf8("dockDebug"));
+-  dock->setWidget(m_log);
+-  addDockWidget(Qt::RightDockWidgetArea, dock);
++  QDockWidget* dockTransforms = new QDockWidget(QString::fromUtf8("\xE5\x8F\x98\xE6\x8D\xA2"), this);
++  dockTransforms->setObjectName(QString::fromUtf8("dockTransforms"));
++  dockTransforms->setWidget(m_transforms);
++  addDockWidget(Qt::LeftDockWidgetArea, dockTransforms);
++
++  QDockWidget* dockMatrix = new QDockWidget(QString::fromUtf8("\xE7\x9F\xA9\xE9\x98\xB5\xE7\x9C\x8B\xE6\x9D\xBF"), this);
++  dockMatrix->setObjectName(QString::fromUtf8("dockMatrix"));
++  dockMatrix->setWidget(m_board);
++  addDockWidget(Qt::RightDockWidgetArea, dockMatrix);
++
++  QDockWidget* dockDebug = new QDockWidget(QString::fromUtf8("DX11 Lab / Debug"), this);
++  dockDebug->setObjectName(QString::fromUtf8("dockDebug"));
++  dockDebug->setWidget(m_log);
++  addDockWidget(Qt::RightDockWidgetArea, dockDebug);
++  splitDockWidget(dockMatrix, dockDebug, Qt::Vertical);
++
++  QToolBar* toolbar = addToolBar(QString::fromUtf8("Teach"));
++  toolbar->setObjectName(QString::fromUtf8("toolbarTeach"));
++  m_majorAction = toolbar->addAction(QString());
++  QAction* resetAction = toolbar->addAction(QString::fromUtf8("\xE9\x87\x8D\xE7\xBD\xAE"));
++  syncMajorActionText();
+ 
+   QMenu* viewMenu = menuBar()->addMenu(QString::fromUtf8("\xE8\xA7\x86\xE5\x9B\xBE"));
+-  viewMenu->addAction(dock->toggleViewAction());
++  viewMenu->addAction(dockTransforms->toggleViewAction());
++  viewMenu->addAction(dockMatrix->toggleViewAction());
++  viewMenu->addAction(dockDebug->toggleViewAction());
++
++  connect(m_transforms, &TransformPanel::changed, this, &MainWindow::onTransformsChanged);
++  connect(m_majorAction, &QAction::triggered, this, &MainWindow::onToggleMajor);
++  connect(resetAction, &QAction::triggered, this, &MainWindow::onReset);
++
++  m_transforms->setState(m_teaching);
++  m_viewport->publishState(m_teaching, m_lab);
++  refreshBoard();
+ 
+   m_poll = new QTimer(this);
+   m_poll->setInterval(100);
+   connect(m_poll, &QTimer::timeout, this, &MainWindow::onPollFeedback);
+   m_poll->start();
+ }
+ 
+ void MainWindow::onPollFeedback() {
+   m_log->drain(m_viewport->feedback());
+ }
++
++void MainWindow::onTransformsChanged() {
++  m_teaching = m_transforms->state();
++  m_viewport->publishState(m_teaching, m_lab);
++  refreshBoard();
++}
++
++void MainWindow::onToggleMajor() {
++  m_major = (m_major == MajorColumn) ? MajorRow : MajorColumn;
++  syncMajorActionText();
++  m_board->setMajorOrder(m_major);
++}
++
++void MainWindow::onReset() {
++  m_teaching = teachingStateDefault();
++  m_transforms->setState(m_teaching);
++  m_viewport->publishState(m_teaching, m_lab);
++  refreshBoard();
++}
++
++void MainWindow::refreshBoard() {
++  using namespace DirectX;
++  const TeachingState& t = m_teaching;
++  float aspect = t.aspect;
++  if (t.aspectFollowViewport && m_viewport->height() > 0) {
++    aspect = static_cast<float>(m_viewport->width()) /
++             static_cast<float>(m_viewport->height());
++  }
++  const XMMATRIX W = BuildWorld(t.objects[0].trs);
++  const XMMATRIX V = BuildView(t.camDistance, t.camPitchDeg, t.camYawDeg);
++  const XMMATRIX P = BuildProjection(t, aspect);
++  const XMMATRIX WVP = W * V * P;
++  XMFLOAT4X4 w;
++  XMFLOAT4X4 v;
++  XMFLOAT4X4 p;
++  XMFLOAT4X4 wvp;
++  XMStoreFloat4x4(&w, W);
++  XMStoreFloat4x4(&v, V);
++  XMStoreFloat4x4(&p, P);
++  XMStoreFloat4x4(&wvp, WVP);
++  m_board->setMatrices(w, v, p, wvp, m_major);
++}
++
++void MainWindow::syncMajorActionText() {
++  if (m_major == MajorColumn) {
++    m_majorAction->setText(QString::fromUtf8("\xE5\x88\x97\xE4\xB8\xBB\xE5\xBA\x8F"));
++  } else {
++    m_majorAction->setText(QString::fromUtf8("\xE8\xA1\x8C\xE4\xB8\xBB\xE5\xBA\x8F"));
++  }
++}
+diff --git a/src/app/MainWindow.h b/src/app/MainWindow.h
+index f3fe4a7..0fcc83e 100644
+--- a/src/app/MainWindow.h
++++ b/src/app/MainWindow.h
+@@ -1,22 +1,36 @@
+ #pragma once
+ #include "core/LabState.h"
++#include "core/MatrixFormat.h"
+ #include "core/TeachingState.h"
+ #include <QMainWindow>
+ 
+ class DebugLogPanel;
+ class Dx11ViewportWidget;
++class MatrixBoardPanel;
++class QAction;
+ class QTimer;
++class TransformPanel;
+ 
+ class MainWindow : public QMainWindow {
+   Q_OBJECT
+ public:
+   explicit MainWindow(QWidget* parent = 0);
+ private slots:
+   void onPollFeedback();
++  void onTransformsChanged();
++  void onToggleMajor();
++  void onReset();
+ private:
++  void refreshBoard();
++  void syncMajorActionText();
++
+   Dx11ViewportWidget* m_viewport;
++  TransformPanel* m_transforms;
++  MatrixBoardPanel* m_board;
+   DebugLogPanel* m_log;
+   QTimer* m_poll;
++  QAction* m_majorAction;
+   TeachingState m_teaching;
+   LabState m_lab;
++  MajorOrder m_major;
+ };
+diff --git a/src/core/MatrixFormat.cpp b/src/core/MatrixFormat.cpp
+new file mode 100644
+index 0000000..e603d26
+--- /dev/null
++++ b/src/core/MatrixFormat.cpp
+@@ -0,0 +1,32 @@
++#ifdef _MSC_VER
++#ifndef _CRT_SECURE_NO_WARNINGS
++#define _CRT_SECURE_NO_WARNINGS
++#endif
++#endif
++#include "core/MatrixFormat.h"
++#include <cstdio>
++
++void formatMatrix4(const DirectX::XMFLOAT4X4& m, MajorOrder order, char out[4][64]) {
++  for (int line = 0; line < 4; ++line) {
++    float a = 0.f;
++    float b = 0.f;
++    float c = 0.f;
++    float d = 0.f;
++    if (order == MajorColumn) {
++      a = m.m[0][line];
++      b = m.m[1][line];
++      c = m.m[2][line];
++      d = m.m[3][line];
++    } else {
++      a = m.m[line][0];
++      b = m.m[line][1];
++      c = m.m[line][2];
++      d = m.m[line][3];
++    }
++    std::sprintf(out[line], "%.3f %.3f %.3f %.3f",
++                 static_cast<double>(a),
++                 static_cast<double>(b),
++                 static_cast<double>(c),
++                 static_cast<double>(d));
++  }
++}
+diff --git a/src/core/MatrixFormat.h b/src/core/MatrixFormat.h
+new file mode 100644
+index 0000000..e784acd
+--- /dev/null
++++ b/src/core/MatrixFormat.h
+@@ -0,0 +1,9 @@
++#pragma once
++#include <DirectXMath.h>
++
++enum MajorOrder {
++  MajorColumn = 0,
++  MajorRow = 1
++};
++
++void formatMatrix4(const DirectX::XMFLOAT4X4& m, MajorOrder order, char out[4][64]);
+diff --git a/src/ui/MatrixBoardPanel.cpp b/src/ui/MatrixBoardPanel.cpp
+new file mode 100644
+index 0000000..a0f700b
+--- /dev/null
++++ b/src/ui/MatrixBoardPanel.cpp
+@@ -0,0 +1,99 @@
++#include "ui/MatrixBoardPanel.h"
++#include <QFont>
++#include <QGroupBox>
++#include <QPlainTextEdit>
++#include <QVBoxLayout>
++
++static QPlainTextEdit* makeMatrixEdit(QWidget* parent) {
++  QPlainTextEdit* edit = new QPlainTextEdit(parent);
++  edit->setReadOnly(true);
++  QFont font = edit->font();
++  font.setFamily(QString::fromUtf8("Consolas"));
++  font.setStyleHint(QFont::Monospace);
++  font.setFixedPitch(true);
++  edit->setFont(font);
++  edit->setLineWrapMode(QPlainTextEdit::NoWrap);
++  edit->setTabChangesFocus(true);
++  return edit;
++}
++
++MatrixBoardPanel::MatrixBoardPanel(QWidget* parent)
++    : QWidget(parent)
++    , m_order(MajorColumn)
++    , m_mw(0)
++    , m_mv(0)
++    , m_mp(0)
++    , m_mvp(0) {
++  DirectX::XMStoreFloat4x4(&m_w, DirectX::XMMatrixIdentity());
++  DirectX::XMStoreFloat4x4(&m_v, DirectX::XMMatrixIdentity());
++  DirectX::XMStoreFloat4x4(&m_p, DirectX::XMMatrixIdentity());
++  DirectX::XMStoreFloat4x4(&m_wvp, DirectX::XMMatrixIdentity());
++
++  QVBoxLayout* root = new QVBoxLayout(this);
++  QGroupBox* gw = new QGroupBox(QString::fromUtf8("M_W"), this);
++  QGroupBox* gv = new QGroupBox(QString::fromUtf8("M_V"), this);
++  QGroupBox* gp = new QGroupBox(QString::fromUtf8("M_P"), this);
++  QGroupBox* gm = new QGroupBox(QString::fromUtf8("MVP"), this);
++  QVBoxLayout* lw = new QVBoxLayout(gw);
++  QVBoxLayout* lv = new QVBoxLayout(gv);
++  QVBoxLayout* lp = new QVBoxLayout(gp);
++  QVBoxLayout* lm = new QVBoxLayout(gm);
++  m_mw = makeMatrixEdit(gw);
++  m_mv = makeMatrixEdit(gv);
++  m_mp = makeMatrixEdit(gp);
++  m_mvp = makeMatrixEdit(gm);
++  lw->addWidget(m_mw);
++  lv->addWidget(m_mv);
++  lp->addWidget(m_mp);
++  lm->addWidget(m_mvp);
++  root->addWidget(gw);
++  root->addWidget(gv);
++  root->addWidget(gp);
++  root->addWidget(gm);
++  refresh();
++}
++
++void MatrixBoardPanel::setMajorOrder(MajorOrder order) {
++  m_order = order;
++  refresh();
++}
++
++void MatrixBoardPanel::setMatrices(const DirectX::XMFLOAT4X4& w,
++                                  const DirectX::XMFLOAT4X4& v,
++                                  const DirectX::XMFLOAT4X4& p,
++                                  const DirectX::XMFLOAT4X4& wvp) {
++  m_w = w;
++  m_v = v;
++  m_p = p;
++  m_wvp = wvp;
++  refresh();
++}
++
++void MatrixBoardPanel::setMatrices(const DirectX::XMFLOAT4X4& w,
++                                  const DirectX::XMFLOAT4X4& v,
++                                  const DirectX::XMFLOAT4X4& p,
++                                  const DirectX::XMFLOAT4X4& wvp,
++                                  MajorOrder order) {
++  m_order = order;
++  setMatrices(w, v, p, wvp);
++}
++
++void MatrixBoardPanel::refresh() {
++  fillBlock(m_mw, m_w);
++  fillBlock(m_mv, m_v);
++  fillBlock(m_mp, m_p);
++  fillBlock(m_mvp, m_wvp);
++}
++
++void MatrixBoardPanel::fillBlock(QPlainTextEdit* edit, const DirectX::XMFLOAT4X4& m) {
++  char lines[4][64];
++  formatMatrix4(m, m_order, lines);
++  QString text;
++  for (int i = 0; i < 4; ++i) {
++    if (i > 0) {
++      text += QChar::fromLatin1('\n');
++    }
++    text += QString::fromUtf8(lines[i]);
++  }
++  edit->setPlainText(text);
++}
+diff --git a/src/ui/MatrixBoardPanel.h b/src/ui/MatrixBoardPanel.h
+new file mode 100644
+index 0000000..b002f93
+--- /dev/null
++++ b/src/ui/MatrixBoardPanel.h
+@@ -0,0 +1,34 @@
++#pragma once
++#include "core/MatrixFormat.h"
++#include <QWidget>
++
++class QPlainTextEdit;
++
++class MatrixBoardPanel : public QWidget {
++  Q_OBJECT
++public:
++  explicit MatrixBoardPanel(QWidget* parent = 0);
++  void setMajorOrder(MajorOrder order);
++  void setMatrices(const DirectX::XMFLOAT4X4& w,
++                   const DirectX::XMFLOAT4X4& v,
++                   const DirectX::XMFLOAT4X4& p,
++                   const DirectX::XMFLOAT4X4& wvp);
++  void setMatrices(const DirectX::XMFLOAT4X4& w,
++                   const DirectX::XMFLOAT4X4& v,
++                   const DirectX::XMFLOAT4X4& p,
++                   const DirectX::XMFLOAT4X4& wvp,
++                   MajorOrder order);
++private:
++  void refresh();
++  void fillBlock(QPlainTextEdit* edit, const DirectX::XMFLOAT4X4& m);
++
++  MajorOrder m_order;
++  DirectX::XMFLOAT4X4 m_w;
++  DirectX::XMFLOAT4X4 m_v;
++  DirectX::XMFLOAT4X4 m_p;
++  DirectX::XMFLOAT4X4 m_wvp;
++  QPlainTextEdit* m_mw;
++  QPlainTextEdit* m_mv;
++  QPlainTextEdit* m_mp;
++  QPlainTextEdit* m_mvp;
++};
+diff --git a/src/ui/TransformPanel.cpp b/src/ui/TransformPanel.cpp
+new file mode 100644
+index 0000000..8e71bce
+--- /dev/null
++++ b/src/ui/TransformPanel.cpp
+@@ -0,0 +1,192 @@
++#include "ui/TransformPanel.h"
++#include <QComboBox>
++#include <QDoubleSpinBox>
++#include <QFormLayout>
++#include <QGroupBox>
++#include <QHBoxLayout>
++#include <QPushButton>
++#include <QVBoxLayout>
++
++TransformPanel::TransformPanel(QWidget* parent)
++    : QWidget(parent)
++    , m_state(teachingStateDefault())
++    , m_block(false)
++    , m_posX(0)
++    , m_posY(0)
++    , m_posZ(0)
++    , m_pitch(0)
++    , m_yaw(0)
++    , m_roll(0)
++    , m_scaleX(0)
++    , m_scaleY(0)
++    , m_scaleZ(0)
++    , m_camDistance(0)
++    , m_camPitch(0)
++    , m_camYaw(0)
++    , m_proj(0)
++    , m_fov(0)
++    , m_nearZ(0)
++    , m_farZ(0) {
++  QVBoxLayout* root = new QVBoxLayout(this);
++
++  QGroupBox* world = new QGroupBox(QString::fromUtf8("World"), this);
++  QFormLayout* worldForm = new QFormLayout(world);
++  m_posX = makeSpin(-50.0, 50.0, 0.1, 1);
++  m_posY = makeSpin(-50.0, 50.0, 0.1, 1);
++  m_posZ = makeSpin(-50.0, 50.0, 0.1, 1);
++  m_pitch = makeSpin(-180.0, 180.0, 1.0, 0);
++  m_yaw = makeSpin(-180.0, 180.0, 1.0, 0);
++  m_roll = makeSpin(-180.0, 180.0, 1.0, 0);
++  m_scaleX = makeSpin(0.01, 10.0, 0.01, 2);
++  m_scaleY = makeSpin(0.01, 10.0, 0.01, 2);
++  m_scaleZ = makeSpin(0.01, 10.0, 0.01, 2);
++  worldForm->addRow(QString::fromUtf8("Pos X"), m_posX);
++  worldForm->addRow(QString::fromUtf8("Pos Y"), m_posY);
++  worldForm->addRow(QString::fromUtf8("Pos Z"), m_posZ);
++  worldForm->addRow(QString::fromUtf8("Pitch"), m_pitch);
++  worldForm->addRow(QString::fromUtf8("Yaw"), m_yaw);
++  worldForm->addRow(QString::fromUtf8("Roll"), m_roll);
++  worldForm->addRow(QString::fromUtf8("Scale X"), m_scaleX);
++  worldForm->addRow(QString::fromUtf8("Scale Y"), m_scaleY);
++  worldForm->addRow(QString::fromUtf8("Scale Z"), m_scaleZ);
++  root->addWidget(world);
++
++  QGroupBox* view = new QGroupBox(QString::fromUtf8("View"), this);
++  QFormLayout* viewForm = new QFormLayout(view);
++  m_camDistance = makeSpin(0.5, 50.0, 0.1, 1);
++  m_camPitch = makeSpin(-180.0, 180.0, 1.0, 0);
++  m_camYaw = makeSpin(-180.0, 180.0, 1.0, 0);
++  viewForm->addRow(QString::fromUtf8("Distance"), m_camDistance);
++  viewForm->addRow(QString::fromUtf8("Pitch"), m_camPitch);
++  viewForm->addRow(QString::fromUtf8("Yaw"), m_camYaw);
++  QHBoxLayout* presets = new QHBoxLayout();
++  QPushButton* front = new QPushButton(QString::fromUtf8("Front"), view);
++  QPushButton* side = new QPushButton(QString::fromUtf8("Side"), view);
++  QPushButton* top = new QPushButton(QString::fromUtf8("Top"), view);
++  QPushButton* iso = new QPushButton(QString::fromUtf8("Iso"), view);
++  presets->addWidget(front);
++  presets->addWidget(side);
++  presets->addWidget(top);
++  presets->addWidget(iso);
++  viewForm->addRow(presets);
++  root->addWidget(view);
++
++  QGroupBox* proj = new QGroupBox(QString::fromUtf8("Projection"), this);
++  QFormLayout* projForm = new QFormLayout(proj);
++  m_proj = new QComboBox(proj);
++  m_proj->addItem(QString::fromUtf8("Perspective"));
++  m_proj->addItem(QString::fromUtf8("Ortho"));
++  m_fov = makeSpin(10.0, 120.0, 1.0, 0);
++  m_nearZ = makeSpin(0.01, 10.0, 0.01, 2);
++  m_farZ = makeSpin(1.0, 1000.0, 1.0, 1);
++  projForm->addRow(QString::fromUtf8("Mode"), m_proj);
++  projForm->addRow(QString::fromUtf8("FOV"), m_fov);
++  projForm->addRow(QString::fromUtf8("Near"), m_nearZ);
++  projForm->addRow(QString::fromUtf8("Far"), m_farZ);
++  root->addWidget(proj);
++  root->addStretch(1);
++
++  connect(front, &QPushButton::clicked, this, &TransformPanel::onPresetFront);
++  connect(side, &QPushButton::clicked, this, &TransformPanel::onPresetSide);
++  connect(top, &QPushButton::clicked, this, &TransformPanel::onPresetTop);
++  connect(iso, &QPushButton::clicked, this, &TransformPanel::onPresetIso);
++  connect(m_proj, static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged),
++          this, &TransformPanel::onEdited);
++
++  m_block = true;
++  loadWidgets(m_state);
++  m_block = false;
++}
++
++QDoubleSpinBox* TransformPanel::makeSpin(double minv, double maxv, double step, int decimals) {
++  QDoubleSpinBox* s = new QDoubleSpinBox(this);
++  s->setRange(minv, maxv);
++  s->setSingleStep(step);
++  s->setDecimals(decimals);
++  connect(s, static_cast<void (QDoubleSpinBox::*)(double)>(&QDoubleSpinBox::valueChanged),
++          this, &TransformPanel::onEdited);
++  return s;
++}
++
++void TransformPanel::setState(const TeachingState& s) {
++  m_state = s;
++  const bool was = m_block;
++  m_block = true;
++  loadWidgets(s);
++  m_block = was;
++}
++
++TeachingState TransformPanel::state() const {
++  TeachingState s = m_state;
++  s.objects[0].trs.pos[0] = static_cast<float>(m_posX->value());
++  s.objects[0].trs.pos[1] = static_cast<float>(m_posY->value());
++  s.objects[0].trs.pos[2] = static_cast<float>(m_posZ->value());
++  s.objects[0].trs.pitchDeg = static_cast<float>(m_pitch->value());
++  s.objects[0].trs.yawDeg = static_cast<float>(m_yaw->value());
++  s.objects[0].trs.rollDeg = static_cast<float>(m_roll->value());
++  s.objects[0].trs.scale[0] = static_cast<float>(m_scaleX->value());
++  s.objects[0].trs.scale[1] = static_cast<float>(m_scaleY->value());
++  s.objects[0].trs.scale[2] = static_cast<float>(m_scaleZ->value());
++  s.camDistance = static_cast<float>(m_camDistance->value());
++  s.camPitchDeg = static_cast<float>(m_camPitch->value());
++  s.camYawDeg = static_cast<float>(m_camYaw->value());
++  s.proj = (m_proj->currentIndex() == 1) ? ProjOrtho : ProjPerspective;
++  s.fovDeg = static_cast<float>(m_fov->value());
++  s.nearZ = static_cast<float>(m_nearZ->value());
++  s.farZ = static_cast<float>(m_farZ->value());
++  return s;
++}
++
++void TransformPanel::onEdited() {
++  if (m_block) {
++    return;
++  }
++  emit changed();
++}
++
++void TransformPanel::onPresetFront() {
++  applyViewPreset(0.0, 0.0);
++}
++
++void TransformPanel::onPresetSide() {
++  applyViewPreset(0.0, 90.0);
++}
++
++void TransformPanel::onPresetTop() {
++  applyViewPreset(89.0, 0.0);
++}
++
++void TransformPanel::onPresetIso() {
++  applyViewPreset(20.0, 45.0);
++}
++
++void TransformPanel::applyViewPreset(double pitch, double yaw) {
++  const bool was = m_block;
++  m_block = true;
++  m_camPitch->setValue(pitch);
++  m_camYaw->setValue(yaw);
++  m_block = was;
++  if (!m_block) {
++    emit changed();
++  }
++}
++
++void TransformPanel::loadWidgets(const TeachingState& s) {
++  const TransformTRS& trs = s.objects[0].trs;
++  m_posX->setValue(trs.pos[0]);
++  m_posY->setValue(trs.pos[1]);
++  m_posZ->setValue(trs.pos[2]);
++  m_pitch->setValue(trs.pitchDeg);
++  m_yaw->setValue(trs.yawDeg);
++  m_roll->setValue(trs.rollDeg);
++  m_scaleX->setValue(trs.scale[0]);
++  m_scaleY->setValue(trs.scale[1]);
++  m_scaleZ->setValue(trs.scale[2]);
++  m_camDistance->setValue(s.camDistance);
++  m_camPitch->setValue(s.camPitchDeg);
++  m_camYaw->setValue(s.camYawDeg);
++  m_proj->setCurrentIndex(s.proj == ProjOrtho ? 1 : 0);
++  m_fov->setValue(s.fovDeg);
++  m_nearZ->setValue(s.nearZ);
++  m_farZ->setValue(s.farZ);
++}
+diff --git a/src/ui/TransformPanel.h b/src/ui/TransformPanel.h
+new file mode 100644
+index 0000000..95126d7
+--- /dev/null
++++ b/src/ui/TransformPanel.h
+@@ -0,0 +1,45 @@
++#pragma once
++#include "core/TeachingState.h"
++#include <QWidget>
++
++class QComboBox;
++class QDoubleSpinBox;
++
++class TransformPanel : public QWidget {
++  Q_OBJECT
++public:
++  explicit TransformPanel(QWidget* parent = 0);
++  void setState(const TeachingState& s);
++  TeachingState state() const;
++signals:
++  void changed();
++private slots:
++  void onEdited();
++  void onPresetFront();
++  void onPresetSide();
++  void onPresetTop();
++  void onPresetIso();
++private:
++  QDoubleSpinBox* makeSpin(double minv, double maxv, double step, int decimals);
++  void applyViewPreset(double pitch, double yaw);
++  void loadWidgets(const TeachingState& s);
++
++  TeachingState m_state;
++  bool m_block;
++  QDoubleSpinBox* m_posX;
++  QDoubleSpinBox* m_posY;
++  QDoubleSpinBox* m_posZ;
++  QDoubleSpinBox* m_pitch;
++  QDoubleSpinBox* m_yaw;
++  QDoubleSpinBox* m_roll;
++  QDoubleSpinBox* m_scaleX;
++  QDoubleSpinBox* m_scaleY;
++  QDoubleSpinBox* m_scaleZ;
++  QDoubleSpinBox* m_camDistance;
++  QDoubleSpinBox* m_camPitch;
++  QDoubleSpinBox* m_camYaw;
++  QComboBox* m_proj;
++  QDoubleSpinBox* m_fov;
++  QDoubleSpinBox* m_nearZ;
++  QDoubleSpinBox* m_farZ;
++};
+diff --git a/tests/test_transforms.cpp b/tests/test_transforms.cpp
+index c5aaaa2..cc1b3d1 100644
+--- a/tests/test_transforms.cpp
++++ b/tests/test_transforms.cpp
+@@ -1,14 +1,16 @@
+ #include "test_harness.h"
++#include "core/MatrixFormat.h"
+ #include "teach/Transforms.h"
+ #include <DirectXMath.h>
+ #include <cmath>
++#include <cstring>
+ 
+ static bool near4(float a, float b) {
+   return fabsf(a - b) < 1e-4f;
+ }
+ 
+ void runTransformTests() {
+   TransformTRS id = transformIdentity();
+   DirectX::XMMATRIX w = BuildWorld(id);
+   DirectX::XMFLOAT4X4 m;
+   DirectX::XMStoreFloat4x4(&m, w);
+@@ -21,11 +23,34 @@ void runTransformTests() {
+ 
+   TeachingState s = teachingStateDefault();
+   DirectX::XMMATRIX P = BuildProjection(s, 1.f);
+   (void)P;
+   TEST_CHECK(s.nearZ < s.farZ);
+ 
+   DirectX::XMMATRIX I = DirectX::XMMatrixIdentity();
+   TrackResult tr = TrackPoint(DirectX::XMFLOAT3(1.f, 2.f, 3.f), I, I, I);
+   TEST_CHECK(near4(tr.world.x, 1.f) && near4(tr.world.y, 2.f) && near4(tr.world.z, 3.f));
+   TEST_CHECK(near4(tr.ndc.x, 1.f) && near4(tr.ndc.w, 1.f));
++
++  /* formatMatrix4: XMStoreFloat4x4 layout, no extra transpose */
++  DirectX::XMFLOAT4X4 stored;
++  DirectX::XMStoreFloat4x4(&stored, DirectX::XMMatrixIdentity());
++  char lines[4][64];
++  formatMatrix4(stored, MajorColumn, lines);
++  TEST_CHECK(std::strcmp(lines[0], "1.000 0.000 0.000 0.000") == 0);
++  TEST_CHECK(std::strcmp(lines[1], "0.000 1.000 0.000 0.000") == 0);
++  TEST_CHECK(std::strcmp(lines[2], "0.000 0.000 1.000 0.000") == 0);
++  TEST_CHECK(std::strcmp(lines[3], "0.000 0.000 0.000 1.000") == 0);
++  formatMatrix4(stored, MajorRow, lines);
++  TEST_CHECK(std::strcmp(lines[0], "1.000 0.000 0.000 0.000") == 0);
++
++  TransformTRS tx = transformIdentity();
++  tx.pos[0] = 2.f;
++  DirectX::XMStoreFloat4x4(&stored, BuildWorld(tx));
++  TEST_CHECK(near4(stored._41, 2.f));
++  formatMatrix4(stored, MajorColumn, lines);
++  TEST_CHECK(std::strcmp(lines[0], "1.000 0.000 0.000 2.000") == 0);
++  TEST_CHECK(std::strcmp(lines[3], "0.000 0.000 0.000 1.000") == 0);
++  formatMatrix4(stored, MajorRow, lines);
++  TEST_CHECK(std::strcmp(lines[0], "1.000 0.000 0.000 0.000") == 0);
++  TEST_CHECK(std::strcmp(lines[3], "2.000 0.000 0.000 1.000") == 0);
+ }

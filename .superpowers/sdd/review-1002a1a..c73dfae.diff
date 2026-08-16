@@ -1,0 +1,333 @@
+﻿# Review package: 1002a1a4cbd99ac63244d7ab927babe3c97f5b1e..c73dfae790a00048202e2cc33cdf91eac35837cf
+
+## Commits
+c73dfae Orbit the teaching camera from the DX11 viewport.
+
+## Files changed
+ src/app/MainWindow.cpp        |  7 +++++++  src/app/MainWindow.h          |  1 +  src/core/TeachingState.h      | 27 +++++++++++++++++++++++++++  src/ui/Dx11ViewportWidget.cpp | 43 ++++++++++++++++++++++++++++++++++++++++++-  src/ui/Dx11ViewportWidget.h   |  8 ++++++++  tests/test_transforms.cpp     | 23 +++++++++++++++++++++++  6 files changed, 108 insertions(+), 1 deletion(-)
+
+## Diff
+
+diff --git a/src/app/MainWindow.cpp b/src/app/MainWindow.cpp
+index b5c290d..8e69177 100644
+--- a/src/app/MainWindow.cpp
++++ b/src/app/MainWindow.cpp
+@@ -53,20 +53,21 @@ MainWindow::MainWindow(QWidget* parent)
+   m_majorAction = toolbar->addAction(QString());
+   QAction* resetAction = toolbar->addAction(QString::fromUtf8("\xE9\x87\x8D\xE7\xBD\xAE"));
+   syncMajorActionText();
+ 
+   QMenu* viewMenu = menuBar()->addMenu(QString::fromUtf8("\xE8\xA7\x86\xE5\x9B\xBE"));
+   viewMenu->addAction(dockTransforms->toggleViewAction());
+   viewMenu->addAction(dockMatrix->toggleViewAction());
+   viewMenu->addAction(dockDebug->toggleViewAction());
+ 
+   connect(m_transforms, &TransformPanel::changed, this, &MainWindow::onTransformsChanged);
++  connect(m_viewport, &Dx11ViewportWidget::teachingEdited, this, &MainWindow::onTeachingEdited);
+   connect(m_majorAction, &QAction::triggered, this, &MainWindow::onToggleMajor);
+   connect(resetAction, &QAction::triggered, this, &MainWindow::onReset);
+ 
+   m_transforms->setState(m_teaching);
+   m_viewport->publishState(m_teaching, m_lab);
+   refreshBoard();
+ 
+   m_poll = new QTimer(this);
+   m_poll->setInterval(100);
+   connect(m_poll, &QTimer::timeout, this, &MainWindow::onPollFeedback);
+@@ -76,20 +77,26 @@ MainWindow::MainWindow(QWidget* parent)
+ void MainWindow::onPollFeedback() {
+   m_log->drain(m_viewport->feedback());
+ }
+ 
+ void MainWindow::onTransformsChanged() {
+   m_teaching = m_transforms->state();
+   m_viewport->publishState(m_teaching, m_lab);
+   refreshBoard();
+ }
+ 
++void MainWindow::onTeachingEdited(const TeachingState& t) {
++  m_teaching = t;
++  m_transforms->setState(m_teaching);
++  refreshBoard();
++}
++
+ void MainWindow::onToggleMajor() {
+   m_major = (m_major == MajorColumn) ? MajorRow : MajorColumn;
+   syncMajorActionText();
+   m_board->setMajorOrder(m_major);
+ }
+ 
+ void MainWindow::onReset() {
+   m_teaching = teachingStateDefault();
+   m_transforms->setState(m_teaching);
+   m_viewport->publishState(m_teaching, m_lab);
+diff --git a/src/app/MainWindow.h b/src/app/MainWindow.h
+index 0fcc83e..e7a1b32 100644
+--- a/src/app/MainWindow.h
++++ b/src/app/MainWindow.h
+@@ -11,20 +11,21 @@ class QAction;
+ class QTimer;
+ class TransformPanel;
+ 
+ class MainWindow : public QMainWindow {
+   Q_OBJECT
+ public:
+   explicit MainWindow(QWidget* parent = 0);
+ private slots:
+   void onPollFeedback();
+   void onTransformsChanged();
++  void onTeachingEdited(const TeachingState& t);
+   void onToggleMajor();
+   void onReset();
+ private:
+   void refreshBoard();
+   void syncMajorActionText();
+ 
+   Dx11ViewportWidget* m_viewport;
+   TransformPanel* m_transforms;
+   MatrixBoardPanel* m_board;
+   DebugLogPanel* m_log;
+diff --git a/src/core/TeachingState.h b/src/core/TeachingState.h
+index 35c4282..7da43d7 100644
+--- a/src/core/TeachingState.h
++++ b/src/core/TeachingState.h
+@@ -55,20 +55,47 @@ struct TeachingState {
+ };
+ 
+ inline TransformTRS transformIdentity() {
+   TransformTRS t;
+   t.pos[0] = 0.f; t.pos[1] = 0.f; t.pos[2] = 0.f;
+   t.pitchDeg = 0.f; t.yawDeg = 0.f; t.rollDeg = 0.f;
+   t.scale[0] = 1.f; t.scale[1] = 1.f; t.scale[2] = 1.f;
+   return t;
+ }
+ 
++inline void applyOrbitDrag(TeachingState* t, float dx, float dy) {
++  t->camYawDeg += dx * 0.3f;
++  t->camPitchDeg += dy * 0.3f;
++  if (t->camPitchDeg > 89.f) {
++    t->camPitchDeg = 89.f;
++  }
++  if (t->camPitchDeg < -89.f) {
++    t->camPitchDeg = -89.f;
++  }
++  while (t->camYawDeg > 180.f) {
++    t->camYawDeg -= 360.f;
++  }
++  while (t->camYawDeg < -180.f) {
++    t->camYawDeg += 360.f;
++  }
++}
++
++inline void applyDollyWheel(TeachingState* t, int delta) {
++  t->camDistance *= (delta > 0 ? 0.9f : 1.1f);
++  if (t->camDistance < 0.5f) {
++    t->camDistance = 0.5f;
++  }
++  if (t->camDistance > 50.f) {
++    t->camDistance = 50.f;
++  }
++}
++
+ inline TeachingState teachingStateDefault() {
+   TeachingState s;
+   for (int i = 0; i < 3; ++i) {
+     s.objects[i].mesh = MeshCube;
+     s.objects[i].trs = transformIdentity();
+     s.objects[i].trs.pos[0] = (i - 1) * 2.5f;
+   }
+   s.layout = LayoutOne;
+   s.shading = ShadeSolid;
+   s.camDistance = 5.f;
+diff --git a/src/ui/Dx11ViewportWidget.cpp b/src/ui/Dx11ViewportWidget.cpp
+index d041d41..8cdaaa1 100644
+--- a/src/ui/Dx11ViewportWidget.cpp
++++ b/src/ui/Dx11ViewportWidget.cpp
+@@ -1,29 +1,34 @@
+ #include "ui/Dx11ViewportWidget.h"
+ #include "core/StateSnapshot.h"
+ #include <QCoreApplication>
+ #include <QHideEvent>
++#include <QMouseEvent>
+ #include <QPaintEvent>
+ #include <QResizeEvent>
+ #include <QShowEvent>
++#include <QWheelEvent>
+ #include <windows.h>
+ 
+ Dx11ViewportWidget::Dx11ViewportWidget(QWidget* parent)
+     : QWidget(parent)
+     , m_teaching(teachingStateDefault())
+-    , m_lab(labStateDefault()) {
++    , m_lab(labStateDefault())
++    , m_lastMouse(0, 0) {
+   setAttribute(Qt::WA_NativeWindow, true);
+   setAttribute(Qt::WA_DontCreateNativeAncestors, true);
+   setAttribute(Qt::WA_OpaquePaintEvent, true);
+   setAttribute(Qt::WA_NoSystemBackground, true);
+   setAutoFillBackground(false);
+   setMinimumSize(320, 180);
++  setMouseTracking(true);
++  setFocusPolicy(Qt::StrongFocus);
+ }
+ 
+ Dx11ViewportWidget::~Dx11ViewportWidget() {
+   stopRenderer();
+ }
+ 
+ void Dx11ViewportWidget::publishState(const TeachingState& t, const LabState& l) {
+   m_teaching = t;
+   m_lab = l;
+   if (!m_thread) {
+@@ -66,20 +71,51 @@ void Dx11ViewportWidget::resizeEvent(QResizeEvent* e) {
+   cmd.hwnd = hwnd();
+   cmd.width = width();
+   cmd.height = height();
+   m_thread->commands().push(cmd);
+   publishState(m_teaching, m_lab);
+ }
+ 
+ void Dx11ViewportWidget::paintEvent(QPaintEvent*) {
+ }
+ 
++void Dx11ViewportWidget::mousePressEvent(QMouseEvent* e) {
++  if (e->button() == Qt::LeftButton) {
++    m_lastMouse = e->pos();
++    setFocus(Qt::MouseFocusReason);
++  }
++  QWidget::mousePressEvent(e);
++}
++
++void Dx11ViewportWidget::mouseMoveEvent(QMouseEvent* e) {
++  if (e->buttons() & Qt::LeftButton) {
++    const QPoint p = e->pos();
++    const float dx = static_cast<float>(p.x() - m_lastMouse.x());
++    const float dy = static_cast<float>(p.y() - m_lastMouse.y());
++    m_lastMouse = p;
++    applyOrbitDrag(&m_teaching, dx, dy);
++    commitTeaching();
++  }
++  QWidget::mouseMoveEvent(e);
++}
++
++void Dx11ViewportWidget::wheelEvent(QWheelEvent* e) {
++  const int delta = e->angleDelta().y();
++  if (delta != 0) {
++    applyDollyWheel(&m_teaching, delta);
++    commitTeaching();
++    e->accept();
++    return;
++  }
++  QWidget::wheelEvent(e);
++}
++
+ QPaintEngine* Dx11ViewportWidget::paintEngine() const {
+   return 0;
+ }
+ 
+ void Dx11ViewportWidget::startRenderer() {
+   if (m_thread) {
+     return;
+   }
+   const QString dir = QCoreApplication::applicationDirPath() + QString::fromUtf8("/shaders");
+   m_thread = ::make_unique<RenderThread>(dir.toStdWString());
+@@ -94,13 +130,18 @@ void Dx11ViewportWidget::startRenderer() {
+ }
+ 
+ void Dx11ViewportWidget::stopRenderer() {
+   if (!m_thread) {
+     return;
+   }
+   m_thread->requestStopAndJoin();
+   m_thread.reset();
+ }
+ 
++void Dx11ViewportWidget::commitTeaching() {
++  publishState(m_teaching, m_lab);
++  emit teachingEdited(m_teaching);
++}
++
+ HWND Dx11ViewportWidget::hwnd() const {
+   return reinterpret_cast<HWND>(winId());
+ }
+diff --git a/src/ui/Dx11ViewportWidget.h b/src/ui/Dx11ViewportWidget.h
+index a02908b..07d5de5 100644
+--- a/src/ui/Dx11ViewportWidget.h
++++ b/src/ui/Dx11ViewportWidget.h
+@@ -1,29 +1,37 @@
+ #pragma once
+ #include "core/LabState.h"
+ #include "core/TeachingState.h"
+ #include "core/MakeUnique.h"
+ #include "render/RenderThread.h"
++#include <QPoint>
+ #include <QWidget>
+ #include <memory>
+ 
+ class Dx11ViewportWidget : public QWidget {
+   Q_OBJECT
+ public:
+   explicit Dx11ViewportWidget(QWidget* parent = 0);
+   ~Dx11ViewportWidget();
+   void publishState(const TeachingState& t, const LabState& l);
+   FeedbackQueue& feedback();
++signals:
++  void teachingEdited(const TeachingState& t);
+ protected:
+   void showEvent(QShowEvent* e);
+   void hideEvent(QHideEvent* e);
+   void resizeEvent(QResizeEvent* e);
+   void paintEvent(QPaintEvent* e);
++  void mousePressEvent(QMouseEvent* e);
++  void mouseMoveEvent(QMouseEvent* e);
++  void wheelEvent(QWheelEvent* e);
+   QPaintEngine* paintEngine() const;
+ private:
+   void startRenderer();
+   void stopRenderer();
++  void commitTeaching();
+   HWND hwnd() const;
+   std::unique_ptr<RenderThread> m_thread;
+   TeachingState m_teaching;
+   LabState m_lab;
++  QPoint m_lastMouse;
+ };
+diff --git a/tests/test_transforms.cpp b/tests/test_transforms.cpp
+index cc1b3d1..6bb60bb 100644
+--- a/tests/test_transforms.cpp
++++ b/tests/test_transforms.cpp
+@@ -46,11 +46,34 @@ void runTransformTests() {
+   TransformTRS tx = transformIdentity();
+   tx.pos[0] = 2.f;
+   DirectX::XMStoreFloat4x4(&stored, BuildWorld(tx));
+   TEST_CHECK(near4(stored._41, 2.f));
+   formatMatrix4(stored, MajorColumn, lines);
+   TEST_CHECK(std::strcmp(lines[0], "1.000 0.000 0.000 2.000") == 0);
+   TEST_CHECK(std::strcmp(lines[3], "0.000 0.000 0.000 1.000") == 0);
+   formatMatrix4(stored, MajorRow, lines);
+   TEST_CHECK(std::strcmp(lines[0], "1.000 0.000 0.000 0.000") == 0);
+   TEST_CHECK(std::strcmp(lines[3], "2.000 0.000 0.000 1.000") == 0);
++
++  /* viewport orbit / dolly (Task 10) */
++  TeachingState cam = teachingStateDefault();
++  applyOrbitDrag(&cam, 10.f, 5.f);
++  TEST_CHECK(near4(cam.camYawDeg, 48.f));
++  TEST_CHECK(near4(cam.camPitchDeg, 21.5f));
++  cam.camPitchDeg = 88.f;
++  applyOrbitDrag(&cam, 0.f, 20.f);
++  TEST_CHECK(near4(cam.camPitchDeg, 89.f));
++  cam.camPitchDeg = -88.f;
++  applyOrbitDrag(&cam, 0.f, -20.f);
++  TEST_CHECK(near4(cam.camPitchDeg, -89.f));
++  cam.camDistance = 5.f;
++  applyDollyWheel(&cam, 120);
++  TEST_CHECK(near4(cam.camDistance, 4.5f));
++  applyDollyWheel(&cam, -120);
++  TEST_CHECK(near4(cam.camDistance, 4.95f));
++  cam.camDistance = 0.5f;
++  applyDollyWheel(&cam, 1);
++  TEST_CHECK(near4(cam.camDistance, 0.5f));
++  cam.camDistance = 50.f;
++  applyDollyWheel(&cam, -1);
++  TEST_CHECK(near4(cam.camDistance, 50.f));
+ }

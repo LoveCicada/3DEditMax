@@ -1,0 +1,1307 @@
+﻿# Review package: fe53bd06869b49d21799c3040e7eed4ff4d77eec..55958d2abee31019d644d96151fb6b2276d66138
+
+## Commits
+55958d2 Add tutorial steps, demo playback, and teaching JSON.
+
+## Files changed
+ CMakeLists.txt               |  13 ++  src/app/MainWindow.cpp       | 145 +++++++++++---  src/app/MainWindow.h         |  10 +  src/teach/DemoPlayer.cpp     |  33 +++  src/teach/DemoPlayer.h       |  13 ++  src/teach/JsonIo.cpp         | 465 +++++++++++++++++++++++++++++++++++++++++++  src/teach/JsonIo.h           |   6 +  src/teach/TutorialScript.cpp |  90 +++++++++  src/teach/TutorialScript.h   |  11 +  src/ui/TutorialPanel.cpp     |  89 +++++++++  src/ui/TutorialPanel.h       |  28 +++  tests/test_json.cpp          |  25 +++  tests/test_main.cpp          |   4 +  tests/test_tutorial.cpp      |  35 ++++  14 files changed, 943 insertions(+), 24 deletions(-)
+
+## Diff
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index da266a4..bcedb18 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -31,53 +31,66 @@ add_executable(3DEditMax
+   src/ui/DebugLogPanel.h
+   src/ui/DebugLogPanel.cpp
+   src/ui/TransformPanel.h
+   src/ui/TransformPanel.cpp
+   src/ui/ObjectPanel.h
+   src/ui/ObjectPanel.cpp
+   src/ui/TrackerPanel.h
+   src/ui/TrackerPanel.cpp
+   src/ui/MatrixBoardPanel.h
+   src/ui/MatrixBoardPanel.cpp
++  src/ui/TutorialPanel.h
++  src/ui/TutorialPanel.cpp
+   src/core/SnapshotBuffer.cpp
+   src/core/MatrixFormat.cpp
+   src/render/CommandQueue.cpp
+   src/render/FeedbackQueue.cpp
+   src/render/RenderThread.cpp
+   src/render/D3D11Renderer.cpp
+   src/render/DebugDraw.cpp
+   src/render/MeshGpu.cpp
+   src/render/ShaderSet.cpp
+   src/teach/Transforms.cpp
+   src/teach/MeshBuild.cpp
++  src/teach/TutorialScript.cpp
++  src/teach/DemoPlayer.cpp
++  src/teach/JsonIo.cpp
+ )
+ 
+ target_include_directories(3DEditMax PRIVATE "${CMAKE_SOURCE_DIR}/src")
+ target_link_libraries(3DEditMax PRIVATE Qt5::Widgets d3d11 dxgi d3dcompiler)
+ if(MSVC)
+   target_compile_options(3DEditMax PRIVATE /utf-8)
+ endif()
+ 
+ add_custom_command(TARGET 3DEditMax POST_BUILD
+   COMMAND ${CMAKE_COMMAND} -E copy_directory
+     "${CMAKE_SOURCE_DIR}/assets/shaders"
+     "$<TARGET_FILE_DIR:3DEditMax>/shaders")
+ 
+ enable_testing()
+ add_executable(3deditmax_tests
+   tests/test_main.cpp
+   tests/test_queues.cpp
+   tests/test_transforms.cpp
++  tests/test_tutorial.cpp
++  tests/test_json.cpp
+   src/render/CommandQueue.cpp
+   src/render/FeedbackQueue.cpp
+   src/render/RenderThread.cpp
+   src/core/SnapshotBuffer.cpp
+   src/core/MatrixFormat.cpp
+   src/teach/Transforms.cpp
+   src/teach/MeshBuild.cpp
++  src/teach/TutorialScript.cpp
++  src/teach/DemoPlayer.cpp
++  src/teach/JsonIo.cpp
+ )
+ target_include_directories(3deditmax_tests PRIVATE
+   "${CMAKE_SOURCE_DIR}/src"
+   "${CMAKE_SOURCE_DIR}/tests"
+ )
+ target_compile_definitions(3deditmax_tests PRIVATE D3DEDITMAX_NO_D3D)
++if(MSVC)
++  target_compile_options(3deditmax_tests PRIVATE /utf-8)
++endif()
+ add_test(NAME 3deditmax_tests COMMAND 3deditmax_tests)
+diff --git a/src/app/MainWindow.cpp b/src/app/MainWindow.cpp
+index b6d8ff7..1b7c0a4 100644
+--- a/src/app/MainWindow.cpp
++++ b/src/app/MainWindow.cpp
+@@ -1,48 +1,57 @@
+ #include "app/MainWindow.h"
++#include "teach/JsonIo.h"
+ #include "teach/Transforms.h"
+ #include "ui/DebugLogPanel.h"
+ #include "ui/Dx11ViewportWidget.h"
+ #include "ui/MatrixBoardPanel.h"
+ #include "ui/ObjectPanel.h"
+ #include "ui/TrackerPanel.h"
+ #include "ui/TransformPanel.h"
++#include "ui/TutorialPanel.h"
+ #include <QAction>
+ #include <QDockWidget>
++#include <QFile>
++#include <QFileDialog>
+ #include <QMenu>
+ #include <QMenuBar>
++#include <QMessageBox>
+ #include <QTimer>
+ #include <QToolBar>
+ #include <DirectXMath.h>
++#include <string>
+ 
+ MainWindow::MainWindow(QWidget* parent)
+     : QMainWindow(parent)
+     , m_viewport(0)
+     , m_transforms(0)
+     , m_objects(0)
+     , m_tracker(0)
+     , m_board(0)
+     , m_log(0)
++    , m_tutorial(0)
+     , m_poll(0)
++    , m_demoTimer(0)
+     , m_majorAction(0)
+     , m_teaching(teachingStateDefault())
+     , m_lab(labStateDefault())
+     , m_major(MajorColumn) {
+   setWindowTitle(QString::fromUtf8("3DEditMax"));
+   resize(1280, 720);
+ 
+   m_viewport = new Dx11ViewportWidget(this);
+   m_transforms = new TransformPanel(this);
+   m_objects = new ObjectPanel(this);
+   m_tracker = new TrackerPanel(this);
+   m_board = new MatrixBoardPanel(this);
+   m_log = new DebugLogPanel(this);
++  m_tutorial = new TutorialPanel(this);
+   setCentralWidget(m_viewport);
+ 
+   QDockWidget* dockTransforms = new QDockWidget(QString::fromUtf8("\xE5\x8F\x98\xE6\x8D\xA2"), this);
+   dockTransforms->setObjectName(QString::fromUtf8("dockTransforms"));
+   dockTransforms->setWidget(m_transforms);
+   addDockWidget(Qt::LeftDockWidgetArea, dockTransforms);
+ 
+   QDockWidget* dockObject = new QDockWidget(QString::fromUtf8("\xE7\x89\xA9\xE4\xBD\x93"), this);
+   dockObject->setObjectName(QString::fromUtf8("dockObject"));
+   dockObject->setWidget(m_objects);
+@@ -59,107 +68,195 @@ MainWindow::MainWindow(QWidget* parent)
+   dockTracker->setWidget(m_tracker);
+   addDockWidget(Qt::RightDockWidgetArea, dockTracker);
+   splitDockWidget(dockMatrix, dockTracker, Qt::Vertical);
+ 
+   QDockWidget* dockDebug = new QDockWidget(QString::fromUtf8("DX11 Lab / Debug"), this);
+   dockDebug->setObjectName(QString::fromUtf8("dockDebug"));
+   dockDebug->setWidget(m_log);
+   addDockWidget(Qt::RightDockWidgetArea, dockDebug);
+   splitDockWidget(dockMatrix, dockDebug, Qt::Vertical);
+ 
++  QDockWidget* dockTutorial = new QDockWidget(QString::fromUtf8("\xE6\x95\x99\xE7\xA8\x8B"), this);
++  dockTutorial->setObjectName(QString::fromUtf8("dockTutorial"));
++  dockTutorial->setWidget(m_tutorial);
++  addDockWidget(Qt::BottomDockWidgetArea, dockTutorial);
++
+   QToolBar* toolbar = addToolBar(QString::fromUtf8("Teach"));
+   toolbar->setObjectName(QString::fromUtf8("toolbarTeach"));
+   m_majorAction = toolbar->addAction(QString());
+   QAction* resetAction = toolbar->addAction(QString::fromUtf8("\xE9\x87\x8D\xE7\xBD\xAE"));
+   syncMajorActionText();
+ 
++  QMenu* fileMenu = menuBar()->addMenu(QString::fromUtf8("\xE6\x96\x87\xE4\xBB\xB6"));
++  QAction* importAction = fileMenu->addAction(QString::fromUtf8("\xE5\xAF\xBC\xE5\x85\xA5"));
++  QAction* exportAction = fileMenu->addAction(QString::fromUtf8("\xE5\xAF\xBC\xE5\x87\xBA"));
++
+   QMenu* viewMenu = menuBar()->addMenu(QString::fromUtf8("\xE8\xA7\x86\xE5\x9B\xBE"));
+   viewMenu->addAction(dockTransforms->toggleViewAction());
+   viewMenu->addAction(dockObject->toggleViewAction());
+   viewMenu->addAction(dockMatrix->toggleViewAction());
+   viewMenu->addAction(dockTracker->toggleViewAction());
+   viewMenu->addAction(dockDebug->toggleViewAction());
++  viewMenu->addAction(dockTutorial->toggleViewAction());
+ 
+   connect(m_transforms, &TransformPanel::changed, this, &MainWindow::onTransformsChanged);
+   connect(m_objects, &ObjectPanel::changed, this, &MainWindow::onObjectsChanged);
+   connect(m_tracker, &TrackerPanel::changed, this, &MainWindow::onTrackerChanged);
+   connect(m_viewport, &Dx11ViewportWidget::teachingEdited, this, &MainWindow::onTeachingEdited);
++  connect(m_tutorial, &TutorialPanel::applyState, this, &MainWindow::onTutorialApply);
+   connect(m_majorAction, &QAction::triggered, this, &MainWindow::onToggleMajor);
+   connect(resetAction, &QAction::triggered, this, &MainWindow::onReset);
++  connect(importAction, &QAction::triggered, this, &MainWindow::onImportJson);
++  connect(exportAction, &QAction::triggered, this, &MainWindow::onExportJson);
+ 
+-  m_transforms->setState(m_teaching);
+-  m_objects->setState(m_teaching);
+-  m_tracker->setState(m_teaching);
+-  m_viewport->publishState(m_teaching, m_lab);
+-  refreshBoard();
+-  refreshTracker();
++  m_tutorial->setStepIndex(m_teaching.tutorialStep);
++  syncTeaching();
+ 
+   m_poll = new QTimer(this);
+   m_poll->setInterval(100);
+   connect(m_poll, &QTimer::timeout, this, &MainWindow::onPollFeedback);
+   m_poll->start();
++
++  m_demoTimer = new QTimer(this);
++  m_demoTimer->setInterval(16);
++  connect(m_demoTimer, &QTimer::timeout, this, &MainWindow::onDemoTick);
+ }
+ 
+ void MainWindow::onPollFeedback() {
+   m_log->drain(m_viewport->feedback());
+ }
+ 
+-void MainWindow::onTransformsChanged() {
+-  m_teaching = m_transforms->state();
++void MainWindow::syncTeaching() {
++  m_transforms->setState(m_teaching);
+   m_objects->setState(m_teaching);
+   m_tracker->setState(m_teaching);
+   m_viewport->publishState(m_teaching, m_lab);
+   refreshBoard();
+   refreshTracker();
+ }
+ 
++void MainWindow::onTransformsChanged() {
++  m_teaching = m_transforms->state();
++  syncTeaching();
++}
++
+ void MainWindow::onObjectsChanged() {
+   m_teaching = m_objects->state();
+-  m_transforms->setState(m_teaching);
+-  m_tracker->setState(m_teaching);
+-  m_viewport->publishState(m_teaching, m_lab);
+-  refreshBoard();
+-  refreshTracker();
++  syncTeaching();
+ }
+ 
+ void MainWindow::onTrackerChanged() {
+   m_teaching = m_tracker->state();
+-  m_transforms->setState(m_teaching);
+-  m_objects->setState(m_teaching);
+-  m_viewport->publishState(m_teaching, m_lab);
+-  refreshBoard();
+-  refreshTracker();
++  syncTeaching();
+ }
+ 
+ void MainWindow::onTeachingEdited(const TeachingState& t) {
+   m_teaching = t;
+   m_transforms->setState(m_teaching);
+   m_objects->setState(m_teaching);
+   m_tracker->setState(m_teaching);
+   refreshBoard();
+   refreshTracker();
+ }
+ 
++void MainWindow::onTutorialApply(const TeachingState& t) {
++  if (t.demoPlaying) {
++    m_teaching.demoPlaying = true;
++    m_demo.start(m_teaching);
++    m_demo.tick(0.f, &m_teaching);
++    syncTeaching();
++    m_demoTimer->start();
++    return;
++  }
++  m_demoTimer->stop();
++  m_teaching = t;
++  m_teaching.demoPlaying = false;
++  syncTeaching();
++}
++
+ void MainWindow::onToggleMajor() {
+   m_major = (m_major == MajorColumn) ? MajorRow : MajorColumn;
+   syncMajorActionText();
+   m_board->setMajorOrder(m_major);
+ }
+ 
+ void MainWindow::onReset() {
++  m_demoTimer->stop();
+   m_teaching = teachingStateDefault();
+-  m_transforms->setState(m_teaching);
+-  m_objects->setState(m_teaching);
+-  m_tracker->setState(m_teaching);
+-  m_viewport->publishState(m_teaching, m_lab);
+-  refreshBoard();
+-  refreshTracker();
++  m_tutorial->setStepIndex(0);
++  syncTeaching();
++}
++
++void MainWindow::onImportJson() {
++  const QString path = QFileDialog::getOpenFileName(
++      this,
++      QString::fromUtf8("\xE5\xAF\xBC\xE5\x85\xA5"),
++      QString(),
++      QString::fromUtf8("JSON (*.json)"));
++  if (path.isEmpty()) {
++    return;
++  }
++  QFile file(path);
++  if (!file.open(QIODevice::ReadOnly)) {
++    QMessageBox::warning(this,
++                         QString::fromUtf8("\xE5\xAF\xBC\xE5\x85\xA5"),
++                         QString::fromUtf8("JSON \xE6\x97\xA0\xE6\x95\x88"));
++    return;
++  }
++  const QByteArray bytes = file.readAll();
++  const std::string in(bytes.constData(), static_cast<size_t>(bytes.size()));
++  TeachingState s;
++  if (!teachingFromJson(in, &s)) {
++    QMessageBox::warning(this,
++                         QString::fromUtf8("\xE5\xAF\xBC\xE5\x85\xA5"),
++                         QString::fromUtf8("JSON \xE6\x97\xA0\xE6\x95\x88"));
++    return;
++  }
++  m_demoTimer->stop();
++  s.demoPlaying = false;
++  m_teaching = s;
++  syncTeaching();
++}
++
++void MainWindow::onExportJson() {
++  const QString path = QFileDialog::getSaveFileName(
++      this,
++      QString::fromUtf8("\xE5\xAF\xBC\xE5\x87\xBA"),
++      QString(),
++      QString::fromUtf8("JSON (*.json)"));
++  if (path.isEmpty()) {
++    return;
++  }
++  std::string json;
++  if (!teachingToJson(m_teaching, &json)) {
++    return;
++  }
++  QFile file(path);
++  if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
++    QMessageBox::warning(this,
++                         QString::fromUtf8("\xE5\xAF\xBC\xE5\x87\xBA"),
++                         QString::fromUtf8("JSON \xE6\x97\xA0\xE6\x95\x88"));
++    return;
++  }
++  file.write(json.data(), static_cast<qint64>(json.size()));
++}
++
++void MainWindow::onDemoTick() {
++  if (!m_teaching.demoPlaying) {
++    m_demoTimer->stop();
++    return;
++  }
++  if (!m_demo.tick(0.016f, &m_teaching)) {
++    m_teaching.demoPlaying = false;
++    m_demoTimer->stop();
++  }
++  syncTeaching();
+ }
+ 
+ void MainWindow::refreshBoard() {
+   using namespace DirectX;
+   const TeachingState& t = m_teaching;
+   float aspect = t.aspect;
+   if (t.aspectFollowViewport && m_viewport->height() > 0) {
+     aspect = static_cast<float>(m_viewport->width()) /
+              static_cast<float>(m_viewport->height());
+   }
+diff --git a/src/app/MainWindow.h b/src/app/MainWindow.h
+index 563fae9..1cf04a5 100644
+--- a/src/app/MainWindow.h
++++ b/src/app/MainWindow.h
+@@ -1,44 +1,54 @@
+ #pragma once
+ #include "core/LabState.h"
+ #include "core/MatrixFormat.h"
+ #include "core/TeachingState.h"
++#include "teach/DemoPlayer.h"
+ #include <QMainWindow>
+ 
+ class DebugLogPanel;
+ class Dx11ViewportWidget;
+ class MatrixBoardPanel;
+ class ObjectPanel;
+ class QAction;
+ class QTimer;
+ class TrackerPanel;
+ class TransformPanel;
++class TutorialPanel;
+ 
+ class MainWindow : public QMainWindow {
+   Q_OBJECT
+ public:
+   explicit MainWindow(QWidget* parent = 0);
+ private slots:
+   void onPollFeedback();
+   void onTransformsChanged();
+   void onObjectsChanged();
+   void onTrackerChanged();
+   void onTeachingEdited(const TeachingState& t);
++  void onTutorialApply(const TeachingState& t);
+   void onToggleMajor();
+   void onReset();
++  void onImportJson();
++  void onExportJson();
++  void onDemoTick();
+ private:
++  void syncTeaching();
+   void refreshBoard();
+   void refreshTracker();
+   void syncMajorActionText();
+ 
+   Dx11ViewportWidget* m_viewport;
+   TransformPanel* m_transforms;
+   ObjectPanel* m_objects;
+   TrackerPanel* m_tracker;
+   MatrixBoardPanel* m_board;
+   DebugLogPanel* m_log;
++  TutorialPanel* m_tutorial;
+   QTimer* m_poll;
++  QTimer* m_demoTimer;
+   QAction* m_majorAction;
++  DemoPlayer m_demo;
+   TeachingState m_teaching;
+   LabState m_lab;
+   MajorOrder m_major;
+ };
+diff --git a/src/teach/DemoPlayer.cpp b/src/teach/DemoPlayer.cpp
+new file mode 100644
+index 0000000..18928d7
+--- /dev/null
++++ b/src/teach/DemoPlayer.cpp
+@@ -0,0 +1,33 @@
++#include "teach/DemoPlayer.h"
++
++DemoPlayer::DemoPlayer()
++    : m_from(teachingStateDefault())
++    , m_elapsed(0.f) {
++}
++
++void DemoPlayer::start(const TeachingState& from) {
++  m_from = from;
++  m_elapsed = 0.f;
++}
++
++bool DemoPlayer::tick(float dtSec, TeachingState* io) {
++  if (!io) {
++    return false;
++  }
++  m_elapsed += dtSec;
++  *io = m_from;
++  if (m_elapsed >= 8.f) {
++    io->camYawDeg = 0.f;
++    io->demoPlaying = false;
++    return false;
++  }
++  float yaw = 0.f;
++  if (m_elapsed <= 4.f) {
++    yaw = 90.f * (m_elapsed / 4.f);
++  } else {
++    yaw = 90.f * (1.f - (m_elapsed - 4.f) / 4.f);
++  }
++  io->camYawDeg = yaw;
++  io->demoPlaying = true;
++  return true;
++}
+diff --git a/src/teach/DemoPlayer.h b/src/teach/DemoPlayer.h
+new file mode 100644
+index 0000000..75da51f
+--- /dev/null
++++ b/src/teach/DemoPlayer.h
+@@ -0,0 +1,13 @@
++#pragma once
++#include "core/TeachingState.h"
++
++class DemoPlayer {
++public:
++  DemoPlayer();
++  void start(const TeachingState& from);
++  bool tick(float dtSec, TeachingState* io);
++
++private:
++  TeachingState m_from;
++  float m_elapsed;
++};
+diff --git a/src/teach/JsonIo.cpp b/src/teach/JsonIo.cpp
+new file mode 100644
+index 0000000..4ceb3d2
+--- /dev/null
++++ b/src/teach/JsonIo.cpp
+@@ -0,0 +1,465 @@
++#include "teach/JsonIo.h"
++#include <cstdio>
++#include <cstdlib>
++#include <cstring>
++#include <string>
++
++namespace {
++
++void appendNum(std::string* o, float v) {
++  char buf[64];
++  std::snprintf(buf, sizeof(buf), "%.9g", static_cast<double>(v));
++  *o += buf;
++}
++
++void appendInt(std::string* o, int v) {
++  char buf[32];
++  std::snprintf(buf, sizeof(buf), "%d", v);
++  *o += buf;
++}
++
++void appendVec3(std::string* o, const float v[3]) {
++  *o += '[';
++  appendNum(o, v[0]);
++  *o += ',';
++  appendNum(o, v[1]);
++  *o += ',';
++  appendNum(o, v[2]);
++  *o += ']';
++}
++
++void appendObject(std::string* o, const TeachingObject& obj) {
++  *o += "{\"mesh\":";
++  appendInt(o, static_cast<int>(obj.mesh));
++  *o += ",\"pos\":";
++  appendVec3(o, obj.trs.pos);
++  *o += ",\"pitchDeg\":";
++  appendNum(o, obj.trs.pitchDeg);
++  *o += ",\"yawDeg\":";
++  appendNum(o, obj.trs.yawDeg);
++  *o += ",\"rollDeg\":";
++  appendNum(o, obj.trs.rollDeg);
++  *o += ",\"scale\":";
++  appendVec3(o, obj.trs.scale);
++  *o += '}';
++}
++
++struct Parser {
++  const char* p;
++  const char* end;
++  bool ok;
++
++  explicit Parser(const std::string& in)
++      : p(in.c_str())
++      , end(in.c_str() + in.size())
++      , ok(true) {
++  }
++
++  void skip() {
++    while (p < end && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')) {
++      ++p;
++    }
++  }
++
++  bool eat(char c) {
++    skip();
++    if (p < end && *p == c) {
++      ++p;
++      return true;
++    }
++    ok = false;
++    return false;
++  }
++
++  bool peek(char c) {
++    skip();
++    return p < end && *p == c;
++  }
++
++  bool parseString(std::string* out) {
++    skip();
++    if (p >= end || *p != '"') {
++      ok = false;
++      return false;
++    }
++    ++p;
++    const char* start = p;
++    while (p < end && *p != '"') {
++      ++p;
++    }
++    if (p >= end) {
++      ok = false;
++      return false;
++    }
++    out->assign(start, p);
++    ++p;
++    return true;
++  }
++
++  bool parseNumber(double* v) {
++    skip();
++    char* next = 0;
++    *v = std::strtod(p, &next);
++    if (next == p) {
++      ok = false;
++      return false;
++    }
++    p = next;
++    return true;
++  }
++
++  bool parseInt(int* v) {
++    double d = 0.0;
++    if (!parseNumber(&d)) {
++      return false;
++    }
++    *v = static_cast<int>(d);
++    return true;
++  }
++
++  bool parseFloat(float* v) {
++    double d = 0.0;
++    if (!parseNumber(&d)) {
++      return false;
++    }
++    *v = static_cast<float>(d);
++    return true;
++  }
++
++  bool parseBool(bool* v) {
++    skip();
++    if (p + 4 <= end && std::memcmp(p, "true", 4) == 0) {
++      p += 4;
++      *v = true;
++      return true;
++    }
++    if (p + 5 <= end && std::memcmp(p, "false", 5) == 0) {
++      p += 5;
++      *v = false;
++      return true;
++    }
++    ok = false;
++    return false;
++  }
++
++  bool parseVec3(float v[3]) {
++    if (!eat('[')) {
++      return false;
++    }
++    if (!parseFloat(&v[0]) || !eat(',') || !parseFloat(&v[1]) || !eat(',') ||
++        !parseFloat(&v[2]) || !eat(']')) {
++      return false;
++    }
++    return true;
++  }
++
++  bool skipValue();
++
++  bool parseTeachingObject(TeachingObject* obj) {
++    if (!eat('{')) {
++      return false;
++    }
++    unsigned seen = 0;
++    bool first = true;
++    while (ok && !peek('}')) {
++      if (!first && !eat(',')) {
++        return false;
++      }
++      first = false;
++      std::string key;
++      if (!parseString(&key) || !eat(':')) {
++        return false;
++      }
++      if (key == "mesh") {
++        int mesh = 0;
++        if (!parseInt(&mesh)) {
++          return false;
++        }
++        obj->mesh = static_cast<MeshId>(mesh);
++        seen |= 1u;
++      } else if (key == "pos") {
++        if (!parseVec3(obj->trs.pos)) {
++          return false;
++        }
++        seen |= 2u;
++      } else if (key == "pitchDeg") {
++        if (!parseFloat(&obj->trs.pitchDeg)) {
++          return false;
++        }
++        seen |= 4u;
++      } else if (key == "yawDeg") {
++        if (!parseFloat(&obj->trs.yawDeg)) {
++          return false;
++        }
++        seen |= 8u;
++      } else if (key == "rollDeg") {
++        if (!parseFloat(&obj->trs.rollDeg)) {
++          return false;
++        }
++        seen |= 16u;
++      } else if (key == "scale") {
++        if (!parseVec3(obj->trs.scale)) {
++          return false;
++        }
++        seen |= 32u;
++      } else if (!skipValue()) {
++        return false;
++      }
++    }
++    if (!eat('}')) {
++      return false;
++    }
++    if (seen != 63u) {
++      ok = false;
++      return false;
++    }
++    return true;
++  }
++
++  bool parseObjects(TeachingObject objects[3]) {
++    if (!eat('[')) {
++      return false;
++    }
++    int count = 0;
++    bool first = true;
++    while (ok && !peek(']')) {
++      if (!first && !eat(',')) {
++        return false;
++      }
++      first = false;
++      if (count >= 3) {
++        ok = false;
++        return false;
++      }
++      if (!parseTeachingObject(&objects[count])) {
++        return false;
++      }
++      ++count;
++    }
++    if (!eat(']')) {
++      return false;
++    }
++    if (count != 3) {
++      ok = false;
++      return false;
++    }
++    return true;
++  }
++};
++
++bool Parser::skipValue() {
++  skip();
++  if (p >= end) {
++    ok = false;
++    return false;
++  }
++  if (*p == '{') {
++    eat('{');
++    bool first = true;
++    while (ok && !peek('}')) {
++      if (!first && !eat(',')) {
++        return false;
++      }
++      first = false;
++      std::string key;
++      if (!parseString(&key) || !eat(':') || !skipValue()) {
++        return false;
++      }
++    }
++    return eat('}');
++  }
++  if (*p == '[') {
++    eat('[');
++    bool first = true;
++    while (ok && !peek(']')) {
++      if (!first && !eat(',')) {
++        return false;
++      }
++      first = false;
++      if (!skipValue()) {
++        return false;
++      }
++    }
++    return eat(']');
++  }
++  if (*p == '"') {
++    std::string dummy;
++    return parseString(&dummy);
++  }
++  if (*p == 't' || *p == 'f') {
++    bool b = false;
++    return parseBool(&b);
++  }
++  double d = 0.0;
++  return parseNumber(&d);
++}
++
++enum {
++  F_layout = 1 << 0,
++  F_shading = 1 << 1,
++  F_camDistance = 1 << 2,
++  F_camPitchDeg = 1 << 3,
++  F_camYawDeg = 1 << 4,
++  F_proj = 1 << 5,
++  F_fovDeg = 1 << 6,
++  F_aspect = 1 << 7,
++  F_aspectFollowViewport = 1 << 8,
++  F_nearZ = 1 << 9,
++  F_farZ = 1 << 10,
++  F_trackModel = 1 << 11,
++  F_objects = 1 << 12
++};
++
++const unsigned kRequired = F_layout | F_shading | F_camDistance | F_camPitchDeg |
++                           F_camYawDeg | F_proj | F_fovDeg | F_aspect |
++                           F_aspectFollowViewport | F_nearZ | F_farZ |
++                           F_trackModel | F_objects;
++
++}  // namespace
++
++bool teachingToJson(const TeachingState& s, std::string* out) {
++  if (!out) {
++    return false;
++  }
++  std::string& o = *out;
++  o.clear();
++  o += "{\n";
++  o += "  \"layout\":";
++  appendInt(&o, static_cast<int>(s.layout));
++  o += ",\n  \"shading\":";
++  appendInt(&o, static_cast<int>(s.shading));
++  o += ",\n  \"camDistance\":";
++  appendNum(&o, s.camDistance);
++  o += ",\n  \"camPitchDeg\":";
++  appendNum(&o, s.camPitchDeg);
++  o += ",\n  \"camYawDeg\":";
++  appendNum(&o, s.camYawDeg);
++  o += ",\n  \"proj\":";
++  appendInt(&o, static_cast<int>(s.proj));
++  o += ",\n  \"fovDeg\":";
++  appendNum(&o, s.fovDeg);
++  o += ",\n  \"aspect\":";
++  appendNum(&o, s.aspect);
++  o += ",\n  \"aspectFollowViewport\":";
++  o += (s.aspectFollowViewport ? "true" : "false");
++  o += ",\n  \"nearZ\":";
++  appendNum(&o, s.nearZ);
++  o += ",\n  \"farZ\":";
++  appendNum(&o, s.farZ);
++  o += ",\n  \"trackModel\":";
++  appendVec3(&o, s.trackModel);
++  o += ",\n  \"objects\":[\n    ";
++  appendObject(&o, s.objects[0]);
++  o += ",\n    ";
++  appendObject(&o, s.objects[1]);
++  o += ",\n    ";
++  appendObject(&o, s.objects[2]);
++  o += "\n  ]\n}\n";
++  return true;
++}
++
++bool teachingFromJson(const std::string& in, TeachingState* out) {
++  if (!out) {
++    return false;
++  }
++  TeachingState tmp = teachingStateDefault();
++  Parser pr(in);
++  if (!pr.eat('{')) {
++    return false;
++  }
++  unsigned seen = 0;
++  bool first = true;
++  while (pr.ok && !pr.peek('}')) {
++    if (!first && !pr.eat(',')) {
++      return false;
++    }
++    first = false;
++    std::string key;
++    if (!pr.parseString(&key) || !pr.eat(':')) {
++      return false;
++    }
++    if (key == "layout") {
++      int v = 0;
++      if (!pr.parseInt(&v)) {
++        return false;
++      }
++      tmp.layout = static_cast<LayoutMode>(v);
++      seen |= F_layout;
++    } else if (key == "shading") {
++      int v = 0;
++      if (!pr.parseInt(&v)) {
++        return false;
++      }
++      tmp.shading = static_cast<ShadingMode>(v);
++      seen |= F_shading;
++    } else if (key == "camDistance") {
++      if (!pr.parseFloat(&tmp.camDistance)) {
++        return false;
++      }
++      seen |= F_camDistance;
++    } else if (key == "camPitchDeg") {
++      if (!pr.parseFloat(&tmp.camPitchDeg)) {
++        return false;
++      }
++      seen |= F_camPitchDeg;
++    } else if (key == "camYawDeg") {
++      if (!pr.parseFloat(&tmp.camYawDeg)) {
++        return false;
++      }
++      seen |= F_camYawDeg;
++    } else if (key == "proj") {
++      int v = 0;
++      if (!pr.parseInt(&v)) {
++        return false;
++      }
++      tmp.proj = static_cast<ProjMode>(v);
++      seen |= F_proj;
++    } else if (key == "fovDeg") {
++      if (!pr.parseFloat(&tmp.fovDeg)) {
++        return false;
++      }
++      seen |= F_fovDeg;
++    } else if (key == "aspect") {
++      if (!pr.parseFloat(&tmp.aspect)) {
++        return false;
++      }
++      seen |= F_aspect;
++    } else if (key == "aspectFollowViewport") {
++      if (!pr.parseBool(&tmp.aspectFollowViewport)) {
++        return false;
++      }
++      seen |= F_aspectFollowViewport;
++    } else if (key == "nearZ") {
++      if (!pr.parseFloat(&tmp.nearZ)) {
++        return false;
++      }
++      seen |= F_nearZ;
++    } else if (key == "farZ") {
++      if (!pr.parseFloat(&tmp.farZ)) {
++        return false;
++      }
++      seen |= F_farZ;
++    } else if (key == "trackModel") {
++      if (!pr.parseVec3(tmp.trackModel)) {
++        return false;
++      }
++      seen |= F_trackModel;
++    } else if (key == "objects") {
++      if (!pr.parseObjects(tmp.objects)) {
++        return false;
++      }
++      seen |= F_objects;
++    } else if (!pr.skipValue()) {
++      return false;
++    }
++  }
++  if (!pr.eat('}')) {
++    return false;
++  }
++  pr.skip();
++  if (!pr.ok || pr.p != pr.end || seen != kRequired) {
++    return false;
++  }
++  *out = tmp;
++  return true;
++}
+diff --git a/src/teach/JsonIo.h b/src/teach/JsonIo.h
+new file mode 100644
+index 0000000..f4128df
+--- /dev/null
++++ b/src/teach/JsonIo.h
+@@ -0,0 +1,6 @@
++#pragma once
++#include "core/TeachingState.h"
++#include <string>
++
++bool teachingToJson(const TeachingState& s, std::string* out);
++bool teachingFromJson(const std::string& in, TeachingState* out);
+diff --git a/src/teach/TutorialScript.cpp b/src/teach/TutorialScript.cpp
+new file mode 100644
+index 0000000..e180f9d
+--- /dev/null
++++ b/src/teach/TutorialScript.cpp
+@@ -0,0 +1,90 @@
++#include "teach/TutorialScript.h"
++
++namespace {
++
++TeachingState makeStepState(int index) {
++  TeachingState s = teachingStateDefault();
++  s.tutorialStep = index;
++  s.demoPlaying = false;
++  switch (index) {
++    case 0:
++      s.camDistance = 6.f;
++      s.camPitchDeg = 15.f;
++      s.camYawDeg = 25.f;
++      break;
++    case 1:
++      s.objects[0].trs.yawDeg = 35.f;
++      s.objects[0].trs.pitchDeg = 10.f;
++      break;
++    case 2:
++      s.camPitchDeg = 40.f;
++      s.camYawDeg = 20.f;
++      break;
++    case 3:
++      s.fovDeg = 45.f;
++      s.proj = ProjPerspective;
++      break;
++    case 4:
++      s.objects[0].trs.yawDeg = 20.f;
++      s.camYawDeg = 30.f;
++      s.fovDeg = 55.f;
++      break;
++    case 5:
++      s.nearZ = 1.f;
++      s.farZ = 20.f;
++      s.camDistance = 8.f;
++      break;
++    case 6:
++      s.layout = LayoutThree;
++      s.objects[0].mesh = MeshCube;
++      s.objects[1].mesh = MeshSphere;
++      s.objects[2].mesh = MeshCylinder;
++      break;
++    case 7:
++      s.shading = ShadeNormal;
++      break;
++    default:
++      break;
++  }
++  return s;
++}
++
++}  // namespace
++
++int tutorialStepCount() {
++  return 8;
++}
++
++TutorialStep tutorialStepAt(int index) {
++  static const char* kTitle[8] = {
++      "\xE5\x9D\x90\xE6\xA0\x87\xE7\xA9\xBA\xE9\x97\xB4",
++      "World",
++      "View",
++      "Projection",
++      "MVP",
++      "\xE8\xBF\x91\xE8\xBF\x9C\xE5\xB9\xB3\xE9\x9D\xA2",
++      "\xE4\xB8\x89\xE7\x89\xA9\xE4\xBD\x93\xE5\xAF\xB9\xE7\x85\xA7",
++      "DX11 CB \xE5\xAF\xB9\xE7\x85\xA7",
++  };
++  static const char* kBody[8] = {
++      "Model -> World -> View -> Clip. DX11 left-handed, Y up.",
++      "World = Scale * Rotation * Translation. Object yaw = 35 deg.",
++      "LookAt origin, +Y up. Camera pitch = 40 deg.",
++      "Perspective FOV vs ortho. Change fovDeg and watch P.",
++      "MVP = W * V * P. HLSL mul is column-major.",
++      "nearZ / farZ set the frustum depth range.",
++      "LayoutThree: cube, sphere, cylinder under one camera.",
++      "Constant buffer uploads W/V/P/WVP to match the board.",
++  };
++  if (index < 0) {
++    index = 0;
++  }
++  if (index > 7) {
++    index = 7;
++  }
++  TutorialStep step;
++  step.title = kTitle[index];
++  step.body = kBody[index];
++  step.state = makeStepState(index);
++  return step;
++}
+diff --git a/src/teach/TutorialScript.h b/src/teach/TutorialScript.h
+new file mode 100644
+index 0000000..f2d54a8
+--- /dev/null
++++ b/src/teach/TutorialScript.h
+@@ -0,0 +1,11 @@
++#pragma once
++#include "core/TeachingState.h"
++
++struct TutorialStep {
++  const char* title;
++  const char* body;
++  TeachingState state;
++};
++
++int tutorialStepCount();
++TutorialStep tutorialStepAt(int index);
+diff --git a/src/ui/TutorialPanel.cpp b/src/ui/TutorialPanel.cpp
+new file mode 100644
+index 0000000..28bb8a5
+--- /dev/null
++++ b/src/ui/TutorialPanel.cpp
+@@ -0,0 +1,89 @@
++#include "ui/TutorialPanel.h"
++#include "teach/TutorialScript.h"
++#include <QHBoxLayout>
++#include <QLabel>
++#include <QPushButton>
++#include <QVBoxLayout>
++
++TutorialPanel::TutorialPanel(QWidget* parent)
++    : QWidget(parent)
++    , m_index(0)
++    , m_title(0)
++    , m_body(0)
++    , m_step(0)
++    , m_prev(0)
++    , m_next(0) {
++  QVBoxLayout* root = new QVBoxLayout(this);
++
++  QHBoxLayout* row = new QHBoxLayout();
++  m_prev = new QPushButton(QString::fromUtf8("\xE4\xB8\x8A\xE4\xB8\x80\xE6\xAD\xA5"), this);
++  m_next = new QPushButton(QString::fromUtf8("\xE4\xB8\x8B\xE4\xB8\x80\xE6\xAD\xA5"), this);
++  QPushButton* demo = new QPushButton(QString::fromUtf8("\xE6\xBC\x94\xE7\xA4\xBA"), this);
++  m_step = new QLabel(this);
++  row->addWidget(m_prev);
++  row->addWidget(m_next);
++  row->addWidget(demo);
++  row->addStretch(1);
++  row->addWidget(m_step);
++  root->addLayout(row);
++
++  m_title = new QLabel(this);
++  QFont titleFont = m_title->font();
++  titleFont.setBold(true);
++  m_title->setFont(titleFont);
++  m_body = new QLabel(this);
++  m_body->setWordWrap(true);
++  root->addWidget(m_title);
++  root->addWidget(m_body);
++
++  connect(m_prev, &QPushButton::clicked, this, &TutorialPanel::onPrev);
++  connect(m_next, &QPushButton::clicked, this, &TutorialPanel::onNext);
++  connect(demo, &QPushButton::clicked, this, &TutorialPanel::onDemo);
++
++  refresh();
++}
++
++void TutorialPanel::setStepIndex(int index) {
++  const int n = tutorialStepCount();
++  if (index < 0) {
++    index = 0;
++  }
++  if (n > 0 && index >= n) {
++    index = n - 1;
++  }
++  m_index = index;
++  refresh();
++}
++
++void TutorialPanel::onPrev() {
++  if (m_index <= 0) {
++    return;
++  }
++  --m_index;
++  refresh();
++  emit applyState(tutorialStepAt(m_index).state);
++}
++
++void TutorialPanel::onNext() {
++  if (m_index + 1 >= tutorialStepCount()) {
++    return;
++  }
++  ++m_index;
++  refresh();
++  emit applyState(tutorialStepAt(m_index).state);
++}
++
++void TutorialPanel::onDemo() {
++  TeachingState s = tutorialStepAt(m_index).state;
++  s.demoPlaying = true;
++  emit applyState(s);
++}
++
++void TutorialPanel::refresh() {
++  const TutorialStep step = tutorialStepAt(m_index);
++  m_title->setText(QString::fromUtf8(step.title));
++  m_body->setText(QString::fromUtf8(step.body));
++  m_step->setText(QString::fromUtf8("%1 / %2").arg(m_index + 1).arg(tutorialStepCount()));
++  m_prev->setEnabled(m_index > 0);
++  m_next->setEnabled(m_index + 1 < tutorialStepCount());
++}
+diff --git a/src/ui/TutorialPanel.h b/src/ui/TutorialPanel.h
+new file mode 100644
+index 0000000..eaa0ec1
+--- /dev/null
++++ b/src/ui/TutorialPanel.h
+@@ -0,0 +1,28 @@
++#pragma once
++#include "core/TeachingState.h"
++#include <QWidget>
++
++class QLabel;
++class QPushButton;
++
++class TutorialPanel : public QWidget {
++  Q_OBJECT
++public:
++  explicit TutorialPanel(QWidget* parent = 0);
++  void setStepIndex(int index);
++signals:
++  void applyState(TeachingState state);
++private slots:
++  void onPrev();
++  void onNext();
++  void onDemo();
++private:
++  void refresh();
++
++  int m_index;
++  QLabel* m_title;
++  QLabel* m_body;
++  QLabel* m_step;
++  QPushButton* m_prev;
++  QPushButton* m_next;
++};
+diff --git a/tests/test_json.cpp b/tests/test_json.cpp
+new file mode 100644
+index 0000000..825825d
+--- /dev/null
++++ b/tests/test_json.cpp
+@@ -0,0 +1,25 @@
++#include "test_harness.h"
++#include "teach/JsonIo.h"
++#include <cmath>
++#include <string>
++
++static bool nearf(float a, float b) {
++  return fabsf(a - b) < 1e-4f;
++}
++
++void runJsonTests() {
++  TeachingState s = teachingStateDefault();
++  std::string json;
++  TEST_CHECK(teachingToJson(s, &json) == true);
++  TEST_CHECK(json.empty() == false);
++
++  TeachingState out;
++  TEST_CHECK(teachingFromJson(json, &out) == true);
++  TEST_CHECK(nearf(out.camDistance, s.camDistance));
++  TEST_CHECK(nearf(out.objects[0].trs.pos[0], s.objects[0].trs.pos[0]));
++
++  TeachingState missing;
++  TEST_CHECK(teachingFromJson(std::string("{}"), &missing) == false);
++  TEST_CHECK(teachingToJson(s, 0) == false);
++  TEST_CHECK(teachingFromJson(json, 0) == false);
++}
+diff --git a/tests/test_main.cpp b/tests/test_main.cpp
+index 2974818..ae73ac8 100644
+--- a/tests/test_main.cpp
++++ b/tests/test_main.cpp
+@@ -1,21 +1,25 @@
+ #include "test_harness.h"
+ 
+ void runQueueTests();
+ void runRenderThreadTests();
+ void runTransformTests();
++void runTutorialTests();
++void runJsonTests();
+ 
+ int& testFailureCount() {
+   static int n = 0;
+   return n;
+ }
+ 
+ int main() {
+   TEST_CHECK(1 == 1);
+   runQueueTests();
+   runRenderThreadTests();
+   runTransformTests();
++  runTutorialTests();
++  runJsonTests();
+   if (testFailureCount() != 0) {
+     return 1;
+   }
+   return 0;
+ }
+diff --git a/tests/test_tutorial.cpp b/tests/test_tutorial.cpp
+new file mode 100644
+index 0000000..7eaf959
+--- /dev/null
++++ b/tests/test_tutorial.cpp
+@@ -0,0 +1,35 @@
++#include "test_harness.h"
++#include "teach/TutorialScript.h"
++#include "teach/DemoPlayer.h"
++#include <cmath>
++
++static bool nearf(float a, float b) {
++  return fabsf(a - b) < 1e-4f;
++}
++
++void runTutorialTests() {
++  TEST_CHECK(tutorialStepCount() == 8);
++
++  TutorialStep s0 = tutorialStepAt(0);
++  TEST_CHECK(s0.title != 0);
++  TEST_CHECK(s0.body != 0);
++
++  TutorialStep world = tutorialStepAt(1);
++  TEST_CHECK(nearf(world.state.objects[0].trs.yawDeg, 35.f));
++  TEST_CHECK(world.state.tutorialStep == 1);
++
++  TutorialStep view = tutorialStepAt(2);
++  TEST_CHECK(nearf(view.state.camPitchDeg, 40.f));
++  TEST_CHECK(view.state.tutorialStep == 2);
++
++  DemoPlayer demo;
++  TeachingState from = teachingStateDefault();
++  demo.start(from);
++  TeachingState io = from;
++  TEST_CHECK(demo.tick(0.f, &io) == true);
++  TEST_CHECK(nearf(io.camYawDeg, 0.f));
++  TEST_CHECK(demo.tick(4.f, &io) == true);
++  TEST_CHECK(nearf(io.camYawDeg, 90.f));
++  TEST_CHECK(demo.tick(4.f, &io) == false);
++  TEST_CHECK(nearf(io.camYawDeg, 0.f));
++}

@@ -1,0 +1,1394 @@
+﻿# Review package: 55958d2abee31019d644d96151fb6b2276d66138..66d29a71485b4ba4dad5610753c52e30153e3797
+
+## Commits
+66d29a7 Keep last-successful shader variant only after compile succeeds. 6a09b77 Expose rasterizer, depth, shaders, and CB text in the lab dock.
+
+## Files changed
+ CMakeLists.txt                |   3 +  src/app/MainWindow.cpp        |  43 +++++++++-  src/app/MainWindow.h          |   3 +  src/core/LabState.h           |  46 +++++++++++  src/render/D3D11Renderer.cpp  | 182 +++++++++++++++++++++++++++++++++---------  src/render/D3D11Renderer.h    |  13 ++-  src/render/RenderThread.cpp   |  11 +++  src/render/ShaderSet.cpp      |  18 ++++-  src/render/ShaderSet.h        |   2 +  src/ui/DebugLogPanel.cpp      |   7 ++  src/ui/DebugLogPanel.h        |   3 +  src/ui/Dx11ViewportWidget.cpp |  12 +++  src/ui/Dx11ViewportWidget.h   |   1 +  src/ui/LabPanel.cpp           | 157 ++++++++++++++++++++++++++++++++++++  src/ui/LabPanel.h             |  35 ++++++++  tests/test_lab.cpp            |  27 +++++++  tests/test_main.cpp           |   2 +  17 files changed, 520 insertions(+), 45 deletions(-)
+
+## Diff
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index bcedb18..2a472a0 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -33,20 +33,22 @@ add_executable(3DEditMax
+   src/ui/TransformPanel.h
+   src/ui/TransformPanel.cpp
+   src/ui/ObjectPanel.h
+   src/ui/ObjectPanel.cpp
+   src/ui/TrackerPanel.h
+   src/ui/TrackerPanel.cpp
+   src/ui/MatrixBoardPanel.h
+   src/ui/MatrixBoardPanel.cpp
+   src/ui/TutorialPanel.h
+   src/ui/TutorialPanel.cpp
++  src/ui/LabPanel.h
++  src/ui/LabPanel.cpp
+   src/core/SnapshotBuffer.cpp
+   src/core/MatrixFormat.cpp
+   src/render/CommandQueue.cpp
+   src/render/FeedbackQueue.cpp
+   src/render/RenderThread.cpp
+   src/render/D3D11Renderer.cpp
+   src/render/DebugDraw.cpp
+   src/render/MeshGpu.cpp
+   src/render/ShaderSet.cpp
+   src/teach/Transforms.cpp
+@@ -67,20 +69,21 @@ add_custom_command(TARGET 3DEditMax POST_BUILD
+     "${CMAKE_SOURCE_DIR}/assets/shaders"
+     "$<TARGET_FILE_DIR:3DEditMax>/shaders")
+ 
+ enable_testing()
+ add_executable(3deditmax_tests
+   tests/test_main.cpp
+   tests/test_queues.cpp
+   tests/test_transforms.cpp
+   tests/test_tutorial.cpp
+   tests/test_json.cpp
++  tests/test_lab.cpp
+   src/render/CommandQueue.cpp
+   src/render/FeedbackQueue.cpp
+   src/render/RenderThread.cpp
+   src/core/SnapshotBuffer.cpp
+   src/core/MatrixFormat.cpp
+   src/teach/Transforms.cpp
+   src/teach/MeshBuild.cpp
+   src/teach/TutorialScript.cpp
+   src/teach/DemoPlayer.cpp
+   src/teach/JsonIo.cpp
+diff --git a/src/app/MainWindow.cpp b/src/app/MainWindow.cpp
+index 1b7c0a4..7cd01a7 100644
+--- a/src/app/MainWindow.cpp
++++ b/src/app/MainWindow.cpp
+@@ -1,55 +1,59 @@
+ #include "app/MainWindow.h"
+ #include "teach/JsonIo.h"
+ #include "teach/Transforms.h"
+ #include "ui/DebugLogPanel.h"
+ #include "ui/Dx11ViewportWidget.h"
++#include "ui/LabPanel.h"
+ #include "ui/MatrixBoardPanel.h"
+ #include "ui/ObjectPanel.h"
+ #include "ui/TrackerPanel.h"
+ #include "ui/TransformPanel.h"
+ #include "ui/TutorialPanel.h"
+ #include <QAction>
+ #include <QDockWidget>
+ #include <QFile>
+ #include <QFileDialog>
+ #include <QMenu>
+ #include <QMenuBar>
+ #include <QMessageBox>
+ #include <QTimer>
+ #include <QToolBar>
++#include <QVBoxLayout>
+ #include <DirectXMath.h>
+ #include <string>
+ 
+ MainWindow::MainWindow(QWidget* parent)
+     : QMainWindow(parent)
+     , m_viewport(0)
+     , m_transforms(0)
+     , m_objects(0)
+     , m_tracker(0)
+     , m_board(0)
++    , m_labPanel(0)
+     , m_log(0)
+     , m_tutorial(0)
+     , m_poll(0)
+     , m_demoTimer(0)
+     , m_majorAction(0)
+     , m_teaching(teachingStateDefault())
+     , m_lab(labStateDefault())
+     , m_major(MajorColumn) {
+   setWindowTitle(QString::fromUtf8("3DEditMax"));
+   resize(1280, 720);
+ 
+   m_viewport = new Dx11ViewportWidget(this);
+   m_transforms = new TransformPanel(this);
+   m_objects = new ObjectPanel(this);
+   m_tracker = new TrackerPanel(this);
+   m_board = new MatrixBoardPanel(this);
++  m_labPanel = new LabPanel(this);
+   m_log = new DebugLogPanel(this);
+   m_tutorial = new TutorialPanel(this);
+   setCentralWidget(m_viewport);
+ 
+   QDockWidget* dockTransforms = new QDockWidget(QString::fromUtf8("\xE5\x8F\x98\xE6\x8D\xA2"), this);
+   dockTransforms->setObjectName(QString::fromUtf8("dockTransforms"));
+   dockTransforms->setWidget(m_transforms);
+   addDockWidget(Qt::LeftDockWidgetArea, dockTransforms);
+ 
+   QDockWidget* dockObject = new QDockWidget(QString::fromUtf8("\xE7\x89\xA9\xE4\xBD\x93"), this);
+@@ -62,23 +66,29 @@ MainWindow::MainWindow(QWidget* parent)
+   dockMatrix->setObjectName(QString::fromUtf8("dockMatrix"));
+   dockMatrix->setWidget(m_board);
+   addDockWidget(Qt::RightDockWidgetArea, dockMatrix);
+ 
+   QDockWidget* dockTracker = new QDockWidget(QString::fromUtf8("Tracker"), this);
+   dockTracker->setObjectName(QString::fromUtf8("dockTracker"));
+   dockTracker->setWidget(m_tracker);
+   addDockWidget(Qt::RightDockWidgetArea, dockTracker);
+   splitDockWidget(dockMatrix, dockTracker, Qt::Vertical);
+ 
++  QWidget* labDockInner = new QWidget(this);
++  QVBoxLayout* labDockLay = new QVBoxLayout(labDockInner);
++  labDockLay->setContentsMargins(0, 0, 0, 0);
++  labDockLay->addWidget(m_labPanel, 1);
++  labDockLay->addWidget(m_log, 1);
++
+   QDockWidget* dockDebug = new QDockWidget(QString::fromUtf8("DX11 Lab / Debug"), this);
+   dockDebug->setObjectName(QString::fromUtf8("dockDebug"));
+-  dockDebug->setWidget(m_log);
++  dockDebug->setWidget(labDockInner);
+   addDockWidget(Qt::RightDockWidgetArea, dockDebug);
+   splitDockWidget(dockMatrix, dockDebug, Qt::Vertical);
+ 
+   QDockWidget* dockTutorial = new QDockWidget(QString::fromUtf8("\xE6\x95\x99\xE7\xA8\x8B"), this);
+   dockTutorial->setObjectName(QString::fromUtf8("dockTutorial"));
+   dockTutorial->setWidget(m_tutorial);
+   addDockWidget(Qt::BottomDockWidgetArea, dockTutorial);
+ 
+   QToolBar* toolbar = addToolBar(QString::fromUtf8("Teach"));
+   toolbar->setObjectName(QString::fromUtf8("toolbarTeach"));
+@@ -96,40 +106,45 @@ MainWindow::MainWindow(QWidget* parent)
+   viewMenu->addAction(dockMatrix->toggleViewAction());
+   viewMenu->addAction(dockTracker->toggleViewAction());
+   viewMenu->addAction(dockDebug->toggleViewAction());
+   viewMenu->addAction(dockTutorial->toggleViewAction());
+ 
+   connect(m_transforms, &TransformPanel::changed, this, &MainWindow::onTransformsChanged);
+   connect(m_objects, &ObjectPanel::changed, this, &MainWindow::onObjectsChanged);
+   connect(m_tracker, &TrackerPanel::changed, this, &MainWindow::onTrackerChanged);
+   connect(m_viewport, &Dx11ViewportWidget::teachingEdited, this, &MainWindow::onTeachingEdited);
+   connect(m_tutorial, &TutorialPanel::applyState, this, &MainWindow::onTutorialApply);
++  connect(m_labPanel, &LabPanel::changed, this, &MainWindow::onLabChanged);
++  connect(m_labPanel, &LabPanel::reloadShaders, m_viewport, &Dx11ViewportWidget::reloadShaders);
+   connect(m_majorAction, &QAction::triggered, this, &MainWindow::onToggleMajor);
+   connect(resetAction, &QAction::triggered, this, &MainWindow::onReset);
+   connect(importAction, &QAction::triggered, this, &MainWindow::onImportJson);
+   connect(exportAction, &QAction::triggered, this, &MainWindow::onExportJson);
+ 
+   m_tutorial->setStepIndex(m_teaching.tutorialStep);
+   syncTeaching();
+ 
+   m_poll = new QTimer(this);
+   m_poll->setInterval(100);
+   connect(m_poll, &QTimer::timeout, this, &MainWindow::onPollFeedback);
+   m_poll->start();
+ 
+   m_demoTimer = new QTimer(this);
+   m_demoTimer->setInterval(16);
+   connect(m_demoTimer, &QTimer::timeout, this, &MainWindow::onDemoTick);
+ }
+ 
+ void MainWindow::onPollFeedback() {
+   m_log->drain(m_viewport->feedback());
++  if (!m_log->adapterName().isEmpty()) {
++    m_labPanel->setDeviceDescription(m_log->adapterName());
++  }
+ }
+ 
+ void MainWindow::syncTeaching() {
+   m_transforms->setState(m_teaching);
+   m_objects->setState(m_teaching);
+   m_tracker->setState(m_teaching);
+   m_viewport->publishState(m_teaching, m_lab);
+   refreshBoard();
+   refreshTracker();
+ }
+@@ -151,44 +166,52 @@ void MainWindow::onTrackerChanged() {
+ 
+ void MainWindow::onTeachingEdited(const TeachingState& t) {
+   m_teaching = t;
+   m_transforms->setState(m_teaching);
+   m_objects->setState(m_teaching);
+   m_tracker->setState(m_teaching);
+   refreshBoard();
+   refreshTracker();
+ }
+ 
++void MainWindow::onLabChanged() {
++  m_lab = m_labPanel->state();
++  m_viewport->publishState(m_teaching, m_lab);
++}
++
+ void MainWindow::onTutorialApply(const TeachingState& t) {
+   if (t.demoPlaying) {
+     m_teaching.demoPlaying = true;
+     m_demo.start(m_teaching);
+     m_demo.tick(0.f, &m_teaching);
+     syncTeaching();
+     m_demoTimer->start();
+     return;
+   }
+   m_demoTimer->stop();
+   m_teaching = t;
+   m_teaching.demoPlaying = false;
+   syncTeaching();
+ }
+ 
+ void MainWindow::onToggleMajor() {
+   m_major = (m_major == MajorColumn) ? MajorRow : MajorColumn;
+   syncMajorActionText();
+   m_board->setMajorOrder(m_major);
++  refreshBoard();
+ }
+ 
+ void MainWindow::onReset() {
+   m_demoTimer->stop();
+   m_teaching = teachingStateDefault();
++  m_lab = labStateDefault();
++  m_labPanel->setState(m_lab);
+   m_tutorial->setStepIndex(0);
+   syncTeaching();
+ }
+ 
+ void MainWindow::onImportJson() {
+   const QString path = QFileDialog::getOpenFileName(
+       this,
+       QString::fromUtf8("\xE5\xAF\xBC\xE5\x85\xA5"),
+       QString(),
+       QString::fromUtf8("JSON (*.json)"));
+@@ -266,20 +289,38 @@ void MainWindow::refreshBoard() {
+   const XMMATRIX WVP = W * V * P;
+   XMFLOAT4X4 w;
+   XMFLOAT4X4 v;
+   XMFLOAT4X4 p;
+   XMFLOAT4X4 wvp;
+   XMStoreFloat4x4(&w, W);
+   XMStoreFloat4x4(&v, V);
+   XMStoreFloat4x4(&p, P);
+   XMStoreFloat4x4(&wvp, WVP);
+   m_board->setMatrices(w, v, p, wvp, m_major);
++
++  char lines[4][64];
++  QString cb;
++  const char* titles[4] = { "W", "V", "P", "WVP" };
++  const XMFLOAT4X4* mats[4] = { &w, &v, &p, &wvp };
++  for (int mi = 0; mi < 4; ++mi) {
++    if (mi > 0) {
++      cb += QChar::fromLatin1('\n');
++    }
++    cb += QString::fromUtf8(titles[mi]);
++    cb += QChar::fromLatin1('\n');
++    formatMatrix4(*mats[mi], m_major, lines);
++    for (int i = 0; i < 4; ++i) {
++      cb += QString::fromUtf8(lines[i]);
++      cb += QChar::fromLatin1('\n');
++    }
++  }
++  m_labPanel->setCbText(cb);
+ }
+ 
+ void MainWindow::refreshTracker() {
+   using namespace DirectX;
+   const TeachingState& t = m_teaching;
+   float aspect = t.aspect;
+   if (t.aspectFollowViewport && m_viewport->height() > 0) {
+     aspect = static_cast<float>(m_viewport->width()) /
+              static_cast<float>(m_viewport->height());
+   }
+diff --git a/src/app/MainWindow.h b/src/app/MainWindow.h
+index 1cf04a5..73fcac1 100644
+--- a/src/app/MainWindow.h
++++ b/src/app/MainWindow.h
+@@ -1,54 +1,57 @@
+ #pragma once
+ #include "core/LabState.h"
+ #include "core/MatrixFormat.h"
+ #include "core/TeachingState.h"
+ #include "teach/DemoPlayer.h"
+ #include <QMainWindow>
+ 
+ class DebugLogPanel;
+ class Dx11ViewportWidget;
++class LabPanel;
+ class MatrixBoardPanel;
+ class ObjectPanel;
+ class QAction;
+ class QTimer;
+ class TrackerPanel;
+ class TransformPanel;
+ class TutorialPanel;
+ 
+ class MainWindow : public QMainWindow {
+   Q_OBJECT
+ public:
+   explicit MainWindow(QWidget* parent = 0);
+ private slots:
+   void onPollFeedback();
+   void onTransformsChanged();
+   void onObjectsChanged();
+   void onTrackerChanged();
+   void onTeachingEdited(const TeachingState& t);
+   void onTutorialApply(const TeachingState& t);
++  void onLabChanged();
+   void onToggleMajor();
+   void onReset();
+   void onImportJson();
+   void onExportJson();
+   void onDemoTick();
+ private:
+   void syncTeaching();
+   void refreshBoard();
+   void refreshTracker();
+   void syncMajorActionText();
+ 
+   Dx11ViewportWidget* m_viewport;
+   TransformPanel* m_transforms;
+   ObjectPanel* m_objects;
+   TrackerPanel* m_tracker;
+   MatrixBoardPanel* m_board;
++  LabPanel* m_labPanel;
+   DebugLogPanel* m_log;
+   TutorialPanel* m_tutorial;
+   QTimer* m_poll;
+   QTimer* m_demoTimer;
+   QAction* m_majorAction;
+   DemoPlayer m_demo;
+   TeachingState m_teaching;
+   LabState m_lab;
+   MajorOrder m_major;
+ };
+diff --git a/src/core/LabState.h b/src/core/LabState.h
+index edc1217..40c0818 100644
+--- a/src/core/LabState.h
++++ b/src/core/LabState.h
+@@ -15,10 +15,56 @@ inline LabState labStateDefault() {
+   const char* name = "unlit";
+   for (int i = 0; name[i] && i < 31; ++i) {
+     s.shaderVariant[i] = name[i];
+   }
+   s.fillMode = 3;  /* D3D11_FILL_SOLID */
+   s.cullMode = 3;  /* D3D11_CULL_BACK */
+   s.depthEnable = true;
+   s.wantDebugLayer = true;
+   return s;
+ }
++
++inline void labSetShaderVariant(LabState* s, const char* name) {
++  if (!s) {
++    return;
++  }
++  std::memset(s->shaderVariant, 0, sizeof(s->shaderVariant));
++  if (!name) {
++    return;
++  }
++  for (int i = 0; name[i] && i < 31; ++i) {
++    s->shaderVariant[i] = name[i];
++  }
++}
++
++/* fillMode 2 = D3D11_FILL_WIREFRAME, 3 = D3D11_FILL_SOLID */
++inline int labEffectiveFillMode(int labFillMode, bool teachingWire) {
++  if (teachingWire || labFillMode == 2) {
++    return 2;
++  }
++  return 3;
++}
++
++/* cullMode 1 = NONE, 2 = FRONT, 3 = BACK */
++inline int labEffectiveCullMode(int labCullMode) {
++  if (labCullMode == 1 || labCullMode == 2 || labCullMode == 3) {
++    return labCullMode;
++  }
++  return 3;
++}
++
++/* teachingShading: 0 solid, 1 normal, 2 checker (ShadeWire does not change PS) */
++inline float labShadeModeX(const char* variant, int teachingShading) {
++  if (teachingShading == 1) {
++    return 1.f;
++  }
++  if (teachingShading == 2) {
++    return 2.f;
++  }
++  if (variant && std::strcmp(variant, "normal") == 0) {
++    return 1.f;
++  }
++  if (variant && std::strcmp(variant, "checker") == 0) {
++    return 2.f;
++  }
++  return 0.f;
++}
+diff --git a/src/render/D3D11Renderer.cpp b/src/render/D3D11Renderer.cpp
+index 404309b..24e7cb3 100644
+--- a/src/render/D3D11Renderer.cpp
++++ b/src/render/D3D11Renderer.cpp
+@@ -1,13 +1,22 @@
++#ifdef _MSC_VER
++#ifndef _CRT_SECURE_NO_WARNINGS
++#define _CRT_SECURE_NO_WARNINGS
++#endif
++#endif
+ #include "render/D3D11Renderer.h"
++#include "core/LabState.h"
+ #include "teach/Transforms.h"
++#include <cstdio>
+ #include <cstring>
++#include <string>
++#include <windows.h>
+ 
+ using Microsoft::WRL::ComPtr;
+ using namespace DirectX;
+ 
+ namespace {
+ 
+ void pushFb(FeedbackQueue* fb, FeedbackKind kind, const char* text) {
+   if (!fb) {
+     return;
+   }
+@@ -19,31 +28,56 @@ void pushFb(FeedbackQueue* fb, FeedbackKind kind, const char* text) {
+ }
+ 
+ struct FrameCBCpu {
+   XMFLOAT4X4 w;
+   XMFLOAT4X4 v;
+   XMFLOAT4X4 p;
+   XMFLOAT4X4 wvp;
+   XMFLOAT4 shadingMode;
+ };
+ 
++void pushCbFloats(FeedbackQueue* fb, const FrameCBCpu& cb) {
++  if (!fb) {
++    return;
++  }
++  char chunk[64];
++  std::string text = "FrameCB";
++  const XMFLOAT4X4* mats[4] = { &cb.w, &cb.v, &cb.p, &cb.wvp };
++  const char* names[4] = { " W", " V", " P", " WVP" };
++  for (int mi = 0; mi < 4; ++mi) {
++    text += names[mi];
++    const float* f = &mats[mi]->m[0][0];
++    for (int i = 0; i < 16; ++i) {
++      std::sprintf(chunk, " %.3f", static_cast<double>(f[i]));
++      text += chunk;
++    }
++  }
++  std::sprintf(chunk, " shade=%.0f", static_cast<double>(cb.shadingMode.x));
++  text += chunk;
++  pushFb(fb, FbLog, text.c_str());
++}
++
+ }  // namespace
+ 
+ D3D11Renderer::D3D11Renderer(const std::wstring& shaderDir)
+     : m_shaderDir(shaderDir)
+     , m_hwnd(0)
+     , m_w(0)
+     , m_h(0)
+     , m_wantDebug(false)
+     , m_initialized(false)
+     , m_dead(false)
+-    , m_fb(0) {}
++    , m_fb(0)
++    , m_lastLoggedShadeX(-1.f)
++    , m_loggedCb(false) {
++  std::memset(m_shaderVariant, 0, sizeof(m_shaderVariant));
++}
+ 
+ bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, FeedbackQueue* fb) {
+   shutdown();
+   m_dead = false;
+   m_fb = fb;
+   m_hwnd = hwnd;
+   m_w = (w > 1) ? w : 1;
+   m_h = (h > 1) ? h : 1;
+   m_wantDebug = wantDebug;
+ 
+@@ -138,45 +172,21 @@ bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, Feedback
+     return false;
+   }
+   m_factory->MakeWindowAssociation(hwnd, DXGI_MWA_NO_ALT_ENTER);
+ 
+   if (!createSizeDependentResources()) {
+     pushFb(fb, FbError, "Create RTV/DSV failed");
+     shutdown();
+     return false;
+   }
+ 
+-  D3D11_RASTERIZER_DESC rd = {};
+-  rd.FillMode = D3D11_FILL_SOLID;
+-  rd.CullMode = D3D11_CULL_BACK;
+-  rd.DepthClipEnable = TRUE;
+-  hr = m_device->CreateRasterizerState(&rd, &m_raster);
+-  if (FAILED(hr)) {
+-    pushFb(fb, FbError, "CreateRasterizerState failed");
+-    shutdown();
+-    return false;
+-  }
+-  rd.FillMode = D3D11_FILL_WIREFRAME;
+-  hr = m_device->CreateRasterizerState(&rd, &m_rasterWire);
+-  if (FAILED(hr)) {
+-    pushFb(fb, FbError, "CreateRasterizerState wire failed");
+-    shutdown();
+-    return false;
+-  }
+-
+-  D3D11_DEPTH_STENCIL_DESC dsd = {};
+-  dsd.DepthEnable = TRUE;
+-  dsd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+-  dsd.DepthFunc = D3D11_COMPARISON_LESS;
+-  hr = m_device->CreateDepthStencilState(&dsd, &m_depthState);
+-  if (FAILED(hr)) {
+-    pushFb(fb, FbError, "CreateDepthStencilState failed");
++  if (!createLabStates(fb)) {
+     shutdown();
+     return false;
+   }
+ 
+   D3D11_BUFFER_DESC cbd = {};
+   cbd.ByteWidth = sizeof(FrameCBCpu);
+   cbd.Usage = D3D11_USAGE_DYNAMIC;
+   cbd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+   cbd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+   hr = m_device->CreateBuffer(&cbd, 0, &m_cb);
+@@ -198,22 +208,22 @@ bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, Feedback
+     shutdown();
+     return false;
+   }
+   m_cyl = MeshGpu::createCylinder(m_device.Get(), 24);
+   if (!m_cyl.valid()) {
+     pushFb(fb, FbError, "createCylinder failed");
+     shutdown();
+     return false;
+   }
+ 
+-  const std::wstring shaderPath = m_shaderDir + L"/unlit.hlsl";
+-  if (!m_shaders.compileFromFile(m_device.Get(), shaderPath, fb)) {
++  copyVariantName("unlit");
++  if (!m_shaders.compileVariant(m_device.Get(), m_shaderDir, m_shaderVariant, fb)) {
+     shutdown();
+     return false;
+   }
+   m_debug.create(m_device.Get(), m_shaderDir);
+   if (!m_debug.valid()) {
+     pushFb(fb, FbWarn, "DebugDraw line.hlsl failed");
+   }
+ 
+   m_initialized = true;
+   pushFb(fb, FbLog, "D3D11 device ready");
+@@ -225,23 +235,30 @@ void D3D11Renderer::shutdown() {
+   if (m_context) {
+     m_context->ClearState();
+     m_context->Flush();
+   }
+   m_shaders = ShaderSet();
+   m_debug.reset();
+   m_cube = MeshGpu();
+   m_sphere = MeshGpu();
+   m_cyl = MeshGpu();
+   m_cb.Reset();
+-  m_depthState.Reset();
+-  m_rasterWire.Reset();
+-  m_raster.Reset();
++  m_depthOff.Reset();
++  m_depthOn.Reset();
++  for (int fi = 0; fi < 2; ++fi) {
++    for (int ci = 0; ci < 3; ++ci) {
++      m_raster[fi][ci].Reset();
++    }
++  }
++  std::memset(m_shaderVariant, 0, sizeof(m_shaderVariant));
++  m_lastLoggedShadeX = -1.f;
++  m_loggedCb = false;
+   m_dsv.Reset();
+   m_depth.Reset();
+   m_rtv.Reset();
+   m_swap.Reset();
+   m_context.Reset();
+   m_device.Reset();
+   m_adapter.Reset();
+   m_factory.Reset();
+   m_initialized = false;
+ }
+@@ -302,91 +319,178 @@ void D3D11Renderer::render(const StateSnapshot& snap) {
+   vp.Height = static_cast<float>(m_h);
+   vp.MinDepth = 0.f;
+   vp.MaxDepth = 1.f;
+   m_context->RSSetViewports(1, &vp);
+ 
+   const float clear[4] = {0.08f, 0.10f, 0.14f, 1.f};
+   m_context->ClearRenderTargetView(m_rtv.Get(), clear);
+   m_context->ClearDepthStencilView(m_dsv.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.f, 0);
+ 
+   const TeachingState& t = snap.teaching;
++  if (std::strcmp(snap.lab.shaderVariant, m_shaderVariant) != 0) {
++    ShaderSet next;
++    if (next.compileVariant(m_device.Get(), m_shaderDir, snap.lab.shaderVariant, m_fb)) {
++      m_shaders = next;
++      copyVariantName(snap.lab.shaderVariant);
++    }
++  }
+   const float aspect = t.aspectFollowViewport
+       ? (static_cast<float>(m_w) / static_cast<float>(m_h))
+       : t.aspect;
+   const XMMATRIX V = BuildView(t.camDistance, t.camPitchDeg, t.camYawDeg);
+   const XMMATRIX P = BuildProjection(t, aspect);
+   const int count = (t.layout == LayoutThree) ? 3 : 1;
+-  const bool wire = (t.shading == ShadeWire);
+-  const float shadeX = (t.shading == ShadeNormal) ? 1.f
+-      : (t.shading == ShadeChecker) ? 2.f
+-      : 0.f;
++  const float shadeX = labShadeModeX(snap.lab.shaderVariant, static_cast<int>(t.shading));
+ 
+   ID3D11Buffer* cbuf = m_cb.Get();
+   m_context->VSSetConstantBuffers(0, 1, &cbuf);
+   m_context->PSSetConstantBuffers(0, 1, &cbuf);
+   m_context->VSSetShader(m_shaders.vs(), 0, 0);
+   m_context->PSSetShader(m_shaders.ps(), 0, 0);
+   m_context->IASetInputLayout(m_shaders.layout());
+-  m_context->RSSetState(wire ? m_rasterWire.Get() : m_raster.Get());
+-  m_context->OMSetDepthStencilState(m_depthState.Get(), 0);
++  bindLabStates(snap);
+ 
+   for (int oi = 0; oi < count; ++oi) {
+     const TeachingObject& obj = t.objects[oi];
+     const XMMATRIX W = BuildWorld(obj.trs);
+     const XMMATRIX WVP = W * V * P;
+ 
+     FrameCBCpu cb;
+     XMStoreFloat4x4(&cb.w, XMMatrixTranspose(W));
+     XMStoreFloat4x4(&cb.v, XMMatrixTranspose(V));
+     XMStoreFloat4x4(&cb.p, XMMatrixTranspose(P));
+     XMStoreFloat4x4(&cb.wvp, XMMatrixTranspose(WVP));
+     cb.shadingMode = XMFLOAT4(shadeX, 0.f, 0.f, 0.f);
+ 
+     D3D11_MAPPED_SUBRESOURCE mapped = {};
+     if (SUCCEEDED(m_context->Map(m_cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+       std::memcpy(mapped.pData, &cb, sizeof(cb));
+       m_context->Unmap(m_cb.Get(), 0);
+     }
++    if (!m_loggedCb || shadeX != m_lastLoggedShadeX) {
++      m_loggedCb = true;
++      m_lastLoggedShadeX = shadeX;
++      pushCbFloats(m_fb, cb);
++    }
+ 
+     const MeshGpu* mesh = &m_cube;
+     if (obj.mesh == MeshSphere) {
+       mesh = &m_sphere;
+     } else if (obj.mesh == MeshCylinder) {
+       mesh = &m_cyl;
+     }
+     mesh->draw(m_context.Get());
+   }
+ 
+   m_debug.draw(m_context.Get(), snap, V, P);
+ 
+   const HRESULT hr = m_swap->Present(1, 0);
+   handlePresentResult(hr);
+ }
+ 
+ bool D3D11Renderer::reloadShaders(FeedbackQueue* fb) {
+   if (!m_device) {
+     return false;
+   }
++  const char* variant = m_shaderVariant[0] ? m_shaderVariant : "unlit";
+   ShaderSet next;
+-  const std::wstring shaderPath = m_shaderDir + L"/unlit.hlsl";
+-  if (!next.compileFromFile(m_device.Get(), shaderPath, fb)) {
++  if (!next.compileVariant(m_device.Get(), m_shaderDir, variant, fb)) {
+     return false;
+   }
+   m_shaders = next;
+   DebugDraw debugNext;
+   debugNext.create(m_device.Get(), m_shaderDir);
+   if (debugNext.valid()) {
+     m_debug = debugNext;
+   }
+   return true;
+ }
+ 
++std::string D3D11Renderer::adapterNameUtf8() const {
++  if (!m_adapter) {
++    return std::string();
++  }
++  DXGI_ADAPTER_DESC desc;
++  if (FAILED(m_adapter->GetDesc(&desc))) {
++    return std::string();
++  }
++  const wchar_t* w = desc.Description;
++  if (!w || !w[0]) {
++    return std::string();
++  }
++  const int n = WideCharToMultiByte(CP_UTF8, 0, w, -1, 0, 0, 0, 0);
++  if (n <= 1) {
++    return std::string();
++  }
++  std::string out(static_cast<size_t>(n - 1), '\0');
++  WideCharToMultiByte(CP_UTF8, 0, w, -1, &out[0], n, 0, 0);
++  return out;
++}
++
++bool D3D11Renderer::createLabStates(FeedbackQueue* fb) {
++  const D3D11_FILL_MODE fills[2] = { D3D11_FILL_SOLID, D3D11_FILL_WIREFRAME };
++  const D3D11_CULL_MODE culls[3] = { D3D11_CULL_NONE, D3D11_CULL_FRONT, D3D11_CULL_BACK };
++  for (int fi = 0; fi < 2; ++fi) {
++    for (int ci = 0; ci < 3; ++ci) {
++      D3D11_RASTERIZER_DESC rd = {};
++      rd.FillMode = fills[fi];
++      rd.CullMode = culls[ci];
++      rd.DepthClipEnable = TRUE;
++      const HRESULT hr = m_device->CreateRasterizerState(&rd, &m_raster[fi][ci]);
++      if (FAILED(hr)) {
++        pushFb(fb, FbError, "CreateRasterizerState failed");
++        return false;
++      }
++    }
++  }
++
++  D3D11_DEPTH_STENCIL_DESC dsd = {};
++  dsd.DepthEnable = TRUE;
++  dsd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
++  dsd.DepthFunc = D3D11_COMPARISON_LESS;
++  HRESULT hr = m_device->CreateDepthStencilState(&dsd, &m_depthOn);
++  if (FAILED(hr)) {
++    pushFb(fb, FbError, "CreateDepthStencilState failed");
++    return false;
++  }
++  dsd.DepthEnable = FALSE;
++  dsd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
++  hr = m_device->CreateDepthStencilState(&dsd, &m_depthOff);
++  if (FAILED(hr)) {
++    pushFb(fb, FbError, "CreateDepthStencilState off failed");
++    return false;
++  }
++  return true;
++}
++
++void D3D11Renderer::bindLabStates(const StateSnapshot& snap) {
++  const int fill = labEffectiveFillMode(snap.lab.fillMode, snap.teaching.shading == ShadeWire);
++  const int cull = labEffectiveCullMode(snap.lab.cullMode);
++  const int fi = (fill == 2) ? 1 : 0;
++  int ci = cull - 1;
++  if (ci < 0 || ci > 2) {
++    ci = 2;
++  }
++  m_context->RSSetState(m_raster[fi][ci].Get());
++  m_context->OMSetDepthStencilState(snap.lab.depthEnable ? m_depthOn.Get() : m_depthOff.Get(), 0);
++}
++
++void D3D11Renderer::copyVariantName(const char* name) {
++  std::memset(m_shaderVariant, 0, sizeof(m_shaderVariant));
++  if (!name) {
++    return;
++  }
++  for (int i = 0; name[i] && i < 31; ++i) {
++    m_shaderVariant[i] = name[i];
++  }
++}
++
+ bool D3D11Renderer::createSizeDependentResources() {
+   if (!m_device || !m_swap) {
+     return false;
+   }
+   ComPtr<ID3D11Texture2D> back;
+   HRESULT hr = m_swap->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(back.ReleaseAndGetAddressOf()));
+   if (FAILED(hr)) {
+     return false;
+   }
+   hr = m_device->CreateRenderTargetView(back.Get(), 0, &m_rtv);
+diff --git a/src/render/D3D11Renderer.h b/src/render/D3D11Renderer.h
+index 99d6b2f..f3df759 100644
+--- a/src/render/D3D11Renderer.h
++++ b/src/render/D3D11Renderer.h
+@@ -10,42 +10,49 @@
+ #include <string>
+ 
+ class D3D11Renderer {
+ public:
+   explicit D3D11Renderer(const std::wstring& shaderDir);
+   bool initialize(HWND hwnd, int w, int h, bool wantDebug, FeedbackQueue* fb);
+   void shutdown();
+   bool resize(int w, int h);
+   void render(const StateSnapshot& snap);
+   bool reloadShaders(FeedbackQueue* fb);
++  std::string adapterNameUtf8() const;
+   bool dead() const { return m_dead; }
+   bool initialized() const { return m_initialized; }
+   bool viewsValid() const { return m_rtv && m_dsv; }
+ private:
+   bool createSizeDependentResources();
++  bool createLabStates(FeedbackQueue* fb);
++  void bindLabStates(const StateSnapshot& snap);
+   void handlePresentResult(HRESULT hr);
++  void copyVariantName(const char* name);
+   std::wstring m_shaderDir;
+   HWND m_hwnd;
+   int m_w;
+   int m_h;
+   bool m_wantDebug;
+   bool m_initialized;
+   bool m_dead;
+   FeedbackQueue* m_fb;
+   Microsoft::WRL::ComPtr<IDXGIFactory1> m_factory;
+   Microsoft::WRL::ComPtr<IDXGIAdapter1> m_adapter;
+   Microsoft::WRL::ComPtr<ID3D11Device> m_device;
+   Microsoft::WRL::ComPtr<ID3D11DeviceContext> m_context;
+   Microsoft::WRL::ComPtr<IDXGISwapChain> m_swap;
+   Microsoft::WRL::ComPtr<ID3D11RenderTargetView> m_rtv;
+   Microsoft::WRL::ComPtr<ID3D11Texture2D> m_depth;
+   Microsoft::WRL::ComPtr<ID3D11DepthStencilView> m_dsv;
+-  Microsoft::WRL::ComPtr<ID3D11RasterizerState> m_raster;
+-  Microsoft::WRL::ComPtr<ID3D11RasterizerState> m_rasterWire;
+-  Microsoft::WRL::ComPtr<ID3D11DepthStencilState> m_depthState;
++  Microsoft::WRL::ComPtr<ID3D11RasterizerState> m_raster[2][3];
++  Microsoft::WRL::ComPtr<ID3D11DepthStencilState> m_depthOn;
++  Microsoft::WRL::ComPtr<ID3D11DepthStencilState> m_depthOff;
++  char m_shaderVariant[32];
++  float m_lastLoggedShadeX;
++  bool m_loggedCb;
+   Microsoft::WRL::ComPtr<ID3D11Buffer> m_cb;
+   MeshGpu m_cube;
+   MeshGpu m_sphere;
+   MeshGpu m_cyl;
+   ShaderSet m_shaders;
+   DebugDraw m_debug;
+ };
+diff --git a/src/render/RenderThread.cpp b/src/render/RenderThread.cpp
+index ebe5c30..aa3e421 100644
+--- a/src/render/RenderThread.cpp
++++ b/src/render/RenderThread.cpp
+@@ -1,12 +1,13 @@
+ #include "render/RenderThread.h"
+ #include <chrono>
++#include <string>
+ 
+ RenderThread::RenderThread() : RenderThread(std::wstring()) {}
+ 
+ RenderThread::RenderThread(const std::wstring& shaderDir)
+ #ifndef D3DEDITMAX_NO_D3D
+     : m_renderer(shaderDir)
+     , m_hwnd(0)
+ #else
+     : m_hwnd(0)
+ #endif
+@@ -49,20 +50,30 @@ void RenderThread::threadMain() {
+ #ifndef D3DEDITMAX_NO_D3D
+     bool allowPresent = true;
+ #endif
+     while (m_commands.tryPop(&cmd)) {
+       if (cmd.type == CmdInit) {
+         m_hwnd = cmd.hwnd;
+         m_w = cmd.width;
+         m_h = cmd.height;
+ #ifndef D3DEDITMAX_NO_D3D
+         allowPresent = m_renderer.initialize(cmd.hwnd, cmd.width, cmd.height, true, &m_feedback);
++        if (allowPresent) {
++          const std::string adapter = m_renderer.adapterNameUtf8();
++          if (!adapter.empty()) {
++            FeedbackItem item;
++            item.kind = FbLog;
++            item.text = std::string("Adapter: ") + adapter;
++            item.ms = 0.f;
++            m_feedback.push(item);
++          }
++        }
+ #endif
+       } else if (cmd.type == CmdResize) {
+         m_w = cmd.width;
+         m_h = cmd.height;
+ #ifndef D3DEDITMAX_NO_D3D
+         if (!m_renderer.resize(cmd.width, cmd.height)) {
+           allowPresent = false;
+         }
+ #endif
+       } else if (cmd.type == CmdReloadShader) {
+diff --git a/src/render/ShaderSet.cpp b/src/render/ShaderSet.cpp
+index 950edfb..cb27fb1 100644
+--- a/src/render/ShaderSet.cpp
++++ b/src/render/ShaderSet.cpp
+@@ -10,55 +10,69 @@ static void pushCompileError(FeedbackQueue* fb, ID3DBlob* err) {
+   item.ms = 0.f;
+   if (err && err->GetBufferPointer() && err->GetBufferSize() > 0) {
+     const char* text = static_cast<const char*>(err->GetBufferPointer());
+     item.text.assign(text, text + err->GetBufferSize());
+   } else {
+     item.text = "HLSL compile failed";
+   }
+   fb->push(item);
+ }
+ 
++bool ShaderSet::compileVariant(ID3D11Device* device, const std::wstring& shaderDir, const char* variant, FeedbackQueue* fb) {
++  const char* name = (variant && variant[0]) ? variant : "unlit";
++  D3D_SHADER_MACRO macros[2] = {};
++  macros[0].Name = "SHADER_VARIANT";
++  macros[0].Definition = name;
++  const std::wstring path = shaderDir + L"/unlit.hlsl";
++  return compileFromFileEx(device, path, fb, macros);
++}
++
+ bool ShaderSet::compileFromFile(ID3D11Device* device, const std::wstring& path, FeedbackQueue* fb) {
++  return compileFromFileEx(device, path, fb, 0);
++}
++
++bool ShaderSet::compileFromFileEx(ID3D11Device* device, const std::wstring& path, FeedbackQueue* fb, const void* macros) {
++  const D3D_SHADER_MACRO* defs = static_cast<const D3D_SHADER_MACRO*>(macros);
+   if (!device) {
+     if (fb) {
+       FeedbackItem item;
+       item.kind = FbError;
+       item.text = "ShaderSet: null device";
+       item.ms = 0.f;
+       fb->push(item);
+     }
+     return false;
+   }
+ 
+   Microsoft::WRL::ComPtr<ID3DBlob> vsBlob;
+   Microsoft::WRL::ComPtr<ID3DBlob> psBlob;
+   Microsoft::WRL::ComPtr<ID3DBlob> err;
+ 
+   HRESULT hr = D3DCompileFromFile(
+       path.c_str(),
+-      0,
++      defs,
+       D3D_COMPILE_STANDARD_FILE_INCLUDE,
+       "vs_main",
+       "vs_5_0",
+       0,
+       0,
+       &vsBlob,
+       &err);
+   if (FAILED(hr)) {
+     pushCompileError(fb, err.Get());
+     return false;
+   }
+ 
+   err.Reset();
+   hr = D3DCompileFromFile(
+       path.c_str(),
+-      0,
++      defs,
+       D3D_COMPILE_STANDARD_FILE_INCLUDE,
+       "ps_main",
+       "ps_5_0",
+       0,
+       0,
+       &psBlob,
+       &err);
+   if (FAILED(hr)) {
+     pushCompileError(fb, err.Get());
+     return false;
+diff --git a/src/render/ShaderSet.h b/src/render/ShaderSet.h
+index 3e3b68a..1001986 100644
+--- a/src/render/ShaderSet.h
++++ b/src/render/ShaderSet.h
+@@ -1,18 +1,20 @@
+ #pragma once
+ #include "render/FeedbackQueue.h"
+ #include <d3d11.h>
+ #include <wrl/client.h>
+ #include <string>
+ 
+ class ShaderSet {
+ public:
+   bool compileFromFile(ID3D11Device* device, const std::wstring& path, FeedbackQueue* fb);
++  bool compileVariant(ID3D11Device* device, const std::wstring& shaderDir, const char* variant, FeedbackQueue* fb);
+   ID3D11VertexShader* vs() const { return m_vs.Get(); }
+   ID3D11PixelShader* ps() const { return m_ps.Get(); }
+   ID3D11InputLayout* layout() const { return m_layout.Get(); }
+   bool valid() const { return m_vs && m_ps && m_layout; }
+ private:
++  bool compileFromFileEx(ID3D11Device* device, const std::wstring& path, FeedbackQueue* fb, const void* macros);
+   Microsoft::WRL::ComPtr<ID3D11VertexShader> m_vs;
+   Microsoft::WRL::ComPtr<ID3D11PixelShader> m_ps;
+   Microsoft::WRL::ComPtr<ID3D11InputLayout> m_layout;
+ };
+diff --git a/src/ui/DebugLogPanel.cpp b/src/ui/DebugLogPanel.cpp
+index 5309708..cb0b5dc 100644
+--- a/src/ui/DebugLogPanel.cpp
++++ b/src/ui/DebugLogPanel.cpp
+@@ -11,27 +11,34 @@ DebugLogPanel::DebugLogPanel(QWidget* parent)
+   layout->setContentsMargins(0, 0, 0, 0);
+   layout->addWidget(m_edit);
+ }
+ 
+ void DebugLogPanel::drain(FeedbackQueue& q) {
+   FeedbackItem item;
+   while (q.tryPop(&item)) {
+     if (item.kind == FbFps) {
+       continue;
+     }
++    if (item.kind == FbLog && item.text.size() >= 9 && item.text.compare(0, 9, "Adapter: ") == 0) {
++      m_adapter = QString::fromUtf8(item.text.c_str() + 9);
++    }
+     const char* tag = 0;
+     if (item.kind == FbError) {
+       tag = "[Error] ";
+     } else if (item.kind == FbWarn) {
+       tag = "[Warn] ";
+     } else if (item.kind == FbLog) {
+       tag = "[Log] ";
+     } else {
+       continue;
+     }
+     m_edit->appendPlainText(QString::fromUtf8(tag) + QString::fromUtf8(item.text.c_str()));
+   }
+ }
+ 
++QString DebugLogPanel::adapterName() const {
++  return m_adapter;
++}
++
+ void DebugLogPanel::appendFromQueue(FeedbackQueue& q) {
+   drain(q);
+ }
+diff --git a/src/ui/DebugLogPanel.h b/src/ui/DebugLogPanel.h
+index afe7610..9e80e90 100644
+--- a/src/ui/DebugLogPanel.h
++++ b/src/ui/DebugLogPanel.h
+@@ -1,15 +1,18 @@
+ #pragma once
++#include <QString>
+ #include <QWidget>
+ 
+ class FeedbackQueue;
+ class QPlainTextEdit;
+ 
+ class DebugLogPanel : public QWidget {
+   Q_OBJECT
+ public:
+   explicit DebugLogPanel(QWidget* parent = 0);
+   void drain(FeedbackQueue& q);
+   void appendFromQueue(FeedbackQueue& q);
++  QString adapterName() const;
+ private:
+   QPlainTextEdit* m_edit;
++  QString m_adapter;
+ };
+diff --git a/src/ui/Dx11ViewportWidget.cpp b/src/ui/Dx11ViewportWidget.cpp
+index 8cdaaa1..88d4e0c 100644
+--- a/src/ui/Dx11ViewportWidget.cpp
++++ b/src/ui/Dx11ViewportWidget.cpp
+@@ -35,20 +35,32 @@ void Dx11ViewportWidget::publishState(const TeachingState& t, const LabState& l)
+     return;
+   }
+   StateSnapshot snap = stateSnapshotDefault();
+   snap.teaching = m_teaching;
+   snap.lab = m_lab;
+   snap.viewportW = width();
+   snap.viewportH = height();
+   m_thread->snapshots().publish(snap);
+ }
+ 
++void Dx11ViewportWidget::reloadShaders() {
++  if (!m_thread) {
++    return;
++  }
++  RenderCommand cmd;
++  cmd.type = CmdReloadShader;
++  cmd.hwnd = hwnd();
++  cmd.width = width();
++  cmd.height = height();
++  m_thread->commands().push(cmd);
++}
++
+ FeedbackQueue& Dx11ViewportWidget::feedback() {
+   if (m_thread) {
+     return m_thread->feedback();
+   }
+   static FeedbackQueue empty;
+   return empty;
+ }
+ 
+ void Dx11ViewportWidget::showEvent(QShowEvent* e) {
+   QWidget::showEvent(e);
+diff --git a/src/ui/Dx11ViewportWidget.h b/src/ui/Dx11ViewportWidget.h
+index 07d5de5..316cd02 100644
+--- a/src/ui/Dx11ViewportWidget.h
++++ b/src/ui/Dx11ViewportWidget.h
+@@ -6,20 +6,21 @@
+ #include <QPoint>
+ #include <QWidget>
+ #include <memory>
+ 
+ class Dx11ViewportWidget : public QWidget {
+   Q_OBJECT
+ public:
+   explicit Dx11ViewportWidget(QWidget* parent = 0);
+   ~Dx11ViewportWidget();
+   void publishState(const TeachingState& t, const LabState& l);
++  void reloadShaders();
+   FeedbackQueue& feedback();
+ signals:
+   void teachingEdited(const TeachingState& t);
+ protected:
+   void showEvent(QShowEvent* e);
+   void hideEvent(QHideEvent* e);
+   void resizeEvent(QResizeEvent* e);
+   void paintEvent(QPaintEvent* e);
+   void mousePressEvent(QMouseEvent* e);
+   void mouseMoveEvent(QMouseEvent* e);
+diff --git a/src/ui/LabPanel.cpp b/src/ui/LabPanel.cpp
+new file mode 100644
+index 0000000..f4499ae
+--- /dev/null
++++ b/src/ui/LabPanel.cpp
+@@ -0,0 +1,157 @@
++#include "ui/LabPanel.h"
++#include <QCheckBox>
++#include <QComboBox>
++#include <QFont>
++#include <QFormLayout>
++#include <QGroupBox>
++#include <QHBoxLayout>
++#include <QLabel>
++#include <QPlainTextEdit>
++#include <QPushButton>
++#include <QVBoxLayout>
++
++LabPanel::LabPanel(QWidget* parent)
++    : QWidget(parent)
++    , m_state(labStateDefault())
++    , m_block(false)
++    , m_device(0)
++    , m_variant(0)
++    , m_fill(0)
++    , m_cull(0)
++    , m_depth(0)
++    , m_cb(0) {
++  QVBoxLayout* root = new QVBoxLayout(this);
++
++  QGroupBox* deviceBox = new QGroupBox(QString::fromUtf8("Device"), this);
++  QVBoxLayout* deviceLay = new QVBoxLayout(deviceBox);
++  m_device = new QLabel(QString::fromUtf8("(no device)"), deviceBox);
++  m_device->setWordWrap(true);
++  deviceLay->addWidget(m_device);
++  root->addWidget(deviceBox);
++
++  QGroupBox* shaderBox = new QGroupBox(QString::fromUtf8("Shader"), this);
++  QHBoxLayout* shaderRow = new QHBoxLayout(shaderBox);
++  m_variant = new QComboBox(shaderBox);
++  m_variant->addItem(QString::fromUtf8("unlit"));
++  m_variant->addItem(QString::fromUtf8("normal"));
++  m_variant->addItem(QString::fromUtf8("checker"));
++  QPushButton* reload = new QPushButton(QString::fromUtf8("Reload"), shaderBox);
++  shaderRow->addWidget(m_variant, 1);
++  shaderRow->addWidget(reload);
++  root->addWidget(shaderBox);
++
++  QGroupBox* rsBox = new QGroupBox(QString::fromUtf8("Rasterizer"), this);
++  QFormLayout* rsForm = new QFormLayout(rsBox);
++  m_fill = new QComboBox(rsBox);
++  m_fill->addItem(QString::fromUtf8("Solid"));
++  m_fill->addItem(QString::fromUtf8("Wire"));
++  m_cull = new QComboBox(rsBox);
++  m_cull->addItem(QString::fromUtf8("None"));
++  m_cull->addItem(QString::fromUtf8("Back"));
++  m_cull->addItem(QString::fromUtf8("Front"));
++  m_depth = new QCheckBox(QString::fromUtf8("On"), rsBox);
++  rsForm->addRow(QString::fromUtf8("Fill"), m_fill);
++  rsForm->addRow(QString::fromUtf8("Cull"), m_cull);
++  rsForm->addRow(QString::fromUtf8("Depth"), m_depth);
++  root->addWidget(rsBox);
++
++  QGroupBox* cbBox = new QGroupBox(QString::fromUtf8("CB"), this);
++  QVBoxLayout* cbLay = new QVBoxLayout(cbBox);
++  m_cb = new QPlainTextEdit(cbBox);
++  m_cb->setReadOnly(true);
++  QFont font = m_cb->font();
++  font.setFamily(QString::fromUtf8("Consolas"));
++  font.setStyleHint(QFont::Monospace);
++  font.setFixedPitch(true);
++  m_cb->setFont(font);
++  m_cb->setLineWrapMode(QPlainTextEdit::NoWrap);
++  m_cb->setTabChangesFocus(true);
++  cbLay->addWidget(m_cb);
++  root->addWidget(cbBox, 1);
++
++  connect(m_variant, static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged),
++          this, &LabPanel::onEdited);
++  connect(m_fill, static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged),
++          this, &LabPanel::onEdited);
++  connect(m_cull, static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged),
++          this, &LabPanel::onEdited);
++  connect(m_depth, &QCheckBox::toggled, this, &LabPanel::onEdited);
++  connect(reload, &QPushButton::clicked, this, &LabPanel::onReload);
++
++  m_block = true;
++  loadWidgets(m_state);
++  m_block = false;
++}
++
++void LabPanel::setState(const LabState& s) {
++  m_state = s;
++  const bool was = m_block;
++  m_block = true;
++  loadWidgets(s);
++  m_block = was;
++}
++
++LabState LabPanel::state() const {
++  LabState s = m_state;
++  const int vi = m_variant->currentIndex();
++  if (vi == 1) {
++    labSetShaderVariant(&s, "normal");
++  } else if (vi == 2) {
++    labSetShaderVariant(&s, "checker");
++  } else {
++    labSetShaderVariant(&s, "unlit");
++  }
++  s.fillMode = (m_fill->currentIndex() == 1) ? 2 : 3;
++  const int ci = m_cull->currentIndex();
++  if (ci == 0) {
++    s.cullMode = 1;
++  } else if (ci == 2) {
++    s.cullMode = 2;
++  } else {
++    s.cullMode = 3;
++  }
++  s.depthEnable = m_depth->isChecked();
++  return s;
++}
++
++void LabPanel::setDeviceDescription(const QString& text) {
++  if (text.isEmpty()) {
++    m_device->setText(QString::fromUtf8("(no device)"));
++    return;
++  }
++  m_device->setText(text);
++}
++
++void LabPanel::setCbText(const QString& text) {
++  m_cb->setPlainText(text);
++}
++
++void LabPanel::onEdited() {
++  if (m_block) {
++    return;
++  }
++  emit changed();
++}
++
++void LabPanel::onReload() {
++  emit reloadShaders();
++}
++
++void LabPanel::loadWidgets(const LabState& s) {
++  int vi = 0;
++  if (std::strcmp(s.shaderVariant, "normal") == 0) {
++    vi = 1;
++  } else if (std::strcmp(s.shaderVariant, "checker") == 0) {
++    vi = 2;
++  }
++  m_variant->setCurrentIndex(vi);
++  m_fill->setCurrentIndex(s.fillMode == 2 ? 1 : 0);
++  int ci = 1;
++  if (s.cullMode == 1) {
++    ci = 0;
++  } else if (s.cullMode == 2) {
++    ci = 2;
++  }
++  m_cull->setCurrentIndex(ci);
++  m_depth->setChecked(s.depthEnable);
++}
+diff --git a/src/ui/LabPanel.h b/src/ui/LabPanel.h
+new file mode 100644
+index 0000000..b434800
+--- /dev/null
++++ b/src/ui/LabPanel.h
+@@ -0,0 +1,35 @@
++#pragma once
++#include "core/LabState.h"
++#include <QWidget>
++
++class QCheckBox;
++class QComboBox;
++class QLabel;
++class QPlainTextEdit;
++
++class LabPanel : public QWidget {
++  Q_OBJECT
++public:
++  explicit LabPanel(QWidget* parent = 0);
++  void setState(const LabState& s);
++  LabState state() const;
++  void setDeviceDescription(const QString& text);
++  void setCbText(const QString& text);
++signals:
++  void changed();
++  void reloadShaders();
++private slots:
++  void onEdited();
++  void onReload();
++private:
++  void loadWidgets(const LabState& s);
++
++  LabState m_state;
++  bool m_block;
++  QLabel* m_device;
++  QComboBox* m_variant;
++  QComboBox* m_fill;
++  QComboBox* m_cull;
++  QCheckBox* m_depth;
++  QPlainTextEdit* m_cb;
++};
+diff --git a/tests/test_lab.cpp b/tests/test_lab.cpp
+new file mode 100644
+index 0000000..fb6899f
+--- /dev/null
++++ b/tests/test_lab.cpp
+@@ -0,0 +1,27 @@
++#include "test_harness.h"
++#include "core/LabState.h"
++#include <cstring>
++
++void runLabTests() {
++  LabState s = labStateDefault();
++  TEST_CHECK(s.fillMode == 3);
++  TEST_CHECK(s.cullMode == 3);
++  TEST_CHECK(s.depthEnable);
++  TEST_CHECK(std::strcmp(s.shaderVariant, "unlit") == 0);
++
++  TEST_CHECK(labEffectiveFillMode(3, false) == 3);
++  TEST_CHECK(labEffectiveFillMode(2, false) == 2);
++  TEST_CHECK(labEffectiveFillMode(3, true) == 2);
++  TEST_CHECK(labEffectiveFillMode(2, true) == 2);
++
++  TEST_CHECK(labEffectiveCullMode(1) == 1);
++  TEST_CHECK(labEffectiveCullMode(2) == 2);
++  TEST_CHECK(labEffectiveCullMode(3) == 3);
++  TEST_CHECK(labEffectiveCullMode(99) == 3);
++
++  TEST_CHECK(labShadeModeX("unlit", 0) == 0.f);
++  TEST_CHECK(labShadeModeX("normal", 0) == 1.f);
++  TEST_CHECK(labShadeModeX("checker", 0) == 2.f);
++  TEST_CHECK(labShadeModeX("unlit", 1) == 1.f);
++  TEST_CHECK(labShadeModeX("unlit", 2) == 2.f);
++}
+diff --git a/tests/test_main.cpp b/tests/test_main.cpp
+index ae73ac8..2f3e87e 100644
+--- a/tests/test_main.cpp
++++ b/tests/test_main.cpp
+@@ -1,25 +1,27 @@
+ #include "test_harness.h"
+ 
+ void runQueueTests();
+ void runRenderThreadTests();
+ void runTransformTests();
+ void runTutorialTests();
+ void runJsonTests();
++void runLabTests();
+ 
+ int& testFailureCount() {
+   static int n = 0;
+   return n;
+ }
+ 
+ int main() {
+   TEST_CHECK(1 == 1);
+   runQueueTests();
+   runRenderThreadTests();
+   runTransformTests();
+   runTutorialTests();
+   runJsonTests();
++  runLabTests();
+   if (testFailureCount() != 0) {
+     return 1;
+   }
+   return 0;
+ }

@@ -1,0 +1,143 @@
+﻿# Review package: d6c7d192ae1f33a5615a5532ef3a77c68e5afa5f..e083a1f66469ba854455c6a3128c59303b898983
+
+## Commits
+e083a1f Test world/view/projection builders and point tracking.
+
+## Files changed
+ CMakeLists.txt            |  1 +  src/teach/Transforms.h    | 32 ++++++++++++++++++++++++++++++++  tests/test_main.cpp       |  2 ++  tests/test_transforms.cpp | 31 +++++++++++++++++++++++++++++++  4 files changed, 66 insertions(+)
+
+## Diff
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index b84294e..1167e22 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -48,20 +48,21 @@ endif()
+ 
+ add_custom_command(TARGET 3DEditMax POST_BUILD
+   COMMAND ${CMAKE_COMMAND} -E copy_directory
+     "${CMAKE_SOURCE_DIR}/assets/shaders"
+     "$<TARGET_FILE_DIR:3DEditMax>/shaders")
+ 
+ enable_testing()
+ add_executable(3deditmax_tests
+   tests/test_main.cpp
+   tests/test_queues.cpp
++  tests/test_transforms.cpp
+   src/render/CommandQueue.cpp
+   src/render/FeedbackQueue.cpp
+   src/render/RenderThread.cpp
+   src/core/SnapshotBuffer.cpp
+   src/teach/Transforms.cpp
+ )
+ target_include_directories(3deditmax_tests PRIVATE
+   "${CMAKE_SOURCE_DIR}/src"
+   "${CMAKE_SOURCE_DIR}/tests"
+ )
+diff --git a/src/teach/Transforms.h b/src/teach/Transforms.h
+index 699c324..013e6aa 100644
+--- a/src/teach/Transforms.h
++++ b/src/teach/Transforms.h
+@@ -1,7 +1,39 @@
+ #pragma once
+ #include "core/TeachingState.h"
+ #include <DirectXMath.h>
++#include <cmath>
+ 
+ DirectX::XMMATRIX BuildWorld(const TransformTRS& trs);
+ DirectX::XMMATRIX BuildView(float distance, float pitchDeg, float yawDeg);
+ DirectX::XMMATRIX BuildProjection(const TeachingState& s, float aspect);
++
++struct TrackResult {
++  DirectX::XMFLOAT4 model;
++  DirectX::XMFLOAT4 world;
++  DirectX::XMFLOAT4 view;
++  DirectX::XMFLOAT4 clip;
++  DirectX::XMFLOAT4 ndc;
++};
++
++inline TrackResult TrackPoint(DirectX::XMFLOAT3 pModel,
++                              DirectX::FXMMATRIX w,
++                              DirectX::FXMMATRIX v,
++                              DirectX::FXMMATRIX p) {
++  using namespace DirectX;
++  TrackResult r;
++  const XMVECTOR m = XMVectorSet(pModel.x, pModel.y, pModel.z, 1.f);
++  const XMVECTOR wo = XMVector4Transform(m, w);
++  const XMVECTOR vi = XMVector4Transform(wo, v);
++  const XMVECTOR cl = XMVector4Transform(vi, p);
++  XMStoreFloat4(&r.model, m);
++  XMStoreFloat4(&r.world, wo);
++  XMStoreFloat4(&r.view, vi);
++  XMStoreFloat4(&r.clip, cl);
++  const float cw = XMVectorGetW(cl);
++  XMVECTOR nd = cl;
++  if (fabsf(cw) > 1e-8f) {
++    nd = XMVectorScale(cl, 1.f / cw);
++  }
++  XMStoreFloat4(&r.ndc, nd);
++  return r;
++}
+diff --git a/tests/test_main.cpp b/tests/test_main.cpp
+index ffd78c7..2974818 100644
+--- a/tests/test_main.cpp
++++ b/tests/test_main.cpp
+@@ -1,19 +1,21 @@
+ #include "test_harness.h"
+ 
+ void runQueueTests();
+ void runRenderThreadTests();
++void runTransformTests();
+ 
+ int& testFailureCount() {
+   static int n = 0;
+   return n;
+ }
+ 
+ int main() {
+   TEST_CHECK(1 == 1);
+   runQueueTests();
+   runRenderThreadTests();
++  runTransformTests();
+   if (testFailureCount() != 0) {
+     return 1;
+   }
+   return 0;
+ }
+diff --git a/tests/test_transforms.cpp b/tests/test_transforms.cpp
+new file mode 100644
+index 0000000..c5aaaa2
+--- /dev/null
++++ b/tests/test_transforms.cpp
+@@ -0,0 +1,31 @@
++#include "test_harness.h"
++#include "teach/Transforms.h"
++#include <DirectXMath.h>
++#include <cmath>
++
++static bool near4(float a, float b) {
++  return fabsf(a - b) < 1e-4f;
++}
++
++void runTransformTests() {
++  TransformTRS id = transformIdentity();
++  DirectX::XMMATRIX w = BuildWorld(id);
++  DirectX::XMFLOAT4X4 m;
++  DirectX::XMStoreFloat4x4(&m, w);
++  TEST_CHECK(near4(m._11, 1.f) && near4(m._22, 1.f) && near4(m._33, 1.f) && near4(m._44, 1.f));
++
++  TransformTRS t = transformIdentity();
++  t.pos[0] = 2.f;
++  DirectX::XMStoreFloat4x4(&m, BuildWorld(t));
++  TEST_CHECK(near4(m._41, 2.f)); /* row-major store: translation in _41,_42,_43 */
++
++  TeachingState s = teachingStateDefault();
++  DirectX::XMMATRIX P = BuildProjection(s, 1.f);
++  (void)P;
++  TEST_CHECK(s.nearZ < s.farZ);
++
++  DirectX::XMMATRIX I = DirectX::XMMatrixIdentity();
++  TrackResult tr = TrackPoint(DirectX::XMFLOAT3(1.f, 2.f, 3.f), I, I, I);
++  TEST_CHECK(near4(tr.world.x, 1.f) && near4(tr.world.y, 2.f) && near4(tr.world.z, 3.f));
++  TEST_CHECK(near4(tr.ndc.x, 1.f) && near4(tr.ndc.w, 1.f));
++}

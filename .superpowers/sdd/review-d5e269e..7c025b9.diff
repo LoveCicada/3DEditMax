@@ -1,0 +1,261 @@
+﻿# Review package: d5e269e7b73b2569c4b54dff8855e6c680708692..7c025b96fe79d2177e41db40cd61b5f8f5b232ff
+
+## Commits
+7c025b9 Add thread-safe command, feedback, and snapshot queues.
+
+## Files changed
+ CMakeLists.txt               |  4 ++++  src/core/SnapshotBuffer.cpp  | 21 +++++++++++++++++++++  src/core/SnapshotBuffer.h    | 15 +++++++++++++++  src/render/CommandQueue.cpp  | 16 ++++++++++++++++  src/render/CommandQueue.h    | 27 +++++++++++++++++++++++++++  src/render/FeedbackQueue.cpp | 16 ++++++++++++++++  src/render/FeedbackQueue.h   | 28 ++++++++++++++++++++++++++++  tests/test_main.cpp          |  3 +++  tests/test_queues.cpp        | 39 +++++++++++++++++++++++++++++++++++++++  9 files changed, 169 insertions(+)
+
+## Diff
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 3b853f3..f7c8a9a 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -27,16 +27,20 @@ add_executable(3DEditMax
+   src/app/MainWindow.h
+   src/app/MainWindow.cpp
+ )
+ 
+ target_include_directories(3DEditMax PRIVATE "${CMAKE_SOURCE_DIR}/src")
+ target_link_libraries(3DEditMax PRIVATE Qt5::Widgets)
+ 
+ enable_testing()
+ add_executable(3deditmax_tests
+   tests/test_main.cpp
++  tests/test_queues.cpp
++  src/render/CommandQueue.cpp
++  src/render/FeedbackQueue.cpp
++  src/core/SnapshotBuffer.cpp
+ )
+ target_include_directories(3deditmax_tests PRIVATE
+   "${CMAKE_SOURCE_DIR}/src"
+   "${CMAKE_SOURCE_DIR}/tests"
+ )
+ add_test(NAME 3deditmax_tests COMMAND 3deditmax_tests)
+diff --git a/src/core/SnapshotBuffer.cpp b/src/core/SnapshotBuffer.cpp
+new file mode 100644
+index 0000000..a02868b
+--- /dev/null
++++ b/src/core/SnapshotBuffer.cpp
+@@ -0,0 +1,21 @@
++#include "core/SnapshotBuffer.h"
++
++SnapshotBuffer::SnapshotBuffer()
++    : m_front(stateSnapshotDefault())
++    , m_back(stateSnapshotDefault())
++    , m_dirty(false) {}
++
++void SnapshotBuffer::publish(const StateSnapshot& snap) {
++  std::lock_guard<std::mutex> lock(m_mu);
++  m_back = snap;
++  m_dirty = true;
++}
++
++StateSnapshot SnapshotBuffer::consume() {
++  std::lock_guard<std::mutex> lock(m_mu);
++  if (m_dirty) {
++    m_front = m_back;
++    m_dirty = false;
++  }
++  return m_front;
++}
+diff --git a/src/core/SnapshotBuffer.h b/src/core/SnapshotBuffer.h
+new file mode 100644
+index 0000000..64ccd2e
+--- /dev/null
++++ b/src/core/SnapshotBuffer.h
+@@ -0,0 +1,15 @@
++#pragma once
++#include "core/StateSnapshot.h"
++#include <mutex>
++
++class SnapshotBuffer {
++public:
++  SnapshotBuffer();
++  void publish(const StateSnapshot& snap);
++  StateSnapshot consume();
++private:
++  std::mutex m_mu;
++  StateSnapshot m_front;
++  StateSnapshot m_back;
++  bool m_dirty;
++};
+diff --git a/src/render/CommandQueue.cpp b/src/render/CommandQueue.cpp
+new file mode 100644
+index 0000000..909a640
+--- /dev/null
++++ b/src/render/CommandQueue.cpp
+@@ -0,0 +1,16 @@
++#include "render/CommandQueue.h"
++
++void CommandQueue::push(const RenderCommand& cmd) {
++  std::lock_guard<std::mutex> lock(m_mu);
++  m_q.push(cmd);
++}
++
++bool CommandQueue::tryPop(RenderCommand* out) {
++  std::lock_guard<std::mutex> lock(m_mu);
++  if (m_q.empty()) {
++    return false;
++  }
++  *out = m_q.front();
++  m_q.pop();
++  return true;
++}
+diff --git a/src/render/CommandQueue.h b/src/render/CommandQueue.h
+new file mode 100644
+index 0000000..3e10994
+--- /dev/null
++++ b/src/render/CommandQueue.h
+@@ -0,0 +1,27 @@
++#pragma once
++#include <windows.h>
++#include <mutex>
++#include <queue>
++
++enum CommandType {
++  CmdInit = 0,
++  CmdResize = 1,
++  CmdReloadShader = 2,
++  CmdStop = 3
++};
++
++struct RenderCommand {
++  CommandType type;
++  HWND hwnd;
++  int width;
++  int height;
++};
++
++class CommandQueue {
++public:
++  void push(const RenderCommand& cmd);
++  bool tryPop(RenderCommand* out);
++private:
++  std::mutex m_mu;
++  std::queue<RenderCommand> m_q;
++};
+diff --git a/src/render/FeedbackQueue.cpp b/src/render/FeedbackQueue.cpp
+new file mode 100644
+index 0000000..bc7fb21
+--- /dev/null
++++ b/src/render/FeedbackQueue.cpp
+@@ -0,0 +1,16 @@
++#include "render/FeedbackQueue.h"
++
++void FeedbackQueue::push(const FeedbackItem& item) {
++  std::lock_guard<std::mutex> lock(m_mu);
++  m_q.push(item);
++}
++
++bool FeedbackQueue::tryPop(FeedbackItem* out) {
++  std::lock_guard<std::mutex> lock(m_mu);
++  if (m_q.empty()) {
++    return false;
++  }
++  *out = m_q.front();
++  m_q.pop();
++  return true;
++}
+diff --git a/src/render/FeedbackQueue.h b/src/render/FeedbackQueue.h
+new file mode 100644
+index 0000000..25b7b4b
+--- /dev/null
++++ b/src/render/FeedbackQueue.h
+@@ -0,0 +1,28 @@
++#pragma once
++#include <mutex>
++#include <queue>
++#include <string>
++
++enum FeedbackKind {
++  FbLog = 0,
++  FbError = 1,
++  FbWarn = 2,
++  FbFps = 3,
++  FbDeviceLost = 4,
++  FbDeviceOk = 5
++};
++
++struct FeedbackItem {
++  FeedbackKind kind;
++  std::string text;
++  float ms;
++};
++
++class FeedbackQueue {
++public:
++  void push(const FeedbackItem& item);
++  bool tryPop(FeedbackItem* out);
++private:
++  std::mutex m_mu;
++  std::queue<FeedbackItem> m_q;
++};
+diff --git a/tests/test_main.cpp b/tests/test_main.cpp
+index c776027..dd66467 100644
+--- a/tests/test_main.cpp
++++ b/tests/test_main.cpp
+@@ -1,14 +1,17 @@
+ #include "test_harness.h"
+ 
++void runQueueTests();
++
+ int& testFailureCount() {
+   static int n = 0;
+   return n;
+ }
+ 
+ int main() {
+   TEST_CHECK(1 == 1);
++  runQueueTests();
+   if (testFailureCount() != 0) {
+     return 1;
+   }
+   return 0;
+ }
+diff --git a/tests/test_queues.cpp b/tests/test_queues.cpp
+new file mode 100644
+index 0000000..0c7c1aa
+--- /dev/null
++++ b/tests/test_queues.cpp
+@@ -0,0 +1,39 @@
++#include "test_harness.h"
++#include "render/CommandQueue.h"
++#include "render/FeedbackQueue.h"
++#include "core/SnapshotBuffer.h"
++
++void runQueueTests() {
++  CommandQueue cq;
++  RenderCommand c;
++  TEST_CHECK(cq.tryPop(&c) == false);
++  RenderCommand in;
++  in.type = CmdStop;
++  in.hwnd = 0;
++  in.width = 0;
++  in.height = 0;
++  cq.push(in);
++  TEST_CHECK(cq.tryPop(&c) == true);
++  TEST_CHECK(c.type == CmdStop);
++
++  FeedbackQueue fq;
++  FeedbackItem f;
++  TEST_CHECK(fq.tryPop(&f) == false);
++  FeedbackItem fin;
++  fin.kind = FbError;
++  fin.text = "boom";
++  fin.ms = 1.5f;
++  fq.push(fin);
++  TEST_CHECK(fq.tryPop(&f) == true);
++  TEST_CHECK(f.kind == FbError);
++  TEST_CHECK(f.text == "boom");
++
++  SnapshotBuffer buf;
++  StateSnapshot a = stateSnapshotDefault();
++  a.teaching.camDistance = 9.f;
++  a.viewportW = 640;
++  buf.publish(a);
++  StateSnapshot b = buf.consume();
++  TEST_CHECK(b.teaching.camDistance == 9.f);
++  TEST_CHECK(b.viewportW == 640);
++}

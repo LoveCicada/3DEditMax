@@ -1,0 +1,921 @@
+﻿# Review package: 6f0f545c861ce52baacdc94463b18a9592ad96a8..fe53bd06869b49d21799c3040e7eed4ff4d77eec
+
+## Commits
+fe53bd0 Draw frustum, axes, and tracked model-space points.
+
+## Files changed
+ CMakeLists.txt               |   3 +  assets/shaders/line.hlsl     |  24 +++++  src/app/MainWindow.cpp       |  45 ++++++++  src/app/MainWindow.h         |   4 +  src/render/D3D11Renderer.cpp |  12 +++  src/render/D3D11Renderer.h   |   2 +  src/render/DebugDraw.cpp     | 246 +++++++++++++++++++++++++++++++++++++++++++  src/render/DebugDraw.h       |  27 +++++  src/ui/TrackerPanel.cpp      | 147 ++++++++++++++++++++++++++  src/ui/TrackerPanel.h        |  34 ++++++  10 files changed, 544 insertions(+)
+
+## Diff
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 358921b..da266a4 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -27,28 +27,31 @@ add_executable(3DEditMax
+   src/app/MainWindow.h
+   src/app/MainWindow.cpp
+   src/ui/Dx11ViewportWidget.h
+   src/ui/Dx11ViewportWidget.cpp
+   src/ui/DebugLogPanel.h
+   src/ui/DebugLogPanel.cpp
+   src/ui/TransformPanel.h
+   src/ui/TransformPanel.cpp
+   src/ui/ObjectPanel.h
+   src/ui/ObjectPanel.cpp
++  src/ui/TrackerPanel.h
++  src/ui/TrackerPanel.cpp
+   src/ui/MatrixBoardPanel.h
+   src/ui/MatrixBoardPanel.cpp
+   src/core/SnapshotBuffer.cpp
+   src/core/MatrixFormat.cpp
+   src/render/CommandQueue.cpp
+   src/render/FeedbackQueue.cpp
+   src/render/RenderThread.cpp
+   src/render/D3D11Renderer.cpp
++  src/render/DebugDraw.cpp
+   src/render/MeshGpu.cpp
+   src/render/ShaderSet.cpp
+   src/teach/Transforms.cpp
+   src/teach/MeshBuild.cpp
+ )
+ 
+ target_include_directories(3DEditMax PRIVATE "${CMAKE_SOURCE_DIR}/src")
+ target_link_libraries(3DEditMax PRIVATE Qt5::Widgets d3d11 dxgi d3dcompiler)
+ if(MSVC)
+   target_compile_options(3DEditMax PRIVATE /utf-8)
+diff --git a/assets/shaders/line.hlsl b/assets/shaders/line.hlsl
+new file mode 100644
+index 0000000..a156209
+--- /dev/null
++++ b/assets/shaders/line.hlsl
+@@ -0,0 +1,24 @@
++cbuffer LineCB : register(b0) {
++  float4x4 viewProj;
++};
++
++struct VSIn {
++  float3 pos : POSITION;
++  float4 col : COLOR;
++};
++
++struct VSOut {
++  float4 pos : SV_POSITION;
++  float4 col : COLOR;
++};
++
++VSOut vs_main(VSIn i) {
++  VSOut o;
++  o.pos = mul(float4(i.pos, 1.0), viewProj);
++  o.col = i.col;
++  return o;
++}
++
++float4 ps_main(VSOut i) : SV_TARGET {
++  return i.col;
++}
+diff --git a/src/app/MainWindow.cpp b/src/app/MainWindow.cpp
+index 08b3b53..b6d8ff7 100644
+--- a/src/app/MainWindow.cpp
++++ b/src/app/MainWindow.cpp
+@@ -1,135 +1,165 @@
+ #include "app/MainWindow.h"
+ #include "teach/Transforms.h"
+ #include "ui/DebugLogPanel.h"
+ #include "ui/Dx11ViewportWidget.h"
+ #include "ui/MatrixBoardPanel.h"
+ #include "ui/ObjectPanel.h"
++#include "ui/TrackerPanel.h"
+ #include "ui/TransformPanel.h"
+ #include <QAction>
+ #include <QDockWidget>
+ #include <QMenu>
+ #include <QMenuBar>
+ #include <QTimer>
+ #include <QToolBar>
+ #include <DirectXMath.h>
+ 
+ MainWindow::MainWindow(QWidget* parent)
+     : QMainWindow(parent)
+     , m_viewport(0)
+     , m_transforms(0)
+     , m_objects(0)
++    , m_tracker(0)
+     , m_board(0)
+     , m_log(0)
+     , m_poll(0)
+     , m_majorAction(0)
+     , m_teaching(teachingStateDefault())
+     , m_lab(labStateDefault())
+     , m_major(MajorColumn) {
+   setWindowTitle(QString::fromUtf8("3DEditMax"));
+   resize(1280, 720);
+ 
+   m_viewport = new Dx11ViewportWidget(this);
+   m_transforms = new TransformPanel(this);
+   m_objects = new ObjectPanel(this);
++  m_tracker = new TrackerPanel(this);
+   m_board = new MatrixBoardPanel(this);
+   m_log = new DebugLogPanel(this);
+   setCentralWidget(m_viewport);
+ 
+   QDockWidget* dockTransforms = new QDockWidget(QString::fromUtf8("\xE5\x8F\x98\xE6\x8D\xA2"), this);
+   dockTransforms->setObjectName(QString::fromUtf8("dockTransforms"));
+   dockTransforms->setWidget(m_transforms);
+   addDockWidget(Qt::LeftDockWidgetArea, dockTransforms);
+ 
+   QDockWidget* dockObject = new QDockWidget(QString::fromUtf8("\xE7\x89\xA9\xE4\xBD\x93"), this);
+   dockObject->setObjectName(QString::fromUtf8("dockObject"));
+   dockObject->setWidget(m_objects);
+   addDockWidget(Qt::LeftDockWidgetArea, dockObject);
+   splitDockWidget(dockTransforms, dockObject, Qt::Vertical);
+ 
+   QDockWidget* dockMatrix = new QDockWidget(QString::fromUtf8("\xE7\x9F\xA9\xE9\x98\xB5\xE7\x9C\x8B\xE6\x9D\xBF"), this);
+   dockMatrix->setObjectName(QString::fromUtf8("dockMatrix"));
+   dockMatrix->setWidget(m_board);
+   addDockWidget(Qt::RightDockWidgetArea, dockMatrix);
+ 
++  QDockWidget* dockTracker = new QDockWidget(QString::fromUtf8("Tracker"), this);
++  dockTracker->setObjectName(QString::fromUtf8("dockTracker"));
++  dockTracker->setWidget(m_tracker);
++  addDockWidget(Qt::RightDockWidgetArea, dockTracker);
++  splitDockWidget(dockMatrix, dockTracker, Qt::Vertical);
++
+   QDockWidget* dockDebug = new QDockWidget(QString::fromUtf8("DX11 Lab / Debug"), this);
+   dockDebug->setObjectName(QString::fromUtf8("dockDebug"));
+   dockDebug->setWidget(m_log);
+   addDockWidget(Qt::RightDockWidgetArea, dockDebug);
+   splitDockWidget(dockMatrix, dockDebug, Qt::Vertical);
+ 
+   QToolBar* toolbar = addToolBar(QString::fromUtf8("Teach"));
+   toolbar->setObjectName(QString::fromUtf8("toolbarTeach"));
+   m_majorAction = toolbar->addAction(QString());
+   QAction* resetAction = toolbar->addAction(QString::fromUtf8("\xE9\x87\x8D\xE7\xBD\xAE"));
+   syncMajorActionText();
+ 
+   QMenu* viewMenu = menuBar()->addMenu(QString::fromUtf8("\xE8\xA7\x86\xE5\x9B\xBE"));
+   viewMenu->addAction(dockTransforms->toggleViewAction());
+   viewMenu->addAction(dockObject->toggleViewAction());
+   viewMenu->addAction(dockMatrix->toggleViewAction());
++  viewMenu->addAction(dockTracker->toggleViewAction());
+   viewMenu->addAction(dockDebug->toggleViewAction());
+ 
+   connect(m_transforms, &TransformPanel::changed, this, &MainWindow::onTransformsChanged);
+   connect(m_objects, &ObjectPanel::changed, this, &MainWindow::onObjectsChanged);
++  connect(m_tracker, &TrackerPanel::changed, this, &MainWindow::onTrackerChanged);
+   connect(m_viewport, &Dx11ViewportWidget::teachingEdited, this, &MainWindow::onTeachingEdited);
+   connect(m_majorAction, &QAction::triggered, this, &MainWindow::onToggleMajor);
+   connect(resetAction, &QAction::triggered, this, &MainWindow::onReset);
+ 
+   m_transforms->setState(m_teaching);
+   m_objects->setState(m_teaching);
++  m_tracker->setState(m_teaching);
+   m_viewport->publishState(m_teaching, m_lab);
+   refreshBoard();
++  refreshTracker();
+ 
+   m_poll = new QTimer(this);
+   m_poll->setInterval(100);
+   connect(m_poll, &QTimer::timeout, this, &MainWindow::onPollFeedback);
+   m_poll->start();
+ }
+ 
+ void MainWindow::onPollFeedback() {
+   m_log->drain(m_viewport->feedback());
+ }
+ 
+ void MainWindow::onTransformsChanged() {
+   m_teaching = m_transforms->state();
+   m_objects->setState(m_teaching);
++  m_tracker->setState(m_teaching);
+   m_viewport->publishState(m_teaching, m_lab);
+   refreshBoard();
++  refreshTracker();
+ }
+ 
+ void MainWindow::onObjectsChanged() {
+   m_teaching = m_objects->state();
+   m_transforms->setState(m_teaching);
++  m_tracker->setState(m_teaching);
++  m_viewport->publishState(m_teaching, m_lab);
++  refreshBoard();
++  refreshTracker();
++}
++
++void MainWindow::onTrackerChanged() {
++  m_teaching = m_tracker->state();
++  m_transforms->setState(m_teaching);
++  m_objects->setState(m_teaching);
+   m_viewport->publishState(m_teaching, m_lab);
+   refreshBoard();
++  refreshTracker();
+ }
+ 
+ void MainWindow::onTeachingEdited(const TeachingState& t) {
+   m_teaching = t;
+   m_transforms->setState(m_teaching);
+   m_objects->setState(m_teaching);
++  m_tracker->setState(m_teaching);
+   refreshBoard();
++  refreshTracker();
+ }
+ 
+ void MainWindow::onToggleMajor() {
+   m_major = (m_major == MajorColumn) ? MajorRow : MajorColumn;
+   syncMajorActionText();
+   m_board->setMajorOrder(m_major);
+ }
+ 
+ void MainWindow::onReset() {
+   m_teaching = teachingStateDefault();
+   m_transforms->setState(m_teaching);
+   m_objects->setState(m_teaching);
++  m_tracker->setState(m_teaching);
+   m_viewport->publishState(m_teaching, m_lab);
+   refreshBoard();
++  refreshTracker();
+ }
+ 
+ void MainWindow::refreshBoard() {
+   using namespace DirectX;
+   const TeachingState& t = m_teaching;
+   float aspect = t.aspect;
+   if (t.aspectFollowViewport && m_viewport->height() > 0) {
+     aspect = static_cast<float>(m_viewport->width()) /
+              static_cast<float>(m_viewport->height());
+   }
+@@ -141,17 +171,32 @@ void MainWindow::refreshBoard() {
+   XMFLOAT4X4 v;
+   XMFLOAT4X4 p;
+   XMFLOAT4X4 wvp;
+   XMStoreFloat4x4(&w, W);
+   XMStoreFloat4x4(&v, V);
+   XMStoreFloat4x4(&p, P);
+   XMStoreFloat4x4(&wvp, WVP);
+   m_board->setMatrices(w, v, p, wvp, m_major);
+ }
+ 
++void MainWindow::refreshTracker() {
++  using namespace DirectX;
++  const TeachingState& t = m_teaching;
++  float aspect = t.aspect;
++  if (t.aspectFollowViewport && m_viewport->height() > 0) {
++    aspect = static_cast<float>(m_viewport->width()) /
++             static_cast<float>(m_viewport->height());
++  }
++  const XMMATRIX W = BuildWorld(t.objects[0].trs);
++  const XMMATRIX V = BuildView(t.camDistance, t.camPitchDeg, t.camYawDeg);
++  const XMMATRIX P = BuildProjection(t, aspect);
++  const XMFLOAT3 model(t.trackModel[0], t.trackModel[1], t.trackModel[2]);
++  m_tracker->setTrackResult(TrackPoint(model, W, V, P));
++}
++
+ void MainWindow::syncMajorActionText() {
+   if (m_major == MajorColumn) {
+     m_majorAction->setText(QString::fromUtf8("\xE5\x88\x97\xE4\xB8\xBB\xE5\xBA\x8F"));
+   } else {
+     m_majorAction->setText(QString::fromUtf8("\xE8\xA1\x8C\xE4\xB8\xBB\xE5\xBA\x8F"));
+   }
+ }
+diff --git a/src/app/MainWindow.h b/src/app/MainWindow.h
+index 4f64350..563fae9 100644
+--- a/src/app/MainWindow.h
++++ b/src/app/MainWindow.h
+@@ -3,38 +3,42 @@
+ #include "core/MatrixFormat.h"
+ #include "core/TeachingState.h"
+ #include <QMainWindow>
+ 
+ class DebugLogPanel;
+ class Dx11ViewportWidget;
+ class MatrixBoardPanel;
+ class ObjectPanel;
+ class QAction;
+ class QTimer;
++class TrackerPanel;
+ class TransformPanel;
+ 
+ class MainWindow : public QMainWindow {
+   Q_OBJECT
+ public:
+   explicit MainWindow(QWidget* parent = 0);
+ private slots:
+   void onPollFeedback();
+   void onTransformsChanged();
+   void onObjectsChanged();
++  void onTrackerChanged();
+   void onTeachingEdited(const TeachingState& t);
+   void onToggleMajor();
+   void onReset();
+ private:
+   void refreshBoard();
++  void refreshTracker();
+   void syncMajorActionText();
+ 
+   Dx11ViewportWidget* m_viewport;
+   TransformPanel* m_transforms;
+   ObjectPanel* m_objects;
++  TrackerPanel* m_tracker;
+   MatrixBoardPanel* m_board;
+   DebugLogPanel* m_log;
+   QTimer* m_poll;
+   QAction* m_majorAction;
+   TeachingState m_teaching;
+   LabState m_lab;
+   MajorOrder m_major;
+ };
+diff --git a/src/render/D3D11Renderer.cpp b/src/render/D3D11Renderer.cpp
+index a7f5be3..404309b 100644
+--- a/src/render/D3D11Renderer.cpp
++++ b/src/render/D3D11Renderer.cpp
+@@ -203,33 +203,38 @@ bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, Feedback
+     pushFb(fb, FbError, "createCylinder failed");
+     shutdown();
+     return false;
+   }
+ 
+   const std::wstring shaderPath = m_shaderDir + L"/unlit.hlsl";
+   if (!m_shaders.compileFromFile(m_device.Get(), shaderPath, fb)) {
+     shutdown();
+     return false;
+   }
++  m_debug.create(m_device.Get(), m_shaderDir);
++  if (!m_debug.valid()) {
++    pushFb(fb, FbWarn, "DebugDraw line.hlsl failed");
++  }
+ 
+   m_initialized = true;
+   pushFb(fb, FbLog, "D3D11 device ready");
+   pushFb(fb, FbDeviceOk, "");
+   return true;
+ }
+ 
+ void D3D11Renderer::shutdown() {
+   if (m_context) {
+     m_context->ClearState();
+     m_context->Flush();
+   }
+   m_shaders = ShaderSet();
++  m_debug.reset();
+   m_cube = MeshGpu();
+   m_sphere = MeshGpu();
+   m_cyl = MeshGpu();
+   m_cb.Reset();
+   m_depthState.Reset();
+   m_rasterWire.Reset();
+   m_raster.Reset();
+   m_dsv.Reset();
+   m_depth.Reset();
+   m_rtv.Reset();
+@@ -344,34 +349,41 @@ void D3D11Renderer::render(const StateSnapshot& snap) {
+ 
+     const MeshGpu* mesh = &m_cube;
+     if (obj.mesh == MeshSphere) {
+       mesh = &m_sphere;
+     } else if (obj.mesh == MeshCylinder) {
+       mesh = &m_cyl;
+     }
+     mesh->draw(m_context.Get());
+   }
+ 
++  m_debug.draw(m_context.Get(), snap, V, P);
++
+   const HRESULT hr = m_swap->Present(1, 0);
+   handlePresentResult(hr);
+ }
+ 
+ bool D3D11Renderer::reloadShaders(FeedbackQueue* fb) {
+   if (!m_device) {
+     return false;
+   }
+   ShaderSet next;
+   const std::wstring shaderPath = m_shaderDir + L"/unlit.hlsl";
+   if (!next.compileFromFile(m_device.Get(), shaderPath, fb)) {
+     return false;
+   }
+   m_shaders = next;
++  DebugDraw debugNext;
++  debugNext.create(m_device.Get(), m_shaderDir);
++  if (debugNext.valid()) {
++    m_debug = debugNext;
++  }
+   return true;
+ }
+ 
+ bool D3D11Renderer::createSizeDependentResources() {
+   if (!m_device || !m_swap) {
+     return false;
+   }
+   ComPtr<ID3D11Texture2D> back;
+   HRESULT hr = m_swap->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(back.ReleaseAndGetAddressOf()));
+   if (FAILED(hr)) {
+diff --git a/src/render/D3D11Renderer.h b/src/render/D3D11Renderer.h
+index cf928c1..99d6b2f 100644
+--- a/src/render/D3D11Renderer.h
++++ b/src/render/D3D11Renderer.h
+@@ -1,13 +1,14 @@
+ #pragma once
+ #include "core/StateSnapshot.h"
+ #include "render/FeedbackQueue.h"
++#include "render/DebugDraw.h"
+ #include "render/MeshGpu.h"
+ #include "render/ShaderSet.h"
+ #include <d3d11.h>
+ #include <dxgi.h>
+ #include <wrl/client.h>
+ #include <string>
+ 
+ class D3D11Renderer {
+ public:
+   explicit D3D11Renderer(const std::wstring& shaderDir);
+@@ -39,11 +40,12 @@ private:
+   Microsoft::WRL::ComPtr<ID3D11Texture2D> m_depth;
+   Microsoft::WRL::ComPtr<ID3D11DepthStencilView> m_dsv;
+   Microsoft::WRL::ComPtr<ID3D11RasterizerState> m_raster;
+   Microsoft::WRL::ComPtr<ID3D11RasterizerState> m_rasterWire;
+   Microsoft::WRL::ComPtr<ID3D11DepthStencilState> m_depthState;
+   Microsoft::WRL::ComPtr<ID3D11Buffer> m_cb;
+   MeshGpu m_cube;
+   MeshGpu m_sphere;
+   MeshGpu m_cyl;
+   ShaderSet m_shaders;
++  DebugDraw m_debug;
+ };
+diff --git a/src/render/DebugDraw.cpp b/src/render/DebugDraw.cpp
+new file mode 100644
+index 0000000..fc86036
+--- /dev/null
++++ b/src/render/DebugDraw.cpp
+@@ -0,0 +1,246 @@
++#include "render/DebugDraw.h"
++#include "teach/Transforms.h"
++#include <d3dcompiler.h>
++#include <cstring>
++
++using Microsoft::WRL::ComPtr;
++using namespace DirectX;
++
++namespace {
++
++const UINT kMaxLineVerts = 128;
++
++struct LineVertex {
++  XMFLOAT3 pos;
++  XMFLOAT4 col;
++};
++
++struct LineCBCpu {
++  XMFLOAT4X4 viewProj;
++};
++
++void pushLine(LineVertex* verts, UINT* count, UINT cap,
++              FXMVECTOR a, FXMVECTOR b, const XMFLOAT4& col) {
++  if (!verts || !count || *count + 2 > cap) {
++    return;
++  }
++  LineVertex va;
++  LineVertex vb;
++  XMStoreFloat3(&va.pos, a);
++  XMStoreFloat3(&vb.pos, b);
++  va.col = col;
++  vb.col = col;
++  verts[*count] = va;
++  verts[*count + 1] = vb;
++  *count += 2;
++}
++
++}  // namespace
++
++void DebugDraw::create(ID3D11Device* device) {
++  create(device, std::wstring());
++}
++
++void DebugDraw::create(ID3D11Device* device, const std::wstring& shaderDir) {
++  reset();
++  if (!device) {
++    return;
++  }
++  if (!compileLine(device, shaderDir)) {
++    reset();
++    return;
++  }
++
++  D3D11_BUFFER_DESC vbd = {};
++  vbd.ByteWidth = kMaxLineVerts * sizeof(LineVertex);
++  vbd.Usage = D3D11_USAGE_DYNAMIC;
++  vbd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
++  vbd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
++  if (FAILED(device->CreateBuffer(&vbd, 0, &m_vb))) {
++    reset();
++    return;
++  }
++  m_vbCapacity = kMaxLineVerts;
++
++  D3D11_BUFFER_DESC cbd = {};
++  cbd.ByteWidth = sizeof(LineCBCpu);
++  cbd.Usage = D3D11_USAGE_DYNAMIC;
++  cbd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
++  cbd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
++  if (FAILED(device->CreateBuffer(&cbd, 0, &m_cb))) {
++    reset();
++    return;
++  }
++}
++
++void DebugDraw::reset() {
++  m_vs.Reset();
++  m_ps.Reset();
++  m_layout.Reset();
++  m_vb.Reset();
++  m_cb.Reset();
++  m_vbCapacity = 0;
++}
++
++bool DebugDraw::compileLine(ID3D11Device* device, const std::wstring& shaderDir) {
++  const std::wstring path = shaderDir + L"/line.hlsl";
++  ComPtr<ID3DBlob> vsBlob;
++  ComPtr<ID3DBlob> psBlob;
++  ComPtr<ID3DBlob> err;
++  HRESULT hr = D3DCompileFromFile(
++      path.c_str(),
++      0,
++      D3D_COMPILE_STANDARD_FILE_INCLUDE,
++      "vs_main",
++      "vs_5_0",
++      0,
++      0,
++      &vsBlob,
++      &err);
++  if (FAILED(hr)) {
++    return false;
++  }
++  err.Reset();
++  hr = D3DCompileFromFile(
++      path.c_str(),
++      0,
++      D3D_COMPILE_STANDARD_FILE_INCLUDE,
++      "ps_main",
++      "ps_5_0",
++      0,
++      0,
++      &psBlob,
++      &err);
++  if (FAILED(hr)) {
++    return false;
++  }
++
++  hr = device->CreateVertexShader(
++      vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), 0, &m_vs);
++  if (FAILED(hr)) {
++    return false;
++  }
++  hr = device->CreatePixelShader(
++      psBlob->GetBufferPointer(), psBlob->GetBufferSize(), 0, &m_ps);
++  if (FAILED(hr)) {
++    return false;
++  }
++
++  D3D11_INPUT_ELEMENT_DESC elems[2] = {};
++  elems[0].SemanticName = "POSITION";
++  elems[0].Format = DXGI_FORMAT_R32G32B32_FLOAT;
++  elems[0].AlignedByteOffset = 0;
++  elems[0].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
++  elems[1].SemanticName = "COLOR";
++  elems[1].Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
++  elems[1].AlignedByteOffset = 12;
++  elems[1].InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
++  hr = device->CreateInputLayout(
++      elems,
++      2,
++      vsBlob->GetBufferPointer(),
++      vsBlob->GetBufferSize(),
++      &m_layout);
++  return SUCCEEDED(hr);
++}
++
++void DebugDraw::draw(ID3D11DeviceContext* context,
++                     const StateSnapshot& snap,
++                     FXMMATRIX view,
++                     FXMMATRIX proj) {
++  if (!context || !valid()) {
++    return;
++  }
++
++  LineVertex verts[kMaxLineVerts];
++  UINT count = 0;
++
++  XMVECTOR detP = XMVectorZero();
++  XMVECTOR detV = XMVectorZero();
++  const XMMATRIX invP = XMMatrixInverse(&detP, proj);
++  const XMMATRIX invV = XMMatrixInverse(&detV, view);
++  if (XMVectorGetX(detP) != 0.f && XMVectorGetX(detV) != 0.f) {
++    // D3D LH clip/NDC: x,y in [-1,1], z in [0,1].
++    static const float kClip[8][3] = {
++        {-1.f, -1.f, 0.f}, {1.f, -1.f, 0.f}, {1.f, 1.f, 0.f}, {-1.f, 1.f, 0.f},
++        {-1.f, -1.f, 1.f}, {1.f, -1.f, 1.f}, {1.f, 1.f, 1.f}, {-1.f, 1.f, 1.f},
++    };
++    XMVECTOR corner[8];
++    for (int i = 0; i < 8; ++i) {
++      const XMVECTOR clip = XMVectorSet(kClip[i][0], kClip[i][1], kClip[i][2], 1.f);
++      const XMVECTOR viewP = XMVector3TransformCoord(clip, invP);
++      corner[i] = XMVector3TransformCoord(viewP, invV);
++    }
++    static const int kEdges[12][2] = {
++        {0, 1}, {1, 2}, {2, 3}, {3, 0},
++        {4, 5}, {5, 6}, {6, 7}, {7, 4},
++        {0, 4}, {1, 5}, {2, 6}, {3, 7},
++    };
++    const XMFLOAT4 yellow(1.f, 1.f, 0.2f, 1.f);
++    for (int e = 0; e < 12; ++e) {
++      pushLine(verts, &count, kMaxLineVerts, corner[kEdges[e][0]], corner[kEdges[e][1]], yellow);
++    }
++  }
++
++  const XMVECTOR origin = XMVectorZero();
++  pushLine(verts, &count, kMaxLineVerts, origin, XMVectorSet(1.f, 0.f, 0.f, 0.f), XMFLOAT4(1.f, 0.f, 0.f, 1.f));
++  pushLine(verts, &count, kMaxLineVerts, origin, XMVectorSet(0.f, 1.f, 0.f, 0.f), XMFLOAT4(0.f, 1.f, 0.f, 1.f));
++  pushLine(verts, &count, kMaxLineVerts, origin, XMVectorSet(0.f, 0.f, 1.f, 0.f), XMFLOAT4(0.2f, 0.4f, 1.f, 1.f));
++
++  const TeachingState& t = snap.teaching;
++  const XMMATRIX W = BuildWorld(t.objects[0].trs);
++  const XMFLOAT3 model(t.trackModel[0], t.trackModel[1], t.trackModel[2]);
++  const TrackResult tr = TrackPoint(model, W, view, proj);
++  const XMVECTOR wp = XMVectorSet(tr.world.x, tr.world.y, tr.world.z, 0.f);
++  const float s = 0.12f;
++  const XMVECTOR px = XMVectorAdd(wp, XMVectorSet(s, 0.f, 0.f, 0.f));
++  const XMVECTOR nx = XMVectorAdd(wp, XMVectorSet(-s, 0.f, 0.f, 0.f));
++  const XMVECTOR py = XMVectorAdd(wp, XMVectorSet(0.f, s, 0.f, 0.f));
++  const XMVECTOR ny = XMVectorAdd(wp, XMVectorSet(0.f, -s, 0.f, 0.f));
++  const XMVECTOR pz = XMVectorAdd(wp, XMVectorSet(0.f, 0.f, s, 0.f));
++  const XMVECTOR nz = XMVectorAdd(wp, XMVectorSet(0.f, 0.f, -s, 0.f));
++  const XMFLOAT4 mag(1.f, 0.35f, 1.f, 1.f);
++  pushLine(verts, &count, kMaxLineVerts, px, py, mag);
++  pushLine(verts, &count, kMaxLineVerts, px, ny, mag);
++  pushLine(verts, &count, kMaxLineVerts, px, pz, mag);
++  pushLine(verts, &count, kMaxLineVerts, px, nz, mag);
++  pushLine(verts, &count, kMaxLineVerts, nx, py, mag);
++  pushLine(verts, &count, kMaxLineVerts, nx, ny, mag);
++  pushLine(verts, &count, kMaxLineVerts, nx, pz, mag);
++  pushLine(verts, &count, kMaxLineVerts, nx, nz, mag);
++  pushLine(verts, &count, kMaxLineVerts, py, pz, mag);
++  pushLine(verts, &count, kMaxLineVerts, py, nz, mag);
++  pushLine(verts, &count, kMaxLineVerts, ny, pz, mag);
++  pushLine(verts, &count, kMaxLineVerts, ny, nz, mag);
++
++  if (count == 0) {
++    return;
++  }
++
++  const XMMATRIX viewProj = view * proj;
++  LineCBCpu cb;
++  XMStoreFloat4x4(&cb.viewProj, XMMatrixTranspose(viewProj));
++  D3D11_MAPPED_SUBRESOURCE mapped = {};
++  if (SUCCEEDED(context->Map(m_cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
++    std::memcpy(mapped.pData, &cb, sizeof(cb));
++    context->Unmap(m_cb.Get(), 0);
++  }
++  mapped = D3D11_MAPPED_SUBRESOURCE();
++  if (SUCCEEDED(context->Map(m_vb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
++    std::memcpy(mapped.pData, verts, count * sizeof(LineVertex));
++    context->Unmap(m_vb.Get(), 0);
++  }
++
++  ID3D11Buffer* cbuf = m_cb.Get();
++  context->VSSetConstantBuffers(0, 1, &cbuf);
++  context->PSSetConstantBuffers(0, 1, &cbuf);
++  context->VSSetShader(m_vs.Get(), 0, 0);
++  context->PSSetShader(m_ps.Get(), 0, 0);
++  context->IASetInputLayout(m_layout.Get());
++  UINT stride = sizeof(LineVertex);
++  UINT offset = 0;
++  ID3D11Buffer* vb = m_vb.Get();
++  context->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
++  context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
++  context->Draw(count, 0);
++}
+diff --git a/src/render/DebugDraw.h b/src/render/DebugDraw.h
+new file mode 100644
+index 0000000..a8052a1
+--- /dev/null
++++ b/src/render/DebugDraw.h
+@@ -0,0 +1,27 @@
++#pragma once
++#include "core/StateSnapshot.h"
++#include <d3d11.h>
++#include <DirectXMath.h>
++#include <wrl/client.h>
++#include <string>
++
++class DebugDraw {
++public:
++  void create(ID3D11Device* device);
++  void create(ID3D11Device* device, const std::wstring& shaderDir);
++  void reset();
++  void draw(ID3D11DeviceContext* context,
++            const StateSnapshot& snap,
++            DirectX::FXMMATRIX view,
++            DirectX::FXMMATRIX proj);
++  bool valid() const { return m_vs && m_ps && m_layout && m_vb && m_cb; }
++private:
++  bool compileLine(ID3D11Device* device, const std::wstring& shaderDir);
++
++  Microsoft::WRL::ComPtr<ID3D11VertexShader> m_vs;
++  Microsoft::WRL::ComPtr<ID3D11PixelShader> m_ps;
++  Microsoft::WRL::ComPtr<ID3D11InputLayout> m_layout;
++  Microsoft::WRL::ComPtr<ID3D11Buffer> m_vb;
++  Microsoft::WRL::ComPtr<ID3D11Buffer> m_cb;
++  UINT m_vbCapacity = 0;
++};
+diff --git a/src/ui/TrackerPanel.cpp b/src/ui/TrackerPanel.cpp
+new file mode 100644
+index 0000000..45c5755
+--- /dev/null
++++ b/src/ui/TrackerPanel.cpp
+@@ -0,0 +1,147 @@
++#include "ui/TrackerPanel.h"
++#include <QDoubleSpinBox>
++#include <QFormLayout>
++#include <QGridLayout>
++#include <QGroupBox>
++#include <QLabel>
++#include <QPushButton>
++#include <QVBoxLayout>
++
++namespace {
++
++QString format4(const DirectX::XMFLOAT4& v) {
++  return QString::asprintf("%.3f  %.3f  %.3f  %.3f",
++                           static_cast<double>(v.x),
++                           static_cast<double>(v.y),
++                           static_cast<double>(v.z),
++                           static_cast<double>(v.w));
++}
++
++}  // namespace
++
++TrackerPanel::TrackerPanel(QWidget* parent)
++    : QWidget(parent)
++    , m_state(teachingStateDefault())
++    , m_block(false)
++    , m_x(0)
++    , m_y(0)
++    , m_z(0)
++    , m_world(0)
++    , m_view(0)
++    , m_clip(0)
++    , m_ndc(0) {
++  QVBoxLayout* root = new QVBoxLayout(this);
++
++  QGroupBox* model = new QGroupBox(QString::fromUtf8("Model"), this);
++  QFormLayout* form = new QFormLayout(model);
++  m_x = makeSpin();
++  m_y = makeSpin();
++  m_z = makeSpin();
++  form->addRow(QString::fromUtf8("X"), m_x);
++  form->addRow(QString::fromUtf8("Y"), m_y);
++  form->addRow(QString::fromUtf8("Z"), m_z);
++  root->addWidget(model);
++
++  QGroupBox* corners = new QGroupBox(QString::fromUtf8("Cube corners"), this);
++  QGridLayout* grid = new QGridLayout(corners);
++  static const float kCorner[8][3] = {
++      {1.f, 1.f, 1.f},   {1.f, 1.f, -1.f},  {1.f, -1.f, 1.f},  {1.f, -1.f, -1.f},
++      {-1.f, 1.f, 1.f},  {-1.f, 1.f, -1.f}, {-1.f, -1.f, 1.f}, {-1.f, -1.f, -1.f},
++  };
++  for (int i = 0; i < 8; ++i) {
++    const QString text = QString::asprintf("%+.0f %+.0f %+.0f",
++                                           static_cast<double>(kCorner[i][0]),
++                                           static_cast<double>(kCorner[i][1]),
++                                           static_cast<double>(kCorner[i][2]));
++    QPushButton* b = new QPushButton(text, corners);
++    b->setProperty("cx", kCorner[i][0]);
++    b->setProperty("cy", kCorner[i][1]);
++    b->setProperty("cz", kCorner[i][2]);
++    connect(b, &QPushButton::clicked, this, &TrackerPanel::onPreset);
++    grid->addWidget(b, i / 2, i % 2);
++  }
++  root->addWidget(corners);
++
++  QGroupBox* spaces = new QGroupBox(QString::fromUtf8("Spaces"), this);
++  QFormLayout* spaceForm = new QFormLayout(spaces);
++  m_world = new QLabel(spaces);
++  m_view = new QLabel(spaces);
++  m_clip = new QLabel(spaces);
++  m_ndc = new QLabel(spaces);
++  m_world->setTextInteractionFlags(Qt::TextSelectableByMouse);
++  m_view->setTextInteractionFlags(Qt::TextSelectableByMouse);
++  m_clip->setTextInteractionFlags(Qt::TextSelectableByMouse);
++  m_ndc->setTextInteractionFlags(Qt::TextSelectableByMouse);
++  spaceForm->addRow(QString::fromUtf8("World"), m_world);
++  spaceForm->addRow(QString::fromUtf8("View"), m_view);
++  spaceForm->addRow(QString::fromUtf8("Clip"), m_clip);
++  spaceForm->addRow(QString::fromUtf8("NDC"), m_ndc);
++  root->addWidget(spaces);
++  root->addStretch(1);
++
++  m_block = true;
++  loadWidgets(m_state);
++  m_block = false;
++}
++
++QDoubleSpinBox* TrackerPanel::makeSpin() {
++  QDoubleSpinBox* s = new QDoubleSpinBox(this);
++  s->setRange(-10.0, 10.0);
++  s->setSingleStep(0.1);
++  s->setDecimals(2);
++  connect(s, static_cast<void (QDoubleSpinBox::*)(double)>(&QDoubleSpinBox::valueChanged),
++          this, &TrackerPanel::onEdited);
++  return s;
++}
++
++void TrackerPanel::setState(const TeachingState& s) {
++  m_state = s;
++  const bool was = m_block;
++  m_block = true;
++  loadWidgets(s);
++  m_block = was;
++}
++
++TeachingState TrackerPanel::state() const {
++  TeachingState s = m_state;
++  s.trackModel[0] = static_cast<float>(m_x->value());
++  s.trackModel[1] = static_cast<float>(m_y->value());
++  s.trackModel[2] = static_cast<float>(m_z->value());
++  return s;
++}
++
++void TrackerPanel::setTrackResult(const TrackResult& tr) {
++  m_world->setText(format4(tr.world));
++  m_view->setText(format4(tr.view));
++  m_clip->setText(format4(tr.clip));
++  m_ndc->setText(format4(tr.ndc));
++}
++
++void TrackerPanel::onEdited() {
++  if (m_block) {
++    return;
++  }
++  emit changed();
++}
++
++void TrackerPanel::onPreset() {
++  QPushButton* b = qobject_cast<QPushButton*>(sender());
++  if (!b) {
++    return;
++  }
++  const bool was = m_block;
++  m_block = true;
++  m_x->setValue(b->property("cx").toDouble());
++  m_y->setValue(b->property("cy").toDouble());
++  m_z->setValue(b->property("cz").toDouble());
++  m_block = was;
++  if (!m_block) {
++    emit changed();
++  }
++}
++
++void TrackerPanel::loadWidgets(const TeachingState& s) {
++  m_x->setValue(s.trackModel[0]);
++  m_y->setValue(s.trackModel[1]);
++  m_z->setValue(s.trackModel[2]);
++}
+diff --git a/src/ui/TrackerPanel.h b/src/ui/TrackerPanel.h
+new file mode 100644
+index 0000000..85c78f2
+--- /dev/null
++++ b/src/ui/TrackerPanel.h
+@@ -0,0 +1,34 @@
++#pragma once
++#include "core/TeachingState.h"
++#include "teach/Transforms.h"
++#include <QWidget>
++
++class QDoubleSpinBox;
++class QLabel;
++
++class TrackerPanel : public QWidget {
++  Q_OBJECT
++public:
++  explicit TrackerPanel(QWidget* parent = 0);
++  void setState(const TeachingState& s);
++  TeachingState state() const;
++  void setTrackResult(const TrackResult& tr);
++signals:
++  void changed();
++private slots:
++  void onEdited();
++  void onPreset();
++private:
++  QDoubleSpinBox* makeSpin();
++  void loadWidgets(const TeachingState& s);
++
++  TeachingState m_state;
++  bool m_block;
++  QDoubleSpinBox* m_x;
++  QDoubleSpinBox* m_y;
++  QDoubleSpinBox* m_z;
++  QLabel* m_world;
++  QLabel* m_view;
++  QLabel* m_clip;
++  QLabel* m_ndc;
++};

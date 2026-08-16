@@ -1,0 +1,137 @@
+﻿# Review package: 1ecaef95781ec4b602b42e6915db4858207d3094..8f499a0e0633158fcd8c653ef64bee7340d0c0f6
+
+## Commits
+8f499a0 Add CMake Qt skeleton and CTest harness.
+
+## Files changed
+ CMakeLists.txt         | 42 ++++++++++++++++++++++++++++++++++++++++++  src/app/MainWindow.cpp |  7 +++++++  src/app/MainWindow.h   |  8 ++++++++  src/main.cpp           |  9 +++++++++  tests/test_harness.h   | 11 +++++++++++  tests/test_main.cpp    | 14 ++++++++++++++  6 files changed, 91 insertions(+)
+
+## Diff
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+new file mode 100644
+index 0000000..3b853f3
+--- /dev/null
++++ b/CMakeLists.txt
+@@ -0,0 +1,42 @@
++cmake_minimum_required(VERSION 3.16)
++project(3DEditMax LANGUAGES CXX)
++
++set(CMAKE_CXX_STANDARD 11)
++set(CMAKE_CXX_STANDARD_REQUIRED ON)
++set(CMAKE_CXX_EXTENSIONS OFF)
++
++set(CMAKE_AUTOMOC ON)
++set(CMAKE_AUTORCC ON)
++set(CMAKE_AUTOUIC OFF)
++
++if(DEFINED ENV{QT_DIR})
++  string(STRIP "$ENV{QT_DIR}" _qt_dir)
++  string(REGEX REPLACE "[\\\\/]+$" "" _qt_dir "${_qt_dir}")
++  get_filename_component(_qt_name "${_qt_dir}" NAME)
++  if(_qt_name STREQUAL "bin")
++    get_filename_component(_qt_dir "${_qt_dir}" DIRECTORY)
++  endif()
++  list(PREPEND CMAKE_PREFIX_PATH "${_qt_dir}")
++  message(STATUS "Qt prefix from QT_DIR: ${_qt_dir}")
++endif()
++
++find_package(Qt5 5.15 REQUIRED COMPONENTS Widgets)
++
++add_executable(3DEditMax
++  src/main.cpp
++  src/app/MainWindow.h
++  src/app/MainWindow.cpp
++)
++
++target_include_directories(3DEditMax PRIVATE "${CMAKE_SOURCE_DIR}/src")
++target_link_libraries(3DEditMax PRIVATE Qt5::Widgets)
++
++enable_testing()
++add_executable(3deditmax_tests
++  tests/test_main.cpp
++)
++target_include_directories(3deditmax_tests PRIVATE
++  "${CMAKE_SOURCE_DIR}/src"
++  "${CMAKE_SOURCE_DIR}/tests"
++)
++add_test(NAME 3deditmax_tests COMMAND 3deditmax_tests)
+diff --git a/src/app/MainWindow.cpp b/src/app/MainWindow.cpp
+new file mode 100644
+index 0000000..a144c5d
+--- /dev/null
++++ b/src/app/MainWindow.cpp
+@@ -0,0 +1,7 @@
++#include "app/MainWindow.h"
++
++MainWindow::MainWindow(QWidget* parent)
++    : QMainWindow(parent) {
++  setWindowTitle(QString::fromUtf8("3DEditMax"));
++  resize(1280, 720);
++}
+diff --git a/src/app/MainWindow.h b/src/app/MainWindow.h
+new file mode 100644
+index 0000000..8433eb6
+--- /dev/null
++++ b/src/app/MainWindow.h
+@@ -0,0 +1,8 @@
++#pragma once
++#include <QMainWindow>
++
++class MainWindow : public QMainWindow {
++  Q_OBJECT
++public:
++  explicit MainWindow(QWidget* parent = 0);
++};
+diff --git a/src/main.cpp b/src/main.cpp
+new file mode 100644
+index 0000000..f8de416
+--- /dev/null
++++ b/src/main.cpp
+@@ -0,0 +1,9 @@
++#include "app/MainWindow.h"
++#include <QApplication>
++
++int main(int argc, char** argv) {
++  QApplication app(argc, argv);
++  MainWindow w;
++  w.show();
++  return app.exec();
++}
+diff --git a/tests/test_harness.h b/tests/test_harness.h
+new file mode 100644
+index 0000000..e8d4242
+--- /dev/null
++++ b/tests/test_harness.h
+@@ -0,0 +1,11 @@
++#pragma once
++#include <cstdio>
++
++int& testFailureCount();
++
++#define TEST_CHECK(cond) do { \
++  if (!(cond)) { \
++    std::fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); \
++    ++testFailureCount(); \
++  } \
++} while (0)
+diff --git a/tests/test_main.cpp b/tests/test_main.cpp
+new file mode 100644
+index 0000000..c776027
+--- /dev/null
++++ b/tests/test_main.cpp
+@@ -0,0 +1,14 @@
++#include "test_harness.h"
++
++int& testFailureCount() {
++  static int n = 0;
++  return n;
++}
++
++int main() {
++  TEST_CHECK(1 == 1);
++  if (testFailureCount() != 0) {
++    return 1;
++  }
++  return 0;
++}

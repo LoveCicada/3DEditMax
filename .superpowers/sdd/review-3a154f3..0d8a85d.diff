@@ -1,0 +1,322 @@
+﻿# Review package: 3a154f3e690ba04b71fedc3f8cbf3cf1a3f7cb6a..0d8a85daec48699712cf648491be4011b6e68169
+
+## Commits
+0d8a85d Embed D3D11 swapchain in a Qt viewport with debug log polling.
+
+## Files changed
+ CMakeLists.txt                |   4 ++  src/app/MainWindow.cpp        |  34 +++++++++++++-  src/app/MainWindow.h          |  14 ++++++  src/ui/DebugLogPanel.cpp      |  37 +++++++++++++++  src/ui/DebugLogPanel.h        |  15 ++++++  src/ui/Dx11ViewportWidget.cpp | 106 ++++++++++++++++++++++++++++++++++++++++++  src/ui/Dx11ViewportWidget.h   |  29 ++++++++++++  7 files changed, 238 insertions(+), 1 deletion(-)
+
+## Diff
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 6de7719..b204dda 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -19,20 +19,24 @@ if(DEFINED ENV{QT_DIR})
+   list(PREPEND CMAKE_PREFIX_PATH "${_qt_dir}")
+   message(STATUS "Qt prefix from QT_DIR: ${_qt_dir}")
+ endif()
+ 
+ find_package(Qt5 5.15 REQUIRED COMPONENTS Widgets)
+ 
+ add_executable(3DEditMax
+   src/main.cpp
+   src/app/MainWindow.h
+   src/app/MainWindow.cpp
++  src/ui/Dx11ViewportWidget.h
++  src/ui/Dx11ViewportWidget.cpp
++  src/ui/DebugLogPanel.h
++  src/ui/DebugLogPanel.cpp
+   src/core/SnapshotBuffer.cpp
+   src/render/CommandQueue.cpp
+   src/render/FeedbackQueue.cpp
+   src/render/RenderThread.cpp
+   src/render/D3D11Renderer.cpp
+   src/render/MeshGpu.cpp
+   src/render/ShaderSet.cpp
+   src/teach/Transforms.cpp
+ )
+ 
+diff --git a/src/app/MainWindow.cpp b/src/app/MainWindow.cpp
+index a144c5d..0e7542a 100644
+--- a/src/app/MainWindow.cpp
++++ b/src/app/MainWindow.cpp
+@@ -1,7 +1,39 @@
+ #include "app/MainWindow.h"
++#include "ui/DebugLogPanel.h"
++#include "ui/Dx11ViewportWidget.h"
++#include <QDockWidget>
++#include <QMenu>
++#include <QMenuBar>
++#include <QTimer>
+ 
+ MainWindow::MainWindow(QWidget* parent)
+-    : QMainWindow(parent) {
++    : QMainWindow(parent)
++    , m_viewport(0)
++    , m_log(0)
++    , m_poll(0)
++    , m_teaching(teachingStateDefault())
++    , m_lab(labStateDefault()) {
+   setWindowTitle(QString::fromUtf8("3DEditMax"));
+   resize(1280, 720);
++
++  m_viewport = new Dx11ViewportWidget(this);
++  m_log = new DebugLogPanel(this);
++  setCentralWidget(m_viewport);
++
++  QDockWidget* dock = new QDockWidget(QString::fromUtf8("DX11 Lab / Debug"), this);
++  dock->setObjectName(QString::fromUtf8("dockDebug"));
++  dock->setWidget(m_log);
++  addDockWidget(Qt::RightDockWidgetArea, dock);
++
++  QMenu* viewMenu = menuBar()->addMenu(QString::fromUtf8("瑙嗗浘"));
++  viewMenu->addAction(dock->toggleViewAction());
++
++  m_poll = new QTimer(this);
++  m_poll->setInterval(100);
++  connect(m_poll, &QTimer::timeout, this, &MainWindow::onPollFeedback);
++  m_poll->start();
++}
++
++void MainWindow::onPollFeedback() {
++  m_log->drain(m_viewport->feedback());
+ }
+diff --git a/src/app/MainWindow.h b/src/app/MainWindow.h
+index 8433eb6..f3fe4a7 100644
+--- a/src/app/MainWindow.h
++++ b/src/app/MainWindow.h
+@@ -1,8 +1,22 @@
+ #pragma once
++#include "core/LabState.h"
++#include "core/TeachingState.h"
+ #include <QMainWindow>
+ 
++class DebugLogPanel;
++class Dx11ViewportWidget;
++class QTimer;
++
+ class MainWindow : public QMainWindow {
+   Q_OBJECT
+ public:
+   explicit MainWindow(QWidget* parent = 0);
++private slots:
++  void onPollFeedback();
++private:
++  Dx11ViewportWidget* m_viewport;
++  DebugLogPanel* m_log;
++  QTimer* m_poll;
++  TeachingState m_teaching;
++  LabState m_lab;
+ };
+diff --git a/src/ui/DebugLogPanel.cpp b/src/ui/DebugLogPanel.cpp
+new file mode 100644
+index 0000000..5309708
+--- /dev/null
++++ b/src/ui/DebugLogPanel.cpp
+@@ -0,0 +1,37 @@
++#include "ui/DebugLogPanel.h"
++#include "render/FeedbackQueue.h"
++#include <QPlainTextEdit>
++#include <QVBoxLayout>
++
++DebugLogPanel::DebugLogPanel(QWidget* parent)
++    : QWidget(parent) {
++  m_edit = new QPlainTextEdit(this);
++  m_edit->setReadOnly(true);
++  QVBoxLayout* layout = new QVBoxLayout(this);
++  layout->setContentsMargins(0, 0, 0, 0);
++  layout->addWidget(m_edit);
++}
++
++void DebugLogPanel::drain(FeedbackQueue& q) {
++  FeedbackItem item;
++  while (q.tryPop(&item)) {
++    if (item.kind == FbFps) {
++      continue;
++    }
++    const char* tag = 0;
++    if (item.kind == FbError) {
++      tag = "[Error] ";
++    } else if (item.kind == FbWarn) {
++      tag = "[Warn] ";
++    } else if (item.kind == FbLog) {
++      tag = "[Log] ";
++    } else {
++      continue;
++    }
++    m_edit->appendPlainText(QString::fromUtf8(tag) + QString::fromUtf8(item.text.c_str()));
++  }
++}
++
++void DebugLogPanel::appendFromQueue(FeedbackQueue& q) {
++  drain(q);
++}
+diff --git a/src/ui/DebugLogPanel.h b/src/ui/DebugLogPanel.h
+new file mode 100644
+index 0000000..afe7610
+--- /dev/null
++++ b/src/ui/DebugLogPanel.h
+@@ -0,0 +1,15 @@
++#pragma once
++#include <QWidget>
++
++class FeedbackQueue;
++class QPlainTextEdit;
++
++class DebugLogPanel : public QWidget {
++  Q_OBJECT
++public:
++  explicit DebugLogPanel(QWidget* parent = 0);
++  void drain(FeedbackQueue& q);
++  void appendFromQueue(FeedbackQueue& q);
++private:
++  QPlainTextEdit* m_edit;
++};
+diff --git a/src/ui/Dx11ViewportWidget.cpp b/src/ui/Dx11ViewportWidget.cpp
+new file mode 100644
+index 0000000..d041d41
+--- /dev/null
++++ b/src/ui/Dx11ViewportWidget.cpp
+@@ -0,0 +1,106 @@
++#include "ui/Dx11ViewportWidget.h"
++#include "core/StateSnapshot.h"
++#include <QCoreApplication>
++#include <QHideEvent>
++#include <QPaintEvent>
++#include <QResizeEvent>
++#include <QShowEvent>
++#include <windows.h>
++
++Dx11ViewportWidget::Dx11ViewportWidget(QWidget* parent)
++    : QWidget(parent)
++    , m_teaching(teachingStateDefault())
++    , m_lab(labStateDefault()) {
++  setAttribute(Qt::WA_NativeWindow, true);
++  setAttribute(Qt::WA_DontCreateNativeAncestors, true);
++  setAttribute(Qt::WA_OpaquePaintEvent, true);
++  setAttribute(Qt::WA_NoSystemBackground, true);
++  setAutoFillBackground(false);
++  setMinimumSize(320, 180);
++}
++
++Dx11ViewportWidget::~Dx11ViewportWidget() {
++  stopRenderer();
++}
++
++void Dx11ViewportWidget::publishState(const TeachingState& t, const LabState& l) {
++  m_teaching = t;
++  m_lab = l;
++  if (!m_thread) {
++    return;
++  }
++  StateSnapshot snap = stateSnapshotDefault();
++  snap.teaching = m_teaching;
++  snap.lab = m_lab;
++  snap.viewportW = width();
++  snap.viewportH = height();
++  m_thread->snapshots().publish(snap);
++}
++
++FeedbackQueue& Dx11ViewportWidget::feedback() {
++  if (m_thread) {
++    return m_thread->feedback();
++  }
++  static FeedbackQueue empty;
++  return empty;
++}
++
++void Dx11ViewportWidget::showEvent(QShowEvent* e) {
++  QWidget::showEvent(e);
++  winId();
++  startRenderer();
++}
++
++void Dx11ViewportWidget::hideEvent(QHideEvent* e) {
++  stopRenderer();
++  QWidget::hideEvent(e);
++}
++
++void Dx11ViewportWidget::resizeEvent(QResizeEvent* e) {
++  QWidget::resizeEvent(e);
++  if (!m_thread) {
++    return;
++  }
++  RenderCommand cmd;
++  cmd.type = CmdResize;
++  cmd.hwnd = hwnd();
++  cmd.width = width();
++  cmd.height = height();
++  m_thread->commands().push(cmd);
++  publishState(m_teaching, m_lab);
++}
++
++void Dx11ViewportWidget::paintEvent(QPaintEvent*) {
++}
++
++QPaintEngine* Dx11ViewportWidget::paintEngine() const {
++  return 0;
++}
++
++void Dx11ViewportWidget::startRenderer() {
++  if (m_thread) {
++    return;
++  }
++  const QString dir = QCoreApplication::applicationDirPath() + QString::fromUtf8("/shaders");
++  m_thread = ::make_unique<RenderThread>(dir.toStdWString());
++  m_thread->start();
++  RenderCommand init;
++  init.type = CmdInit;
++  init.hwnd = hwnd();
++  init.width = width();
++  init.height = height();
++  m_thread->commands().push(init);
++  publishState(m_teaching, m_lab);
++}
++
++void Dx11ViewportWidget::stopRenderer() {
++  if (!m_thread) {
++    return;
++  }
++  m_thread->requestStopAndJoin();
++  m_thread.reset();
++}
++
++HWND Dx11ViewportWidget::hwnd() const {
++  return reinterpret_cast<HWND>(winId());
++}
+diff --git a/src/ui/Dx11ViewportWidget.h b/src/ui/Dx11ViewportWidget.h
+new file mode 100644
+index 0000000..a02908b
+--- /dev/null
++++ b/src/ui/Dx11ViewportWidget.h
+@@ -0,0 +1,29 @@
++#pragma once
++#include "core/LabState.h"
++#include "core/TeachingState.h"
++#include "core/MakeUnique.h"
++#include "render/RenderThread.h"
++#include <QWidget>
++#include <memory>
++
++class Dx11ViewportWidget : public QWidget {
++  Q_OBJECT
++public:
++  explicit Dx11ViewportWidget(QWidget* parent = 0);
++  ~Dx11ViewportWidget();
++  void publishState(const TeachingState& t, const LabState& l);
++  FeedbackQueue& feedback();
++protected:
++  void showEvent(QShowEvent* e);
++  void hideEvent(QHideEvent* e);
++  void resizeEvent(QResizeEvent* e);
++  void paintEvent(QPaintEvent* e);
++  QPaintEngine* paintEngine() const;
++private:
++  void startRenderer();
++  void stopRenderer();
++  HWND hwnd() const;
++  std::unique_ptr<RenderThread> m_thread;
++  TeachingState m_teaching;
++  LabState m_lab;
++};

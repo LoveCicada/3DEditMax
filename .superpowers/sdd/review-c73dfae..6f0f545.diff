@@ -1,0 +1,1123 @@
+﻿# Review package: c73dfae790a00048202e2cc33cdf91eac35837cf..6f0f545c861ce52baacdc94463b18a9592ad96a8
+
+## Commits
+6f0f545 Add teaching meshes, three-object layout, and shading modes.
+
+## Files changed
+ CMakeLists.txt               |   4 +  assets/shaders/unlit.hlsl    |  18 +++-  src/app/MainWindow.cpp       |  22 +++++  src/app/MainWindow.h         |   3 +  src/render/D3D11Renderer.cpp |  74 ++++++++++++----  src/render/D3D11Renderer.h   |   3 +  src/render/MeshGpu.cpp       |  78 ++++++-----------  src/render/MeshGpu.h         |  15 ++--  src/teach/MeshBuild.cpp      | 197 +++++++++++++++++++++++++++++++++++++++++++  src/teach/MeshBuild.h        |  13 +++  src/ui/ObjectPanel.cpp       | 119 ++++++++++++++++++++++++++  src/ui/ObjectPanel.h         |  26 ++++++  tests/test_transforms.cpp    |  25 ++++++  13 files changed, 519 insertions(+), 78 deletions(-)
+
+## Diff
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 5ba4a4c..358921b 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -25,31 +25,34 @@ find_package(Qt5 5.15 REQUIRED COMPONENTS Widgets)
+ add_executable(3DEditMax
+   src/main.cpp
+   src/app/MainWindow.h
+   src/app/MainWindow.cpp
+   src/ui/Dx11ViewportWidget.h
+   src/ui/Dx11ViewportWidget.cpp
+   src/ui/DebugLogPanel.h
+   src/ui/DebugLogPanel.cpp
+   src/ui/TransformPanel.h
+   src/ui/TransformPanel.cpp
++  src/ui/ObjectPanel.h
++  src/ui/ObjectPanel.cpp
+   src/ui/MatrixBoardPanel.h
+   src/ui/MatrixBoardPanel.cpp
+   src/core/SnapshotBuffer.cpp
+   src/core/MatrixFormat.cpp
+   src/render/CommandQueue.cpp
+   src/render/FeedbackQueue.cpp
+   src/render/RenderThread.cpp
+   src/render/D3D11Renderer.cpp
+   src/render/MeshGpu.cpp
+   src/render/ShaderSet.cpp
+   src/teach/Transforms.cpp
++  src/teach/MeshBuild.cpp
+ )
+ 
+ target_include_directories(3DEditMax PRIVATE "${CMAKE_SOURCE_DIR}/src")
+ target_link_libraries(3DEditMax PRIVATE Qt5::Widgets d3d11 dxgi d3dcompiler)
+ if(MSVC)
+   target_compile_options(3DEditMax PRIVATE /utf-8)
+ endif()
+ 
+ add_custom_command(TARGET 3DEditMax POST_BUILD
+   COMMAND ${CMAKE_COMMAND} -E copy_directory
+@@ -60,17 +63,18 @@ enable_testing()
+ add_executable(3deditmax_tests
+   tests/test_main.cpp
+   tests/test_queues.cpp
+   tests/test_transforms.cpp
+   src/render/CommandQueue.cpp
+   src/render/FeedbackQueue.cpp
+   src/render/RenderThread.cpp
+   src/core/SnapshotBuffer.cpp
+   src/core/MatrixFormat.cpp
+   src/teach/Transforms.cpp
++  src/teach/MeshBuild.cpp
+ )
+ target_include_directories(3deditmax_tests PRIVATE
+   "${CMAKE_SOURCE_DIR}/src"
+   "${CMAKE_SOURCE_DIR}/tests"
+ )
+ target_compile_definitions(3deditmax_tests PRIVATE D3DEDITMAX_NO_D3D)
+ add_test(NAME 3deditmax_tests COMMAND 3deditmax_tests)
+diff --git a/assets/shaders/unlit.hlsl b/assets/shaders/unlit.hlsl
+index 37ce7b8..9431ec2 100644
+--- a/assets/shaders/unlit.hlsl
++++ b/assets/shaders/unlit.hlsl
+@@ -1,15 +1,16 @@
+ cbuffer FrameCB : register(b0) {
+   float4x4 world;
+   float4x4 view;
+   float4x4 proj;
+   float4x4 worldViewProj;
++  float4 shadingMode;
+ };
+ 
+ struct VSIn {
+   float3 pos : POSITION;
+   float3 nrm : NORMAL;
+   float2 uv  : TEXCOORD0;
+ };
+ 
+ struct VSOut {
+   float4 pos : SV_POSITION;
+@@ -18,14 +19,27 @@ struct VSOut {
+ };
+ 
+ VSOut vs_main(VSIn i) {
+   VSOut o;
+   o.pos = mul(float4(i.pos, 1.0), worldViewProj);
+   o.nrm = i.nrm;
+   o.uv = i.uv;
+   return o;
+ }
+ 
++float4 ps_checker(VSOut i) : SV_TARGET {
++  float2 f = frac(i.uv * 8.0);
++  float c = (f.x < 0.5) != (f.y < 0.5) ? 0.0 : 1.0;
++  return float4(c, c, c, 1.0);
++}
++
+ float4 ps_main(VSOut i) : SV_TARGET {
+-  float3 c = 0.35 + 0.65 * saturate(i.nrm * 0.5 + 0.5);
+-  return float4(c, 1.0);
++  float mode = shadingMode.x;
++  if (mode < 0.5) {
++    return float4(0.55, 0.62, 0.75, 1.0);
++  }
++  if (mode < 1.5) {
++    float3 c = 0.35 + 0.65 * saturate(i.nrm * 0.5 + 0.5);
++    return float4(c, 1.0);
++  }
++  return ps_checker(i);
+ }
+diff --git a/src/app/MainWindow.cpp b/src/app/MainWindow.cpp
+index 8e69177..08b3b53 100644
+--- a/src/app/MainWindow.cpp
++++ b/src/app/MainWindow.cpp
+@@ -1,111 +1,133 @@
+ #include "app/MainWindow.h"
+ #include "teach/Transforms.h"
+ #include "ui/DebugLogPanel.h"
+ #include "ui/Dx11ViewportWidget.h"
+ #include "ui/MatrixBoardPanel.h"
++#include "ui/ObjectPanel.h"
+ #include "ui/TransformPanel.h"
+ #include <QAction>
+ #include <QDockWidget>
+ #include <QMenu>
+ #include <QMenuBar>
+ #include <QTimer>
+ #include <QToolBar>
+ #include <DirectXMath.h>
+ 
+ MainWindow::MainWindow(QWidget* parent)
+     : QMainWindow(parent)
+     , m_viewport(0)
+     , m_transforms(0)
++    , m_objects(0)
+     , m_board(0)
+     , m_log(0)
+     , m_poll(0)
+     , m_majorAction(0)
+     , m_teaching(teachingStateDefault())
+     , m_lab(labStateDefault())
+     , m_major(MajorColumn) {
+   setWindowTitle(QString::fromUtf8("3DEditMax"));
+   resize(1280, 720);
+ 
+   m_viewport = new Dx11ViewportWidget(this);
+   m_transforms = new TransformPanel(this);
++  m_objects = new ObjectPanel(this);
+   m_board = new MatrixBoardPanel(this);
+   m_log = new DebugLogPanel(this);
+   setCentralWidget(m_viewport);
+ 
+   QDockWidget* dockTransforms = new QDockWidget(QString::fromUtf8("\xE5\x8F\x98\xE6\x8D\xA2"), this);
+   dockTransforms->setObjectName(QString::fromUtf8("dockTransforms"));
+   dockTransforms->setWidget(m_transforms);
+   addDockWidget(Qt::LeftDockWidgetArea, dockTransforms);
+ 
++  QDockWidget* dockObject = new QDockWidget(QString::fromUtf8("\xE7\x89\xA9\xE4\xBD\x93"), this);
++  dockObject->setObjectName(QString::fromUtf8("dockObject"));
++  dockObject->setWidget(m_objects);
++  addDockWidget(Qt::LeftDockWidgetArea, dockObject);
++  splitDockWidget(dockTransforms, dockObject, Qt::Vertical);
++
+   QDockWidget* dockMatrix = new QDockWidget(QString::fromUtf8("\xE7\x9F\xA9\xE9\x98\xB5\xE7\x9C\x8B\xE6\x9D\xBF"), this);
+   dockMatrix->setObjectName(QString::fromUtf8("dockMatrix"));
+   dockMatrix->setWidget(m_board);
+   addDockWidget(Qt::RightDockWidgetArea, dockMatrix);
+ 
+   QDockWidget* dockDebug = new QDockWidget(QString::fromUtf8("DX11 Lab / Debug"), this);
+   dockDebug->setObjectName(QString::fromUtf8("dockDebug"));
+   dockDebug->setWidget(m_log);
+   addDockWidget(Qt::RightDockWidgetArea, dockDebug);
+   splitDockWidget(dockMatrix, dockDebug, Qt::Vertical);
+ 
+   QToolBar* toolbar = addToolBar(QString::fromUtf8("Teach"));
+   toolbar->setObjectName(QString::fromUtf8("toolbarTeach"));
+   m_majorAction = toolbar->addAction(QString());
+   QAction* resetAction = toolbar->addAction(QString::fromUtf8("\xE9\x87\x8D\xE7\xBD\xAE"));
+   syncMajorActionText();
+ 
+   QMenu* viewMenu = menuBar()->addMenu(QString::fromUtf8("\xE8\xA7\x86\xE5\x9B\xBE"));
+   viewMenu->addAction(dockTransforms->toggleViewAction());
++  viewMenu->addAction(dockObject->toggleViewAction());
+   viewMenu->addAction(dockMatrix->toggleViewAction());
+   viewMenu->addAction(dockDebug->toggleViewAction());
+ 
+   connect(m_transforms, &TransformPanel::changed, this, &MainWindow::onTransformsChanged);
++  connect(m_objects, &ObjectPanel::changed, this, &MainWindow::onObjectsChanged);
+   connect(m_viewport, &Dx11ViewportWidget::teachingEdited, this, &MainWindow::onTeachingEdited);
+   connect(m_majorAction, &QAction::triggered, this, &MainWindow::onToggleMajor);
+   connect(resetAction, &QAction::triggered, this, &MainWindow::onReset);
+ 
+   m_transforms->setState(m_teaching);
++  m_objects->setState(m_teaching);
+   m_viewport->publishState(m_teaching, m_lab);
+   refreshBoard();
+ 
+   m_poll = new QTimer(this);
+   m_poll->setInterval(100);
+   connect(m_poll, &QTimer::timeout, this, &MainWindow::onPollFeedback);
+   m_poll->start();
+ }
+ 
+ void MainWindow::onPollFeedback() {
+   m_log->drain(m_viewport->feedback());
+ }
+ 
+ void MainWindow::onTransformsChanged() {
+   m_teaching = m_transforms->state();
++  m_objects->setState(m_teaching);
++  m_viewport->publishState(m_teaching, m_lab);
++  refreshBoard();
++}
++
++void MainWindow::onObjectsChanged() {
++  m_teaching = m_objects->state();
++  m_transforms->setState(m_teaching);
+   m_viewport->publishState(m_teaching, m_lab);
+   refreshBoard();
+ }
+ 
+ void MainWindow::onTeachingEdited(const TeachingState& t) {
+   m_teaching = t;
+   m_transforms->setState(m_teaching);
++  m_objects->setState(m_teaching);
+   refreshBoard();
+ }
+ 
+ void MainWindow::onToggleMajor() {
+   m_major = (m_major == MajorColumn) ? MajorRow : MajorColumn;
+   syncMajorActionText();
+   m_board->setMajorOrder(m_major);
+ }
+ 
+ void MainWindow::onReset() {
+   m_teaching = teachingStateDefault();
+   m_transforms->setState(m_teaching);
++  m_objects->setState(m_teaching);
+   m_viewport->publishState(m_teaching, m_lab);
+   refreshBoard();
+ }
+ 
+ void MainWindow::refreshBoard() {
+   using namespace DirectX;
+   const TeachingState& t = m_teaching;
+   float aspect = t.aspect;
+   if (t.aspectFollowViewport && m_viewport->height() > 0) {
+     aspect = static_cast<float>(m_viewport->width()) /
+diff --git a/src/app/MainWindow.h b/src/app/MainWindow.h
+index e7a1b32..4f64350 100644
+--- a/src/app/MainWindow.h
++++ b/src/app/MainWindow.h
+@@ -1,37 +1,40 @@
+ #pragma once
+ #include "core/LabState.h"
+ #include "core/MatrixFormat.h"
+ #include "core/TeachingState.h"
+ #include <QMainWindow>
+ 
+ class DebugLogPanel;
+ class Dx11ViewportWidget;
+ class MatrixBoardPanel;
++class ObjectPanel;
+ class QAction;
+ class QTimer;
+ class TransformPanel;
+ 
+ class MainWindow : public QMainWindow {
+   Q_OBJECT
+ public:
+   explicit MainWindow(QWidget* parent = 0);
+ private slots:
+   void onPollFeedback();
+   void onTransformsChanged();
++  void onObjectsChanged();
+   void onTeachingEdited(const TeachingState& t);
+   void onToggleMajor();
+   void onReset();
+ private:
+   void refreshBoard();
+   void syncMajorActionText();
+ 
+   Dx11ViewportWidget* m_viewport;
+   TransformPanel* m_transforms;
++  ObjectPanel* m_objects;
+   MatrixBoardPanel* m_board;
+   DebugLogPanel* m_log;
+   QTimer* m_poll;
+   QAction* m_majorAction;
+   TeachingState m_teaching;
+   LabState m_lab;
+   MajorOrder m_major;
+ };
+diff --git a/src/render/D3D11Renderer.cpp b/src/render/D3D11Renderer.cpp
+index ebc3472..a7f5be3 100644
+--- a/src/render/D3D11Renderer.cpp
++++ b/src/render/D3D11Renderer.cpp
+@@ -16,20 +16,21 @@ void pushFb(FeedbackQueue* fb, FeedbackKind kind, const char* text) {
+   item.text = text;
+   item.ms = 0.f;
+   fb->push(item);
+ }
+ 
+ struct FrameCBCpu {
+   XMFLOAT4X4 w;
+   XMFLOAT4X4 v;
+   XMFLOAT4X4 p;
+   XMFLOAT4X4 wvp;
++  XMFLOAT4 shadingMode;
+ };
+ 
+ }  // namespace
+ 
+ D3D11Renderer::D3D11Renderer(const std::wstring& shaderDir)
+     : m_shaderDir(shaderDir)
+     , m_hwnd(0)
+     , m_w(0)
+     , m_h(0)
+     , m_wantDebug(false)
+@@ -147,72 +148,94 @@ bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, Feedback
+   D3D11_RASTERIZER_DESC rd = {};
+   rd.FillMode = D3D11_FILL_SOLID;
+   rd.CullMode = D3D11_CULL_BACK;
+   rd.DepthClipEnable = TRUE;
+   hr = m_device->CreateRasterizerState(&rd, &m_raster);
+   if (FAILED(hr)) {
+     pushFb(fb, FbError, "CreateRasterizerState failed");
+     shutdown();
+     return false;
+   }
++  rd.FillMode = D3D11_FILL_WIREFRAME;
++  hr = m_device->CreateRasterizerState(&rd, &m_rasterWire);
++  if (FAILED(hr)) {
++    pushFb(fb, FbError, "CreateRasterizerState wire failed");
++    shutdown();
++    return false;
++  }
+ 
+   D3D11_DEPTH_STENCIL_DESC dsd = {};
+   dsd.DepthEnable = TRUE;
+   dsd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+   dsd.DepthFunc = D3D11_COMPARISON_LESS;
+   hr = m_device->CreateDepthStencilState(&dsd, &m_depthState);
+   if (FAILED(hr)) {
+     pushFb(fb, FbError, "CreateDepthStencilState failed");
+     shutdown();
+     return false;
+   }
+ 
+   D3D11_BUFFER_DESC cbd = {};
+-  cbd.ByteWidth = sizeof(float) * 16 * 4;
++  cbd.ByteWidth = sizeof(FrameCBCpu);
+   cbd.Usage = D3D11_USAGE_DYNAMIC;
+   cbd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+   cbd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+   hr = m_device->CreateBuffer(&cbd, 0, &m_cb);
+   if (FAILED(hr)) {
+     pushFb(fb, FbError, "Create FrameCB failed");
+     shutdown();
+     return false;
+   }
+ 
+   m_cube = MeshGpu::createCube(m_device.Get());
+   if (!m_cube.valid()) {
+     pushFb(fb, FbError, "createCube failed");
+     shutdown();
+     return false;
+   }
++  m_sphere = MeshGpu::createSphere(m_device.Get(), 16, 24);
++  if (!m_sphere.valid()) {
++    pushFb(fb, FbError, "createSphere failed");
++    shutdown();
++    return false;
++  }
++  m_cyl = MeshGpu::createCylinder(m_device.Get(), 24);
++  if (!m_cyl.valid()) {
++    pushFb(fb, FbError, "createCylinder failed");
++    shutdown();
++    return false;
++  }
+ 
+   const std::wstring shaderPath = m_shaderDir + L"/unlit.hlsl";
+   if (!m_shaders.compileFromFile(m_device.Get(), shaderPath, fb)) {
+     shutdown();
+     return false;
+   }
+ 
+   m_initialized = true;
+   pushFb(fb, FbLog, "D3D11 device ready");
+   pushFb(fb, FbDeviceOk, "");
+   return true;
+ }
+ 
+ void D3D11Renderer::shutdown() {
+   if (m_context) {
+     m_context->ClearState();
+     m_context->Flush();
+   }
+   m_shaders = ShaderSet();
+   m_cube = MeshGpu();
++  m_sphere = MeshGpu();
++  m_cyl = MeshGpu();
+   m_cb.Reset();
+   m_depthState.Reset();
++  m_rasterWire.Reset();
+   m_raster.Reset();
+   m_dsv.Reset();
+   m_depth.Reset();
+   m_rtv.Reset();
+   m_swap.Reset();
+   m_context.Reset();
+   m_device.Reset();
+   m_adapter.Reset();
+   m_factory.Reset();
+   m_initialized = false;
+@@ -277,46 +300,63 @@ void D3D11Renderer::render(const StateSnapshot& snap) {
+   m_context->RSSetViewports(1, &vp);
+ 
+   const float clear[4] = {0.08f, 0.10f, 0.14f, 1.f};
+   m_context->ClearRenderTargetView(m_rtv.Get(), clear);
+   m_context->ClearDepthStencilView(m_dsv.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.f, 0);
+ 
+   const TeachingState& t = snap.teaching;
+   const float aspect = t.aspectFollowViewport
+       ? (static_cast<float>(m_w) / static_cast<float>(m_h))
+       : t.aspect;
+-  const XMMATRIX W = BuildWorld(t.objects[0].trs);
+   const XMMATRIX V = BuildView(t.camDistance, t.camPitchDeg, t.camYawDeg);
+   const XMMATRIX P = BuildProjection(t, aspect);
+-  const XMMATRIX WVP = W * V * P;
+-
+-  FrameCBCpu cb;
+-  XMStoreFloat4x4(&cb.w, XMMatrixTranspose(W));
+-  XMStoreFloat4x4(&cb.v, XMMatrixTranspose(V));
+-  XMStoreFloat4x4(&cb.p, XMMatrixTranspose(P));
+-  XMStoreFloat4x4(&cb.wvp, XMMatrixTranspose(WVP));
+-
+-  D3D11_MAPPED_SUBRESOURCE mapped = {};
+-  if (SUCCEEDED(m_context->Map(m_cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+-    std::memcpy(mapped.pData, &cb, sizeof(cb));
+-    m_context->Unmap(m_cb.Get(), 0);
+-  }
++  const int count = (t.layout == LayoutThree) ? 3 : 1;
++  const bool wire = (t.shading == ShadeWire);
++  const float shadeX = (t.shading == ShadeNormal) ? 1.f
++      : (t.shading == ShadeChecker) ? 2.f
++      : 0.f;
+ 
+   ID3D11Buffer* cbuf = m_cb.Get();
+   m_context->VSSetConstantBuffers(0, 1, &cbuf);
+   m_context->PSSetConstantBuffers(0, 1, &cbuf);
+   m_context->VSSetShader(m_shaders.vs(), 0, 0);
+   m_context->PSSetShader(m_shaders.ps(), 0, 0);
+   m_context->IASetInputLayout(m_shaders.layout());
+-  m_context->RSSetState(m_raster.Get());
++  m_context->RSSetState(wire ? m_rasterWire.Get() : m_raster.Get());
+   m_context->OMSetDepthStencilState(m_depthState.Get(), 0);
+-  m_cube.draw(m_context.Get());
++
++  for (int oi = 0; oi < count; ++oi) {
++    const TeachingObject& obj = t.objects[oi];
++    const XMMATRIX W = BuildWorld(obj.trs);
++    const XMMATRIX WVP = W * V * P;
++
++    FrameCBCpu cb;
++    XMStoreFloat4x4(&cb.w, XMMatrixTranspose(W));
++    XMStoreFloat4x4(&cb.v, XMMatrixTranspose(V));
++    XMStoreFloat4x4(&cb.p, XMMatrixTranspose(P));
++    XMStoreFloat4x4(&cb.wvp, XMMatrixTranspose(WVP));
++    cb.shadingMode = XMFLOAT4(shadeX, 0.f, 0.f, 0.f);
++
++    D3D11_MAPPED_SUBRESOURCE mapped = {};
++    if (SUCCEEDED(m_context->Map(m_cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
++      std::memcpy(mapped.pData, &cb, sizeof(cb));
++      m_context->Unmap(m_cb.Get(), 0);
++    }
++
++    const MeshGpu* mesh = &m_cube;
++    if (obj.mesh == MeshSphere) {
++      mesh = &m_sphere;
++    } else if (obj.mesh == MeshCylinder) {
++      mesh = &m_cyl;
++    }
++    mesh->draw(m_context.Get());
++  }
+ 
+   const HRESULT hr = m_swap->Present(1, 0);
+   handlePresentResult(hr);
+ }
+ 
+ bool D3D11Renderer::reloadShaders(FeedbackQueue* fb) {
+   if (!m_device) {
+     return false;
+   }
+   ShaderSet next;
+diff --git a/src/render/D3D11Renderer.h b/src/render/D3D11Renderer.h
+index d474f16..cf928c1 100644
+--- a/src/render/D3D11Renderer.h
++++ b/src/render/D3D11Renderer.h
+@@ -32,15 +32,18 @@ private:
+   FeedbackQueue* m_fb;
+   Microsoft::WRL::ComPtr<IDXGIFactory1> m_factory;
+   Microsoft::WRL::ComPtr<IDXGIAdapter1> m_adapter;
+   Microsoft::WRL::ComPtr<ID3D11Device> m_device;
+   Microsoft::WRL::ComPtr<ID3D11DeviceContext> m_context;
+   Microsoft::WRL::ComPtr<IDXGISwapChain> m_swap;
+   Microsoft::WRL::ComPtr<ID3D11RenderTargetView> m_rtv;
+   Microsoft::WRL::ComPtr<ID3D11Texture2D> m_depth;
+   Microsoft::WRL::ComPtr<ID3D11DepthStencilView> m_dsv;
+   Microsoft::WRL::ComPtr<ID3D11RasterizerState> m_raster;
++  Microsoft::WRL::ComPtr<ID3D11RasterizerState> m_rasterWire;
+   Microsoft::WRL::ComPtr<ID3D11DepthStencilState> m_depthState;
+   Microsoft::WRL::ComPtr<ID3D11Buffer> m_cb;
+   MeshGpu m_cube;
++  MeshGpu m_sphere;
++  MeshGpu m_cyl;
+   ShaderSet m_shaders;
+ };
+diff --git a/src/render/MeshGpu.cpp b/src/render/MeshGpu.cpp
+index 81e0afa..d1ae707 100644
+--- a/src/render/MeshGpu.cpp
++++ b/src/render/MeshGpu.cpp
+@@ -1,93 +1,69 @@
+ #include "render/MeshGpu.h"
+ 
+ static_assert(sizeof(MeshVertex) == 32, "MeshVertex is 32 bytes");
+ 
+-MeshGpu MeshGpu::createCube(ID3D11Device* device) {
++MeshGpu MeshGpu::createFromCpu(ID3D11Device* device,
++                               const std::vector<MeshVertex>& verts,
++                               const std::vector<unsigned short>& indices) {
+   MeshGpu mesh;
+-  if (!device) {
++  if (!device || verts.empty() || indices.empty()) {
+     return mesh;
+   }
+ 
+-  // Clockwise winding when viewed from outside (D3D11 default front face).
+-  static const MeshVertex kVerts[24] = {
+-      // +Z
+-      {-0.5f, 0.5f, 0.5f, 0.f, 0.f, 1.f, 0.f, 0.f},
+-      {0.5f, 0.5f, 0.5f, 0.f, 0.f, 1.f, 1.f, 0.f},
+-      {0.5f, -0.5f, 0.5f, 0.f, 0.f, 1.f, 1.f, 1.f},
+-      {-0.5f, -0.5f, 0.5f, 0.f, 0.f, 1.f, 0.f, 1.f},
+-      // -Z
+-      {0.5f, 0.5f, -0.5f, 0.f, 0.f, -1.f, 0.f, 0.f},
+-      {-0.5f, 0.5f, -0.5f, 0.f, 0.f, -1.f, 1.f, 0.f},
+-      {-0.5f, -0.5f, -0.5f, 0.f, 0.f, -1.f, 1.f, 1.f},
+-      {0.5f, -0.5f, -0.5f, 0.f, 0.f, -1.f, 0.f, 1.f},
+-      // +X
+-      {0.5f, 0.5f, 0.5f, 1.f, 0.f, 0.f, 0.f, 0.f},
+-      {0.5f, 0.5f, -0.5f, 1.f, 0.f, 0.f, 1.f, 0.f},
+-      {0.5f, -0.5f, -0.5f, 1.f, 0.f, 0.f, 1.f, 1.f},
+-      {0.5f, -0.5f, 0.5f, 1.f, 0.f, 0.f, 0.f, 1.f},
+-      // -X
+-      {-0.5f, 0.5f, -0.5f, -1.f, 0.f, 0.f, 0.f, 0.f},
+-      {-0.5f, 0.5f, 0.5f, -1.f, 0.f, 0.f, 1.f, 0.f},
+-      {-0.5f, -0.5f, 0.5f, -1.f, 0.f, 0.f, 1.f, 1.f},
+-      {-0.5f, -0.5f, -0.5f, -1.f, 0.f, 0.f, 0.f, 1.f},
+-      // +Y
+-      {-0.5f, 0.5f, -0.5f, 0.f, 1.f, 0.f, 0.f, 0.f},
+-      {0.5f, 0.5f, -0.5f, 0.f, 1.f, 0.f, 1.f, 0.f},
+-      {0.5f, 0.5f, 0.5f, 0.f, 1.f, 0.f, 1.f, 1.f},
+-      {-0.5f, 0.5f, 0.5f, 0.f, 1.f, 0.f, 0.f, 1.f},
+-      // -Y
+-      {-0.5f, -0.5f, 0.5f, 0.f, -1.f, 0.f, 0.f, 0.f},
+-      {0.5f, -0.5f, 0.5f, 0.f, -1.f, 0.f, 1.f, 0.f},
+-      {0.5f, -0.5f, -0.5f, 0.f, -1.f, 0.f, 1.f, 1.f},
+-      {-0.5f, -0.5f, -0.5f, 0.f, -1.f, 0.f, 0.f, 1.f},
+-  };
+-  static const UINT kIdx[36] = {
+-      0,  1,  2,  0,  2,  3,  4,  5,  6,  4,  6,  7,
+-      8,  9,  10, 8,  10, 11, 12, 13, 14, 12, 14, 15,
+-      16, 17, 18, 16, 18, 19, 20, 21, 22, 20, 22, 23,
+-  };
+-
+   D3D11_BUFFER_DESC vbd = {};
+-  vbd.ByteWidth = sizeof(kVerts);
++  vbd.ByteWidth = static_cast<UINT>(verts.size() * sizeof(MeshVertex));
+   vbd.Usage = D3D11_USAGE_DEFAULT;
+   vbd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+   D3D11_SUBRESOURCE_DATA vrd = {};
+-  vrd.pSysMem = kVerts;
++  vrd.pSysMem = &verts[0];
+   if (FAILED(device->CreateBuffer(&vbd, &vrd, &mesh.m_vb))) {
+     return MeshGpu();
+   }
+ 
+   D3D11_BUFFER_DESC ibd = {};
+-  ibd.ByteWidth = sizeof(kIdx);
++  ibd.ByteWidth = static_cast<UINT>(indices.size() * sizeof(unsigned short));
+   ibd.Usage = D3D11_USAGE_DEFAULT;
+   ibd.BindFlags = D3D11_BIND_INDEX_BUFFER;
+   D3D11_SUBRESOURCE_DATA ird = {};
+-  ird.pSysMem = kIdx;
++  ird.pSysMem = &indices[0];
+   if (FAILED(device->CreateBuffer(&ibd, &ird, &mesh.m_ib))) {
+     return MeshGpu();
+   }
+ 
+-  mesh.m_indexCount = 36;
++  mesh.m_indexCount = static_cast<UINT>(indices.size());
+   return mesh;
+ }
+ 
+-MeshGpu MeshGpu::createSphere(ID3D11Device*) {
+-  return MeshGpu();
++MeshGpu MeshGpu::createCube(ID3D11Device* device) {
++  std::vector<MeshVertex> verts;
++  std::vector<unsigned short> indices;
++  buildCube(&verts, &indices);
++  return createFromCpu(device, verts, indices);
++}
++
++MeshGpu MeshGpu::createSphere(ID3D11Device* device, int slices, int stacks) {
++  std::vector<MeshVertex> verts;
++  std::vector<unsigned short> indices;
++  buildSphere(&verts, &indices, slices, stacks);
++  return createFromCpu(device, verts, indices);
+ }
+ 
+-MeshGpu MeshGpu::createCylinder(ID3D11Device*) {
+-  return MeshGpu();
++MeshGpu MeshGpu::createCylinder(ID3D11Device* device, int slices) {
++  std::vector<MeshVertex> verts;
++  std::vector<unsigned short> indices;
++  buildCylinder(&verts, &indices, slices);
++  return createFromCpu(device, verts, indices);
+ }
+ 
+ void MeshGpu::draw(ID3D11DeviceContext* context) const {
+   if (!context || !valid()) {
+     return;
+   }
+   UINT stride = sizeof(MeshVertex);
+   UINT offset = 0;
+   ID3D11Buffer* vb = m_vb.Get();
+   context->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
+-  context->IASetIndexBuffer(m_ib.Get(), DXGI_FORMAT_R32_UINT, 0);
++  context->IASetIndexBuffer(m_ib.Get(), DXGI_FORMAT_R16_UINT, 0);
+   context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+   context->DrawIndexed(m_indexCount, 0, 0);
+ }
+diff --git a/src/render/MeshGpu.h b/src/render/MeshGpu.h
+index 6b42187..47199fa 100644
+--- a/src/render/MeshGpu.h
++++ b/src/render/MeshGpu.h
+@@ -1,22 +1,21 @@
+ #pragma once
++#include "teach/MeshBuild.h"
+ #include <d3d11.h>
+ #include <wrl/client.h>
+-
+-struct MeshVertex {
+-  float px, py, pz;
+-  float nx, ny, nz;
+-  float u, v;
+-};
++#include <vector>
+ 
+ class MeshGpu {
+ public:
++  static MeshGpu createFromCpu(ID3D11Device* device,
++                               const std::vector<MeshVertex>& verts,
++                               const std::vector<unsigned short>& indices);
+   static MeshGpu createCube(ID3D11Device* device);
+-  static MeshGpu createSphere(ID3D11Device* device);
+-  static MeshGpu createCylinder(ID3D11Device* device);
++  static MeshGpu createSphere(ID3D11Device* device, int slices, int stacks);
++  static MeshGpu createCylinder(ID3D11Device* device, int slices);
+   void draw(ID3D11DeviceContext* context) const;
+   bool valid() const { return m_vb && m_ib && m_indexCount > 0; }
+ private:
+   Microsoft::WRL::ComPtr<ID3D11Buffer> m_vb;
+   Microsoft::WRL::ComPtr<ID3D11Buffer> m_ib;
+   UINT m_indexCount = 0;
+ };
+diff --git a/src/teach/MeshBuild.cpp b/src/teach/MeshBuild.cpp
+new file mode 100644
+index 0000000..680bd23
+--- /dev/null
++++ b/src/teach/MeshBuild.cpp
+@@ -0,0 +1,197 @@
++#include "teach/MeshBuild.h"
++#include <cmath>
++
++namespace {
++
++const float kPi = 3.14159265358979323846f;
++
++void pushVert(std::vector<MeshVertex>* v,
++              float px, float py, float pz,
++              float nx, float ny, float nz,
++              float u, float vv) {
++  MeshVertex m;
++  m.px = px;
++  m.py = py;
++  m.pz = pz;
++  m.nx = nx;
++  m.ny = ny;
++  m.nz = nz;
++  m.u = u;
++  m.v = vv;
++  v->push_back(m);
++}
++
++}  // namespace
++
++void buildCube(std::vector<MeshVertex>* v, std::vector<unsigned short>* i) {
++  if (!v || !i) {
++    return;
++  }
++  v->clear();
++  i->clear();
++
++  // Clockwise winding when viewed from outside (D3D11 default front face).
++  static const MeshVertex kVerts[24] = {
++      // +Z
++      {-0.5f, 0.5f, 0.5f, 0.f, 0.f, 1.f, 0.f, 0.f},
++      {0.5f, 0.5f, 0.5f, 0.f, 0.f, 1.f, 1.f, 0.f},
++      {0.5f, -0.5f, 0.5f, 0.f, 0.f, 1.f, 1.f, 1.f},
++      {-0.5f, -0.5f, 0.5f, 0.f, 0.f, 1.f, 0.f, 1.f},
++      // -Z
++      {0.5f, 0.5f, -0.5f, 0.f, 0.f, -1.f, 0.f, 0.f},
++      {-0.5f, 0.5f, -0.5f, 0.f, 0.f, -1.f, 1.f, 0.f},
++      {-0.5f, -0.5f, -0.5f, 0.f, 0.f, -1.f, 1.f, 1.f},
++      {0.5f, -0.5f, -0.5f, 0.f, 0.f, -1.f, 0.f, 1.f},
++      // +X
++      {0.5f, 0.5f, 0.5f, 1.f, 0.f, 0.f, 0.f, 0.f},
++      {0.5f, 0.5f, -0.5f, 1.f, 0.f, 0.f, 1.f, 0.f},
++      {0.5f, -0.5f, -0.5f, 1.f, 0.f, 0.f, 1.f, 1.f},
++      {0.5f, -0.5f, 0.5f, 1.f, 0.f, 0.f, 0.f, 1.f},
++      // -X
++      {-0.5f, 0.5f, -0.5f, -1.f, 0.f, 0.f, 0.f, 0.f},
++      {-0.5f, 0.5f, 0.5f, -1.f, 0.f, 0.f, 1.f, 0.f},
++      {-0.5f, -0.5f, 0.5f, -1.f, 0.f, 0.f, 1.f, 1.f},
++      {-0.5f, -0.5f, -0.5f, -1.f, 0.f, 0.f, 0.f, 1.f},
++      // +Y
++      {-0.5f, 0.5f, -0.5f, 0.f, 1.f, 0.f, 0.f, 0.f},
++      {0.5f, 0.5f, -0.5f, 0.f, 1.f, 0.f, 1.f, 0.f},
++      {0.5f, 0.5f, 0.5f, 0.f, 1.f, 0.f, 1.f, 1.f},
++      {-0.5f, 0.5f, 0.5f, 0.f, 1.f, 0.f, 0.f, 1.f},
++      // -Y
++      {-0.5f, -0.5f, 0.5f, 0.f, -1.f, 0.f, 0.f, 0.f},
++      {0.5f, -0.5f, 0.5f, 0.f, -1.f, 0.f, 1.f, 0.f},
++      {0.5f, -0.5f, -0.5f, 0.f, -1.f, 0.f, 1.f, 1.f},
++      {-0.5f, -0.5f, -0.5f, 0.f, -1.f, 0.f, 0.f, 1.f},
++  };
++  static const unsigned short kIdx[36] = {
++      0,  1,  2,  0,  2,  3,  4,  5,  6,  4,  6,  7,
++      8,  9,  10, 8,  10, 11, 12, 13, 14, 12, 14, 15,
++      16, 17, 18, 16, 18, 19, 20, 21, 22, 20, 22, 23,
++  };
++  v->insert(v->end(), kVerts, kVerts + 24);
++  i->insert(i->end(), kIdx, kIdx + 36);
++}
++
++void buildSphere(std::vector<MeshVertex>* v, std::vector<unsigned short>* i, int slices, int stacks) {
++  if (!v || !i) {
++    return;
++  }
++  v->clear();
++  i->clear();
++  if (slices < 3) {
++    slices = 3;
++  }
++  if (stacks < 2) {
++    stacks = 2;
++  }
++
++  const float r = 0.5f;
++  for (int st = 0; st <= stacks; ++st) {
++    const float vv = static_cast<float>(st) / static_cast<float>(stacks);
++    const float theta = vv * kPi;
++    const float y = r * cosf(theta);
++    const float ringR = r * sinf(theta);
++    for (int sl = 0; sl <= slices; ++sl) {
++      const float u = static_cast<float>(sl) / static_cast<float>(slices);
++      const float phi = u * (2.f * kPi);
++      // phi=0 at +Z, increasing toward +X so u grows rightward on the +Z face.
++      const float x = ringR * sinf(phi);
++      const float z = ringR * cosf(phi);
++      pushVert(v, x, y, z, x / r, y / r, z / r, u, vv);
++    }
++  }
++
++  const int stride = slices + 1;
++  for (int st = 0; st < stacks; ++st) {
++    for (int sl = 0; sl < slices; ++sl) {
++      const unsigned short i00 = static_cast<unsigned short>(st * stride + sl);
++      const unsigned short i01 = static_cast<unsigned short>(i00 + 1);
++      const unsigned short i10 = static_cast<unsigned short>((st + 1) * stride + sl);
++      const unsigned short i11 = static_cast<unsigned short>(i10 + 1);
++      i->push_back(i00);
++      i->push_back(i01);
++      i->push_back(i11);
++      i->push_back(i00);
++      i->push_back(i11);
++      i->push_back(i10);
++    }
++  }
++}
++
++void buildCylinder(std::vector<MeshVertex>* v, std::vector<unsigned short>* i, int slices) {
++  if (!v || !i) {
++    return;
++  }
++  v->clear();
++  i->clear();
++  if (slices < 3) {
++    slices = 3;
++  }
++
++  const float r = 0.5f;
++  const float yTop = 0.5f;
++  const float yBot = -0.5f;
++
++  for (int sl = 0; sl <= slices; ++sl) {
++    const float u = static_cast<float>(sl) / static_cast<float>(slices);
++    const float phi = u * (2.f * kPi);
++    const float x = r * sinf(phi);
++    const float z = r * cosf(phi);
++    const float nx = x / r;
++    const float nz = z / r;
++    pushVert(v, x, yTop, z, nx, 0.f, nz, u, 0.f);
++    pushVert(v, x, yBot, z, nx, 0.f, nz, u, 1.f);
++  }
++
++  for (int sl = 0; sl < slices; ++sl) {
++    const unsigned short t0 = static_cast<unsigned short>(sl * 2);
++    const unsigned short b0 = static_cast<unsigned short>(t0 + 1);
++    const unsigned short t1 = static_cast<unsigned short>((sl + 1) * 2);
++    const unsigned short b1 = static_cast<unsigned short>(t1 + 1);
++    i->push_back(t0);
++    i->push_back(t1);
++    i->push_back(b1);
++    i->push_back(t0);
++    i->push_back(b1);
++    i->push_back(b0);
++  }
++
++  const unsigned short topCenter = static_cast<unsigned short>(v->size());
++  pushVert(v, 0.f, yTop, 0.f, 0.f, 1.f, 0.f, 0.5f, 0.5f);
++  const unsigned short topRim = static_cast<unsigned short>(v->size());
++  for (int sl = 0; sl <= slices; ++sl) {
++    const float u = static_cast<float>(sl) / static_cast<float>(slices);
++    const float phi = u * (2.f * kPi);
++    const float x = r * sinf(phi);
++    const float z = r * cosf(phi);
++    pushVert(v, x, yTop, z, 0.f, 1.f, 0.f, 0.5f + 0.5f * x / r, 0.5f + 0.5f * z / r);
++  }
++  for (int sl = 0; sl < slices; ++sl) {
++    i->push_back(topCenter);
++    i->push_back(static_cast<unsigned short>(topRim + sl));
++    i->push_back(static_cast<unsigned short>(topRim + sl + 1));
++  }
++
++  const unsigned short botCenter = static_cast<unsigned short>(v->size());
++  pushVert(v, 0.f, yBot, 0.f, 0.f, -1.f, 0.f, 0.5f, 0.5f);
++  const unsigned short botRim = static_cast<unsigned short>(v->size());
++  for (int sl = 0; sl <= slices; ++sl) {
++    const float u = static_cast<float>(sl) / static_cast<float>(slices);
++    const float phi = u * (2.f * kPi);
++    const float x = r * sinf(phi);
++    const float z = r * cosf(phi);
++    pushVert(v, x, yBot, z, 0.f, -1.f, 0.f, 0.5f + 0.5f * x / r, 0.5f + 0.5f * z / r);
++  }
++  for (int sl = 0; sl < slices; ++sl) {
++    i->push_back(botCenter);
++    i->push_back(static_cast<unsigned short>(botRim + sl + 1));
++    i->push_back(static_cast<unsigned short>(botRim + sl));
++  }
++}
++
++int cubeVertexCount() {
++  std::vector<MeshVertex> v;
++  std::vector<unsigned short> i;
++  buildCube(&v, &i);
++  return static_cast<int>(v.size());
++}
+diff --git a/src/teach/MeshBuild.h b/src/teach/MeshBuild.h
+new file mode 100644
+index 0000000..d10ea7c
+--- /dev/null
++++ b/src/teach/MeshBuild.h
+@@ -0,0 +1,13 @@
++#pragma once
++#include <vector>
++
++struct MeshVertex {
++  float px, py, pz;
++  float nx, ny, nz;
++  float u, v;
++};
++
++void buildCube(std::vector<MeshVertex>* v, std::vector<unsigned short>* i);
++void buildSphere(std::vector<MeshVertex>* v, std::vector<unsigned short>* i, int slices, int stacks);
++void buildCylinder(std::vector<MeshVertex>* v, std::vector<unsigned short>* i, int slices);
++int cubeVertexCount();
+diff --git a/src/ui/ObjectPanel.cpp b/src/ui/ObjectPanel.cpp
+new file mode 100644
+index 0000000..f868dcd
+--- /dev/null
++++ b/src/ui/ObjectPanel.cpp
+@@ -0,0 +1,119 @@
++#include "ui/ObjectPanel.h"
++#include <QAbstractButton>
++#include <QButtonGroup>
++#include <QComboBox>
++#include <QFormLayout>
++#include <QGroupBox>
++#include <QHBoxLayout>
++#include <QRadioButton>
++#include <QVBoxLayout>
++
++ObjectPanel::ObjectPanel(QWidget* parent)
++    : QWidget(parent)
++    , m_state(teachingStateDefault())
++    , m_block(false)
++    , m_mesh(0)
++    , m_layout(0)
++    , m_shading(0) {
++  QVBoxLayout* root = new QVBoxLayout(this);
++
++  QGroupBox* meshBox = new QGroupBox(QString::fromUtf8("Mesh"), this);
++  QHBoxLayout* meshRow = new QHBoxLayout(meshBox);
++  QRadioButton* cube = new QRadioButton(QString::fromUtf8("Cube"), meshBox);
++  QRadioButton* sphere = new QRadioButton(QString::fromUtf8("Sphere"), meshBox);
++  QRadioButton* cyl = new QRadioButton(QString::fromUtf8("Cylinder"), meshBox);
++  m_mesh = new QButtonGroup(this);
++  m_mesh->addButton(cube, MeshCube);
++  m_mesh->addButton(sphere, MeshSphere);
++  m_mesh->addButton(cyl, MeshCylinder);
++  meshRow->addWidget(cube);
++  meshRow->addWidget(sphere);
++  meshRow->addWidget(cyl);
++  root->addWidget(meshBox);
++
++  QGroupBox* scene = new QGroupBox(QString::fromUtf8("Scene"), this);
++  QFormLayout* form = new QFormLayout(scene);
++  m_layout = new QComboBox(scene);
++  m_layout->addItem(QString::fromUtf8("One"));
++  m_layout->addItem(QString::fromUtf8("Three"));
++  m_shading = new QComboBox(scene);
++  m_shading->addItem(QString::fromUtf8("Solid"));
++  m_shading->addItem(QString::fromUtf8("Normal"));
++  m_shading->addItem(QString::fromUtf8("Checker"));
++  m_shading->addItem(QString::fromUtf8("Wire"));
++  form->addRow(QString::fromUtf8("Layout"), m_layout);
++  form->addRow(QString::fromUtf8("Shading"), m_shading);
++  root->addWidget(scene);
++  root->addStretch(1);
++
++  connect(m_mesh, &QButtonGroup::idClicked, this, &ObjectPanel::onEdited);
++  connect(m_layout, static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged),
++          this, &ObjectPanel::onEdited);
++  connect(m_shading, static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged),
++          this, &ObjectPanel::onEdited);
++
++  m_block = true;
++  loadWidgets(m_state);
++  m_block = false;
++}
++
++void ObjectPanel::setState(const TeachingState& s) {
++  m_state = s;
++  const bool was = m_block;
++  m_block = true;
++  loadWidgets(s);
++  m_block = was;
++}
++
++TeachingState ObjectPanel::state() const {
++  TeachingState s = m_state;
++  const int meshId = m_mesh->checkedId();
++  if (meshId == MeshSphere) {
++    s.objects[0].mesh = MeshSphere;
++  } else if (meshId == MeshCylinder) {
++    s.objects[0].mesh = MeshCylinder;
++  } else {
++    s.objects[0].mesh = MeshCube;
++  }
++  s.layout = (m_layout->currentIndex() == 1) ? LayoutThree : LayoutOne;
++  const int shade = m_shading->currentIndex();
++  if (shade == ShadeNormal) {
++    s.shading = ShadeNormal;
++  } else if (shade == ShadeChecker) {
++    s.shading = ShadeChecker;
++  } else if (shade == ShadeWire) {
++    s.shading = ShadeWire;
++  } else {
++    s.shading = ShadeSolid;
++  }
++  return s;
++}
++
++void ObjectPanel::onEdited() {
++  if (m_block) {
++    return;
++  }
++  emit changed();
++}
++
++void ObjectPanel::loadWidgets(const TeachingState& s) {
++  int meshId = MeshCube;
++  if (s.objects[0].mesh == MeshSphere) {
++    meshId = MeshSphere;
++  } else if (s.objects[0].mesh == MeshCylinder) {
++    meshId = MeshCylinder;
++  }
++  if (QAbstractButton* b = m_mesh->button(meshId)) {
++    b->setChecked(true);
++  }
++  m_layout->setCurrentIndex(s.layout == LayoutThree ? 1 : 0);
++  int shade = 0;
++  if (s.shading == ShadeNormal) {
++    shade = 1;
++  } else if (s.shading == ShadeChecker) {
++    shade = 2;
++  } else if (s.shading == ShadeWire) {
++    shade = 3;
++  }
++  m_shading->setCurrentIndex(shade);
++}
+diff --git a/src/ui/ObjectPanel.h b/src/ui/ObjectPanel.h
+new file mode 100644
+index 0000000..0aa2bd8
+--- /dev/null
++++ b/src/ui/ObjectPanel.h
+@@ -0,0 +1,26 @@
++#pragma once
++#include "core/TeachingState.h"
++#include <QWidget>
++
++class QButtonGroup;
++class QComboBox;
++
++class ObjectPanel : public QWidget {
++  Q_OBJECT
++public:
++  explicit ObjectPanel(QWidget* parent = 0);
++  void setState(const TeachingState& s);
++  TeachingState state() const;
++signals:
++  void changed();
++private slots:
++  void onEdited();
++private:
++  void loadWidgets(const TeachingState& s);
++
++  TeachingState m_state;
++  bool m_block;
++  QButtonGroup* m_mesh;
++  QComboBox* m_layout;
++  QComboBox* m_shading;
++};
+diff --git a/tests/test_transforms.cpp b/tests/test_transforms.cpp
+index 6bb60bb..8497cfb 100644
+--- a/tests/test_transforms.cpp
++++ b/tests/test_transforms.cpp
+@@ -1,16 +1,18 @@
+ #include "test_harness.h"
+ #include "core/MatrixFormat.h"
++#include "teach/MeshBuild.h"
+ #include "teach/Transforms.h"
+ #include <DirectXMath.h>
+ #include <cmath>
+ #include <cstring>
++#include <vector>
+ 
+ static bool near4(float a, float b) {
+   return fabsf(a - b) < 1e-4f;
+ }
+ 
+ void runTransformTests() {
+   TransformTRS id = transformIdentity();
+   DirectX::XMMATRIX w = BuildWorld(id);
+   DirectX::XMFLOAT4X4 m;
+   DirectX::XMStoreFloat4x4(&m, w);
+@@ -69,11 +71,34 @@ void runTransformTests() {
+   applyDollyWheel(&cam, 120);
+   TEST_CHECK(near4(cam.camDistance, 4.5f));
+   applyDollyWheel(&cam, -120);
+   TEST_CHECK(near4(cam.camDistance, 4.95f));
+   cam.camDistance = 0.5f;
+   applyDollyWheel(&cam, 1);
+   TEST_CHECK(near4(cam.camDistance, 0.5f));
+   cam.camDistance = 50.f;
+   applyDollyWheel(&cam, -1);
+   TEST_CHECK(near4(cam.camDistance, 50.f));
++
++  /* Task 11: CPU mesh builders */
++  TEST_CHECK(cubeVertexCount() > 0);
++  std::vector<MeshVertex> cubeV;
++  std::vector<unsigned short> cubeI;
++  buildCube(&cubeV, &cubeI);
++  TEST_CHECK(cubeI.size() == 36);
++  TEST_CHECK(cubeV.size() == static_cast<size_t>(cubeVertexCount()));
++
++  const int slices = 16;
++  const int stacks = 24;
++  std::vector<MeshVertex> sphereV;
++  std::vector<unsigned short> sphereI;
++  buildSphere(&sphereV, &sphereI, slices, stacks);
++  TEST_CHECK(static_cast<int>(sphereV.size()) == (stacks + 1) * (slices + 1));
++  TEST_CHECK(sphereV.size() > 0);
++  TEST_CHECK(sphereI.size() > 0);
++
++  std::vector<MeshVertex> cylV;
++  std::vector<unsigned short> cylI;
++  buildCylinder(&cylV, &cylI, 24);
++  TEST_CHECK(cylV.size() > 0);
++  TEST_CHECK(cylI.size() > 0);
+ }

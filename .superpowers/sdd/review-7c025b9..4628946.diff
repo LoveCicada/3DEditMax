@@ -1,0 +1,186 @@
+﻿# Review package: 7c025b96fe79d2177e41db40cd61b5f8f5b232ff..46289464cfd3aafc05a83a7cd4e3132d0efe7aae
+
+## Commits
+4628946 Add std::thread render loop that stops on CmdStop.
+
+## Files changed
+ CMakeLists.txt              |  1 +  src/render/RenderThread.cpp | 47 +++++++++++++++++++++++++++++++++++++++++++++  src/render/RenderThread.h   | 24 +++++++++++++++++++++++  tests/test_main.cpp         |  2 ++  tests/test_queues.cpp       | 16 +++++++++++++++  5 files changed, 90 insertions(+)
+
+## Diff
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index f7c8a9a..eb5e8a5 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -30,17 +30,18 @@ add_executable(3DEditMax
+ 
+ target_include_directories(3DEditMax PRIVATE "${CMAKE_SOURCE_DIR}/src")
+ target_link_libraries(3DEditMax PRIVATE Qt5::Widgets)
+ 
+ enable_testing()
+ add_executable(3deditmax_tests
+   tests/test_main.cpp
+   tests/test_queues.cpp
+   src/render/CommandQueue.cpp
+   src/render/FeedbackQueue.cpp
++  src/render/RenderThread.cpp
+   src/core/SnapshotBuffer.cpp
+ )
+ target_include_directories(3deditmax_tests PRIVATE
+   "${CMAKE_SOURCE_DIR}/src"
+   "${CMAKE_SOURCE_DIR}/tests"
+ )
+ add_test(NAME 3deditmax_tests COMMAND 3deditmax_tests)
+diff --git a/src/render/RenderThread.cpp b/src/render/RenderThread.cpp
+new file mode 100644
+index 0000000..3651b1e
+--- /dev/null
++++ b/src/render/RenderThread.cpp
+@@ -0,0 +1,47 @@
++#include "render/RenderThread.h"
++#include <chrono>
++
++RenderThread::RenderThread() : m_running(false) {}
++
++RenderThread::~RenderThread() {
++  requestStopAndJoin();
++}
++
++void RenderThread::start() {
++  if (m_thread.joinable()) {
++    return;
++  }
++  m_running.store(true);
++  m_thread = std::thread(&RenderThread::threadMain, this);
++}
++
++void RenderThread::requestStopAndJoin() {
++  if (!m_thread.joinable()) {
++    return;
++  }
++  RenderCommand stop;
++  stop.type = CmdStop;
++  stop.hwnd = 0;
++  stop.width = 0;
++  stop.height = 0;
++  m_commands.push(stop);
++  m_thread.join();
++  m_running.store(false);
++}
++
++void RenderThread::threadMain() {
++  for (;;) {
++    RenderCommand cmd;
++    bool stop = false;
++    while (m_commands.tryPop(&cmd)) {
++      if (cmd.type == CmdStop) {
++        stop = true;
++      }
++    }
++    if (stop) {
++      break;
++    }
++    (void)m_snapshots.consume();
++    std::this_thread::sleep_for(std::chrono::milliseconds(1));
++  }
++}
+diff --git a/src/render/RenderThread.h b/src/render/RenderThread.h
+new file mode 100644
+index 0000000..2138cbd
+--- /dev/null
++++ b/src/render/RenderThread.h
+@@ -0,0 +1,24 @@
++#pragma once
++#include "core/SnapshotBuffer.h"
++#include "render/CommandQueue.h"
++#include "render/FeedbackQueue.h"
++#include <atomic>
++#include <thread>
++
++class RenderThread {
++public:
++  RenderThread();
++  ~RenderThread();
++  void start();
++  void requestStopAndJoin();
++  CommandQueue& commands() { return m_commands; }
++  FeedbackQueue& feedback() { return m_feedback; }
++  SnapshotBuffer& snapshots() { return m_snapshots; }
++private:
++  void threadMain();
++  CommandQueue m_commands;
++  FeedbackQueue m_feedback;
++  SnapshotBuffer m_snapshots;
++  std::thread m_thread;
++  std::atomic<bool> m_running;
++};
+diff --git a/tests/test_main.cpp b/tests/test_main.cpp
+index dd66467..ffd78c7 100644
+--- a/tests/test_main.cpp
++++ b/tests/test_main.cpp
+@@ -1,17 +1,19 @@
+ #include "test_harness.h"
+ 
+ void runQueueTests();
++void runRenderThreadTests();
+ 
+ int& testFailureCount() {
+   static int n = 0;
+   return n;
+ }
+ 
+ int main() {
+   TEST_CHECK(1 == 1);
+   runQueueTests();
++  runRenderThreadTests();
+   if (testFailureCount() != 0) {
+     return 1;
+   }
+   return 0;
+ }
+diff --git a/tests/test_queues.cpp b/tests/test_queues.cpp
+index 0c7c1aa..b98501c 100644
+--- a/tests/test_queues.cpp
++++ b/tests/test_queues.cpp
+@@ -1,14 +1,17 @@
+ #include "test_harness.h"
+ #include "render/CommandQueue.h"
+ #include "render/FeedbackQueue.h"
++#include "render/RenderThread.h"
+ #include "core/SnapshotBuffer.h"
++#include <chrono>
++#include <thread>
+ 
+ void runQueueTests() {
+   CommandQueue cq;
+   RenderCommand c;
+   TEST_CHECK(cq.tryPop(&c) == false);
+   RenderCommand in;
+   in.type = CmdStop;
+   in.hwnd = 0;
+   in.width = 0;
+   in.height = 0;
+@@ -30,10 +33,23 @@ void runQueueTests() {
+ 
+   SnapshotBuffer buf;
+   StateSnapshot a = stateSnapshotDefault();
+   a.teaching.camDistance = 9.f;
+   a.viewportW = 640;
+   buf.publish(a);
+   StateSnapshot b = buf.consume();
+   TEST_CHECK(b.teaching.camDistance == 9.f);
+   TEST_CHECK(b.viewportW == 640);
+ }
++
++void runRenderThreadTests() {
++  RenderThread rt;
++  rt.start();
++  RenderCommand stop;
++  stop.type = CmdStop;
++  stop.hwnd = 0;
++  stop.width = 0;
++  stop.height = 0;
++  rt.commands().push(stop);
++  rt.requestStopAndJoin();
++  TEST_CHECK(true);
++}

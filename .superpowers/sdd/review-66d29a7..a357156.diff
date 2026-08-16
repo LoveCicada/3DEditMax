@@ -1,0 +1,35 @@
+﻿# Review package: 66d29a71485b4ba4dad5610753c52e30153e3797..a3571569914c9c5d0942cadb90939a3c34b7d411
+
+## Commits
+a357156 Align README with the finished lab-shell build.
+
+## Files changed
+ README.md | 8 ++++++--  1 file changed, 6 insertions(+), 2 deletions(-)
+
+## Diff
+
+diff --git a/README.md b/README.md
+index bf8ac5c..b117387 100644
+--- a/README.md
++++ b/README.md
+@@ -1,19 +1,23 @@
+ # 3DEditMax
+ 
+ C++11 / Qt 5.15.2 / Direct3D 11 瀹為獙鍙帮細鐢ㄧ湡瀹?DX11 瑙嗗彛瀛︿範 World / View / Projection 鐭╅樀锛屽苟閫愭瑙傚療 Device銆丼hader銆丆onstant Buffer 涓庡厜鏍呯姸鎬併€? 
+ 绗竴鏈熶笉鍋?3ds Max 寮忕紪杈戝櫒銆傝璁¤ [`docs/superpowers/specs/2026-08-16-dx11-lab-teach-design.md`](docs/superpowers/specs/2026-08-16-dx11-lab-teach-design.md)锛屽疄鐜拌鍒掕 [`docs/superpowers/plans/2026-08-16-dx11-lab-teach.md`](docs/superpowers/plans/2026-08-16-dx11-lab-teach.md)锛岀晫闈㈢ず鎰忓浘瑙?[`docs/ui/`](docs/ui/)銆? 
+ ## 鏋勫缓锛堝疄鐜伴樁娈碉級
+ 
+-Windows + MSVC锛岄渶璁剧疆 `QT_DIR` 鎸囧悜 Qt 5.15.2 kit锛堜緥濡?`D:\soft\qt5152\5.15.2\msvc2019_64`锛夈€?+Windows + MSVC x64銆傚厛 `call vcvars64.bat`锛堥粯璁?shell 鐨?Clang 閾句笉涓婅繖濂?Qt锛夛紝鍐嶈 `QT_DIR` 鎸囧悜 Qt 5.15.2 kit锛堝惈 `lib\cmake\Qt5`锛夈€? 
+ ```bat
++call D:\soft\vs2022\ide\VC\Auxiliary\Build\vcvars64.bat
+ set QT_DIR=D:\soft\qt5152\5.15.2\msvc2019_64
+-cmake -S . -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release
++cmake -S . -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Debug
+ cmake --build build
++ctest --test-dir build --output-on-failure
+ ```
+ 
++杩愯 `build\3DEditMax.exe` 鏃舵妸 `%QT_DIR%\bin` 鍔犲叆 `PATH`銆?+
+ ## 璁稿彲
+ 
+ 绉佷汉瀛︿範椤圭洰銆?
