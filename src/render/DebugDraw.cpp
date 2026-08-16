@@ -76,7 +76,8 @@ void DebugDraw::create(ID3D11Device* device, const std::wstring& shaderDir) {
   rd.FillMode = D3D11_FILL_SOLID;
   rd.CullMode = D3D11_CULL_NONE;
   rd.DepthClipEnable = TRUE;
-  rd.DepthBias = 100000;
+  // Negative bias pulls debug lines slightly toward the camera under LESS depth.
+  rd.DepthBias = -100000;
   rd.DepthBiasClamp = 0.f;
   rd.SlopeScaledDepthBias = -1.f;
   if (FAILED(device->CreateRasterizerState(&rd, &m_raster))) {
