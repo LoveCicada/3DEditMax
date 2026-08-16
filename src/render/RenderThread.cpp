@@ -46,19 +46,24 @@ void RenderThread::threadMain() {
   for (;;) {
     RenderCommand cmd;
     bool stop = false;
+#ifndef D3DEDITMAX_NO_D3D
+    bool allowPresent = true;
+#endif
     while (m_commands.tryPop(&cmd)) {
       if (cmd.type == CmdInit) {
         m_hwnd = cmd.hwnd;
         m_w = cmd.width;
         m_h = cmd.height;
 #ifndef D3DEDITMAX_NO_D3D
-        m_renderer.initialize(cmd.hwnd, cmd.width, cmd.height, true, &m_feedback);
+        allowPresent = m_renderer.initialize(cmd.hwnd, cmd.width, cmd.height, true, &m_feedback);
 #endif
       } else if (cmd.type == CmdResize) {
         m_w = cmd.width;
         m_h = cmd.height;
 #ifndef D3DEDITMAX_NO_D3D
-        m_renderer.resize(cmd.width, cmd.height);
+        if (!m_renderer.resize(cmd.width, cmd.height)) {
+          allowPresent = false;
+        }
 #endif
       } else if (cmd.type == CmdReloadShader) {
 #ifndef D3DEDITMAX_NO_D3D
@@ -75,7 +80,7 @@ void RenderThread::threadMain() {
       break;
     }
 #ifndef D3DEDITMAX_NO_D3D
-    if (m_renderer.initialized() && !m_renderer.dead()) {
+    if (allowPresent && m_renderer.initialized() && !m_renderer.dead() && m_renderer.viewsValid()) {
       const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
       m_renderer.render(m_snapshots.consume());
       const std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();

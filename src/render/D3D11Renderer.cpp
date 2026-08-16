@@ -238,13 +238,28 @@ bool D3D11Renderer::resize(int w, int h) {
       DXGI_FORMAT_R8G8B8A8_UNORM,
       0);
   if (FAILED(hr)) {
+    if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) {
+      handlePresentResult(hr);
+      return m_initialized && !m_dead && m_rtv && m_dsv;
+    }
+    pushFb(m_fb, FbError, "ResizeBuffers failed");
     return false;
   }
-  return createSizeDependentResources();
+  if (!createSizeDependentResources()) {
+    m_rtv.Reset();
+    m_dsv.Reset();
+    m_depth.Reset();
+    pushFb(m_fb, FbError, "Create RTV/DSV failed");
+    return false;
+  }
+  return true;
 }
 
 void D3D11Renderer::render(const StateSnapshot& snap) {
   if (m_dead || !m_initialized || !m_context || !m_swap) {
+    return;
+  }
+  if (!m_rtv || !m_dsv) {
     return;
   }
   if (m_w <= 0 || m_h <= 0) {

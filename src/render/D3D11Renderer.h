@@ -18,6 +18,7 @@ public:
   bool reloadShaders(FeedbackQueue* fb);
   bool dead() const { return m_dead; }
   bool initialized() const { return m_initialized; }
+  bool viewsValid() const { return m_rtv && m_dsv; }
 private:
   bool createSizeDependentResources();
   void handlePresentResult(HRESULT hr);
