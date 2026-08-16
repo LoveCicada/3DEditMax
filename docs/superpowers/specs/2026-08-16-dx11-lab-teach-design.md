@@ -1,7 +1,8 @@
 # 3DEditMax 第一期设计：DX11 实验台与矩阵教学
 
 日期：2026-08-16  
-状态：待审阅  
+状态：待审阅（实现计划已写好，请先看本 spec，再决定是否按计划开工）  
+实现计划：[`docs/superpowers/plans/2026-08-16-dx11-lab-teach.md`](../plans/2026-08-16-dx11-lab-teach.md)  
 相邻参考：`E:\code\private\DX11-Study`（网页教学能力）、`E:\code\private\ProRes`（Qt HWND + D3D11 嵌入，仅窗口边界）
 
 ## 1. 目标与非目标
