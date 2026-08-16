@@ -52,6 +52,6 @@ flowchart TB
 
 ## 交互原则
 
-- 视口吃鼠标：左键轨道旋转相机，中键平移，滚轮距离（写入 `TeachingState`，渲染线程只读快照）。
+- 视口吃鼠标：左键轨道旋转相机，右键平移（绕 `camTarget`），滚轮推拉距离（写入 `TeachingState`，渲染线程只读快照）。详见实现计划 [`docs/superpowers/plans/2026-08-16-viewport-pan-layout.md`](../superpowers/plans/2026-08-16-viewport-pan-layout.md)。
 - 面板滑条与视口操作写同一份状态，避免两套相机。
 - 渲染线程不创建、不调用 `QWidget`。
