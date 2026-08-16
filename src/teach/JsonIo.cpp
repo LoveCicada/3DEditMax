@@ -334,6 +334,8 @@ bool teachingToJson(const TeachingState& s, std::string* out) {
   appendNum(&o, s.camPitchDeg);
   o += ",\n  \"camYawDeg\":";
   appendNum(&o, s.camYawDeg);
+  o += ",\n  \"camTarget\":";
+  appendVec3(&o, s.camTarget);
   o += ",\n  \"proj\":";
   appendInt(&o, static_cast<int>(s.proj));
   o += ",\n  \"fovDeg\":";
@@ -407,6 +409,10 @@ bool teachingFromJson(const std::string& in, TeachingState* out) {
         return false;
       }
       seen |= F_camYawDeg;
+    } else if (key == "camTarget") {
+      if (!pr.parseVec3(tmp.camTarget)) {
+        return false;
+      }
     } else if (key == "proj") {
       int v = 0;
       if (!pr.parseInt(&v)) {

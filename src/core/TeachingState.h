@@ -1,4 +1,12 @@
 #pragma once
+#include <cmath>
+
+#ifdef near
+#undef near
+#endif
+#ifdef far
+#undef far
+#endif
 
 enum MeshId {
   MeshCube = 0,
@@ -43,6 +51,7 @@ struct TeachingState {
   float camDistance;
   float camPitchDeg;
   float camYawDeg;
+  float camTarget[3];
   ProjMode proj;
   float fovDeg;
   float aspect;
@@ -79,6 +88,47 @@ inline void applyOrbitDrag(TeachingState* t, float dx, float dy) {
   }
 }
 
+inline void applyPanDrag(TeachingState* t, float dx, float dy, float viewportW,
+                         float viewportH) {
+  const float denom =
+      (viewportH > 1.f) ? viewportH : ((viewportW > 1.f) ? viewportW : 1.f);
+  const float scale = t->camDistance / denom;
+  const float kDeg = 3.14159265f / 180.f;
+  const float pitch = t->camPitchDeg * kDeg;
+  const float yaw = t->camYawDeg * kDeg;
+  const float cp = cosf(pitch);
+  const float sp = sinf(pitch);
+  const float sy = sinf(yaw);
+  const float cy = cosf(yaw);
+  const float fx = -sy * cp;
+  const float fy = -sp;
+  const float fz = -cy * cp;
+  float rx = fz;
+  float ry = 0.f;
+  float rz = -fx;
+  float rlen = sqrtf(rx * rx + ry * ry + rz * rz);
+  if (rlen < 1e-8f) {
+    rx = cy;
+    ry = 0.f;
+    rz = -sy;
+    rlen = sqrtf(rx * rx + rz * rz);
+    if (rlen < 1e-8f) {
+      rlen = 1.f;
+    }
+  }
+  rx /= rlen;
+  ry /= rlen;
+  rz /= rlen;
+  const float ux = fy * rz - fz * ry;
+  const float uy = fz * rx - fx * rz;
+  const float uz = fx * ry - fy * rx;
+  const float moveR = dx * scale;
+  const float moveU = -dy * scale;
+  t->camTarget[0] += rx * moveR + ux * moveU;
+  t->camTarget[1] += ry * moveR + uy * moveU;
+  t->camTarget[2] += rz * moveR + uz * moveU;
+}
+
 inline void applyDollyWheel(TeachingState* t, int delta) {
   t->camDistance *= (delta > 0 ? 0.9f : 1.1f);
   if (t->camDistance < 0.5f) {
@@ -101,6 +151,9 @@ inline TeachingState teachingStateDefault() {
   s.camDistance = 5.f;
   s.camPitchDeg = 20.f;
   s.camYawDeg = 45.f;
+  s.camTarget[0] = 0.f;
+  s.camTarget[1] = 0.f;
+  s.camTarget[2] = 0.f;
   s.proj = ProjPerspective;
   s.fovDeg = 60.f;
   s.aspect = 16.f / 9.f;

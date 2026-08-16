@@ -79,6 +79,51 @@ void runTransformTests() {
   applyDollyWheel(&cam, -1);
   TEST_CHECK(near4(cam.camDistance, 50.f));
 
+  /* Task 2: camera target + screen-space pan */
+  TeachingState defCam = teachingStateDefault();
+  TEST_CHECK(near4(defCam.camTarget[0], 0.f) && near4(defCam.camTarget[1], 0.f) &&
+             near4(defCam.camTarget[2], 0.f));
+
+  const float originT[3] = {0.f, 0.f, 0.f};
+  const float pitch20 = DirectX::XMConvertToRadians(20.f);
+  const float yaw45 = DirectX::XMConvertToRadians(45.f);
+  DirectX::XMMATRIX Vorg = BuildView(5.f, 20.f, 45.f, originT);
+  DirectX::XMVECTOR eyeOrg = DirectX::XMVectorSet(
+      5.f * sinf(yaw45) * cosf(pitch20),
+      5.f * sinf(pitch20),
+      5.f * cosf(yaw45) * cosf(pitch20),
+      1.f);
+  DirectX::XMMATRIX Vexp = DirectX::XMMatrixLookAtLH(
+      eyeOrg, DirectX::XMVectorZero(), DirectX::XMVectorSet(0.f, 1.f, 0.f, 0.f));
+  DirectX::XMFLOAT4X4 gotV;
+  DirectX::XMFLOAT4X4 expV;
+  DirectX::XMStoreFloat4x4(&gotV, Vorg);
+  DirectX::XMStoreFloat4x4(&expV, Vexp);
+  TEST_CHECK(near4(gotV._11, expV._11) && near4(gotV._22, expV._22) &&
+             near4(gotV._33, expV._33) && near4(gotV._41, expV._41) &&
+             near4(gotV._42, expV._42) && near4(gotV._43, expV._43));
+
+  const float tgt[3] = {1.f, 2.f, 3.f};
+  DirectX::XMMATRIX Vt = BuildView(5.f, 0.f, 0.f, tgt);
+  DirectX::XMVECTOR at = DirectX::XMVectorSet(1.f, 2.f, 3.f, 1.f);
+  DirectX::XMVECTOR viewAt = DirectX::XMVector4Transform(at, Vt);
+  TEST_CHECK(near4(DirectX::XMVectorGetX(viewAt), 0.f));
+  TEST_CHECK(near4(DirectX::XMVectorGetY(viewAt), 0.f));
+  TEST_CHECK(near4(DirectX::XMVectorGetZ(viewAt), 5.f));
+
+  TeachingState pan = teachingStateDefault();
+  pan.camPitchDeg = 0.f;
+  pan.camYawDeg = 0.f;
+  pan.camDistance = 10.f;
+  applyPanDrag(&pan, 100.f, 0.f, 200.f, 200.f);
+  TEST_CHECK(near4(pan.camTarget[0], -5.f));
+  TEST_CHECK(near4(pan.camTarget[1], 0.f));
+  TEST_CHECK(near4(pan.camTarget[2], 0.f));
+  applyPanDrag(&pan, 0.f, 40.f, 200.f, 200.f);
+  TEST_CHECK(near4(pan.camTarget[0], -5.f));
+  TEST_CHECK(near4(pan.camTarget[1], -2.f));
+  TEST_CHECK(near4(pan.camTarget[2], 0.f));
+
   /* Task 11: CPU mesh builders */
   TEST_CHECK(cubeVertexCount() > 0);
   std::vector<MeshVertex> cubeV;

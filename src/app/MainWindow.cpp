@@ -284,7 +284,7 @@ void MainWindow::refreshBoard() {
              static_cast<float>(m_viewport->height());
   }
   const XMMATRIX W = BuildWorld(t.objects[0].trs);
-  const XMMATRIX V = BuildView(t.camDistance, t.camPitchDeg, t.camYawDeg);
+  const XMMATRIX V = BuildView(t.camDistance, t.camPitchDeg, t.camYawDeg, t.camTarget);
   const XMMATRIX P = BuildProjection(t, aspect);
   const XMMATRIX WVP = W * V * P;
   XMFLOAT4X4 w;
@@ -325,7 +325,7 @@ void MainWindow::refreshTracker() {
              static_cast<float>(m_viewport->height());
   }
   const XMMATRIX W = BuildWorld(t.objects[0].trs);
-  const XMMATRIX V = BuildView(t.camDistance, t.camPitchDeg, t.camYawDeg);
+  const XMMATRIX V = BuildView(t.camDistance, t.camPitchDeg, t.camYawDeg, t.camTarget);
   const XMMATRIX P = BuildProjection(t, aspect);
   const XMFLOAT3 model(t.trackModel[0], t.trackModel[1], t.trackModel[2]);
   m_tracker->setTrackResult(TrackPoint(model, W, V, P));

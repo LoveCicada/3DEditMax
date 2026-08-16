@@ -38,6 +38,9 @@ private:
   QDoubleSpinBox* m_camDistance;
   QDoubleSpinBox* m_camPitch;
   QDoubleSpinBox* m_camYaw;
+  QDoubleSpinBox* m_camTargetX;
+  QDoubleSpinBox* m_camTargetY;
+  QDoubleSpinBox* m_camTargetZ;
   QComboBox* m_proj;
   QDoubleSpinBox* m_fov;
   QDoubleSpinBox* m_nearZ;

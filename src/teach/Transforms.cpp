@@ -12,15 +12,17 @@ XMMATRIX BuildWorld(const TransformTRS& trs) {
   return s * r * t;
 }
 
-XMMATRIX BuildView(float distance, float pitchDeg, float yawDeg) {
+XMMATRIX BuildView(float distance, float pitchDeg, float yawDeg,
+                   const float target[3]) {
   const float pitch = XMConvertToRadians(pitchDeg);
   const float yaw = XMConvertToRadians(yawDeg);
-  const XMVECTOR eye = XMVectorSet(
+  const XMVECTOR at = XMVectorSet(target[0], target[1], target[2], 1.f);
+  const XMVECTOR offset = XMVectorSet(
       distance * sinf(yaw) * cosf(pitch),
       distance * sinf(pitch),
       distance * cosf(yaw) * cosf(pitch),
-      1.f);
-  const XMVECTOR at = XMVectorZero();
+      0.f);
+  const XMVECTOR eye = XMVectorAdd(at, offset);
   const XMVECTOR up = XMVectorSet(0.f, 1.f, 0.f, 0.f);
   return XMMatrixLookAtLH(eye, at, up);
 }

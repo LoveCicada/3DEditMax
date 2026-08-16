@@ -4,7 +4,8 @@
 #include <cmath>
 
 DirectX::XMMATRIX BuildWorld(const TransformTRS& trs);
-DirectX::XMMATRIX BuildView(float distance, float pitchDeg, float yawDeg);
+DirectX::XMMATRIX BuildView(float distance, float pitchDeg, float yawDeg,
+                            const float target[3]);
 DirectX::XMMATRIX BuildProjection(const TeachingState& s, float aspect);
 
 struct TrackResult {

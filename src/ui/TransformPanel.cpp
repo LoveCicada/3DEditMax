@@ -23,6 +23,9 @@ TransformPanel::TransformPanel(QWidget* parent)
     , m_camDistance(0)
     , m_camPitch(0)
     , m_camYaw(0)
+    , m_camTargetX(0)
+    , m_camTargetY(0)
+    , m_camTargetZ(0)
     , m_proj(0)
     , m_fov(0)
     , m_nearZ(0)
@@ -58,9 +61,15 @@ TransformPanel::TransformPanel(QWidget* parent)
   m_camDistance = makeSpin(0.5, 50.0, 0.1, 1);
   m_camPitch = makeSpin(-89.0, 89.0, 1.0, 0);
   m_camYaw = makeSpin(-180.0, 180.0, 1.0, 0);
+  m_camTargetX = makeSpin(-200.0, 200.0, 0.1, 1);
+  m_camTargetY = makeSpin(-200.0, 200.0, 0.1, 1);
+  m_camTargetZ = makeSpin(-200.0, 200.0, 0.1, 1);
   viewForm->addRow(QString::fromUtf8("Distance"), m_camDistance);
   viewForm->addRow(QString::fromUtf8("Pitch"), m_camPitch);
   viewForm->addRow(QString::fromUtf8("Yaw"), m_camYaw);
+  viewForm->addRow(QString::fromUtf8("Target X"), m_camTargetX);
+  viewForm->addRow(QString::fromUtf8("Target Y"), m_camTargetY);
+  viewForm->addRow(QString::fromUtf8("Target Z"), m_camTargetZ);
   QHBoxLayout* presets = new QHBoxLayout();
   QPushButton* front = new QPushButton(QString::fromUtf8("Front"), view);
   QPushButton* side = new QPushButton(QString::fromUtf8("Side"), view);
@@ -133,6 +142,9 @@ TeachingState TransformPanel::state() const {
   s.camDistance = static_cast<float>(m_camDistance->value());
   s.camPitchDeg = static_cast<float>(m_camPitch->value());
   s.camYawDeg = static_cast<float>(m_camYaw->value());
+  s.camTarget[0] = static_cast<float>(m_camTargetX->value());
+  s.camTarget[1] = static_cast<float>(m_camTargetY->value());
+  s.camTarget[2] = static_cast<float>(m_camTargetZ->value());
   s.proj = (m_proj->currentIndex() == 1) ? ProjOrtho : ProjPerspective;
   s.fovDeg = static_cast<float>(m_fov->value());
   s.nearZ = static_cast<float>(m_nearZ->value());
@@ -188,6 +200,9 @@ void TransformPanel::loadWidgets(const TeachingState& s) {
   m_camDistance->setValue(s.camDistance);
   m_camPitch->setValue(s.camPitchDeg);
   m_camYaw->setValue(s.camYawDeg);
+  m_camTargetX->setValue(s.camTarget[0]);
+  m_camTargetY->setValue(s.camTarget[1]);
+  m_camTargetZ->setValue(s.camTarget[2]);
   m_proj->setCurrentIndex(s.proj == ProjOrtho ? 1 : 0);
   m_fov->setValue(s.fovDeg);
   m_nearZ->setValue(s.nearZ);

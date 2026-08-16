@@ -19,7 +19,8 @@ Dx11ViewportWidget::Dx11ViewportWidget(QWidget* parent)
     , m_lab(labStateDefault())
     , m_lastMouse(0, 0)
     , m_axisLegend(0)
-    , m_orbiting(false) {
+    , m_orbiting(false)
+    , m_panning(false) {
   setAttribute(Qt::WA_NativeWindow, true);
   setAttribute(Qt::WA_DontCreateNativeAncestors, true);
   setAttribute(Qt::WA_OpaquePaintEvent, true);
@@ -28,6 +29,7 @@ Dx11ViewportWidget::Dx11ViewportWidget(QWidget* parent)
   setMinimumSize(320, 180);
   setMouseTracking(true);
   setFocusPolicy(Qt::StrongFocus);
+  setContextMenuPolicy(Qt::NoContextMenu);
   buildAxisLegend();
 }
 
@@ -97,9 +99,14 @@ void Dx11ViewportWidget::paintEvent(QPaintEvent*) {
 }
 
 void Dx11ViewportWidget::mousePressEvent(QMouseEvent* e) {
-  if (e->button() == Qt::LeftButton) {
+  if (e->button() == Qt::LeftButton && !m_panning) {
     m_lastMouse = e->pos();
     m_orbiting = true;
+    grabMouse();
+    setFocus(Qt::MouseFocusReason);
+  } else if (e->button() == Qt::RightButton && !m_orbiting) {
+    m_lastMouse = e->pos();
+    m_panning = true;
     grabMouse();
     setFocus(Qt::MouseFocusReason);
   }
@@ -112,17 +119,27 @@ void Dx11ViewportWidget::mouseReleaseEvent(QMouseEvent* e) {
     releaseMouse();
     publishState(m_teaching, m_lab);
     emit teachingEdited(m_teaching);
+  } else if (e->button() == Qt::RightButton && m_panning) {
+    m_panning = false;
+    releaseMouse();
+    publishState(m_teaching, m_lab);
+    emit teachingEdited(m_teaching);
   }
   QWidget::mouseReleaseEvent(e);
 }
 
 void Dx11ViewportWidget::mouseMoveEvent(QMouseEvent* e) {
-  if (e->buttons() & Qt::LeftButton) {
-    const QPoint p = e->pos();
-    const float dx = static_cast<float>(p.x() - m_lastMouse.x());
-    const float dy = static_cast<float>(p.y() - m_lastMouse.y());
+  const QPoint p = e->pos();
+  const float dx = static_cast<float>(p.x() - m_lastMouse.x());
+  const float dy = static_cast<float>(p.y() - m_lastMouse.y());
+  if (m_orbiting && (e->buttons() & Qt::LeftButton)) {
     m_lastMouse = p;
     applyOrbitDrag(&m_teaching, dx, dy);
+    commitTeaching();
+  } else if (m_panning && (e->buttons() & Qt::RightButton)) {
+    m_lastMouse = p;
+    applyPanDrag(&m_teaching, dx, dy, static_cast<float>(width()),
+                 static_cast<float>(height()));
     commitTeaching();
   }
   QWidget::mouseMoveEvent(e);
@@ -165,7 +182,7 @@ void Dx11ViewportWidget::stopRenderer() {
 
 void Dx11ViewportWidget::commitTeaching() {
   publishState(m_teaching, m_lab);
-  if (!m_orbiting) {
+  if (!m_orbiting && !m_panning) {
     emit teachingEdited(m_teaching);
   }
 }

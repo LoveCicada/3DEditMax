@@ -41,4 +41,5 @@ private:
   QPoint m_lastMouse;
   QFrame* m_axisLegend;
   bool m_orbiting;
+  bool m_panning;
 };

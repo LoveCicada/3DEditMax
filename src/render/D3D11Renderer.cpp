@@ -455,7 +455,7 @@ void D3D11Renderer::render(const StateSnapshot& snap) {
   const float aspect = t.aspectFollowViewport
       ? (static_cast<float>(m_w) / static_cast<float>(m_h))
       : t.aspect;
-  const XMMATRIX V = BuildView(t.camDistance, t.camPitchDeg, t.camYawDeg);
+  const XMMATRIX V = BuildView(t.camDistance, t.camPitchDeg, t.camYawDeg, t.camTarget);
   const XMMATRIX P = BuildProjection(t, aspect);
   const int count = (t.layout == LayoutThree) ? 3 : 1;
   const float shadeX = labShadeModeX(snap.lab.shaderVariant, static_cast<int>(t.shading));
