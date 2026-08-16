@@ -51,15 +51,15 @@ TransformPanel::TransformPanel(QWidget* parent)
   QGroupBox* world = new QGroupBox(QString::fromUtf8("World"), this);
   world->setObjectName(QString::fromUtf8("sectionWorld"));
   QFormLayout* worldForm = new QFormLayout(world);
-  m_posX = makeSpin(-50.0, 50.0, 0.1, 1);
-  m_posY = makeSpin(-50.0, 50.0, 0.1, 1);
-  m_posZ = makeSpin(-50.0, 50.0, 0.1, 1);
-  m_pitch = makeSpin(-180.0, 180.0, 1.0, 0);
-  m_yaw = makeSpin(-180.0, 180.0, 1.0, 0);
-  m_roll = makeSpin(-180.0, 180.0, 1.0, 0);
-  m_scaleX = makeSpin(0.01, 10.0, 0.01, 2);
-  m_scaleY = makeSpin(0.01, 10.0, 0.01, 2);
-  m_scaleZ = makeSpin(0.01, 10.0, 0.01, 2);
+  m_posX = makeSpin(world, -50.0, 50.0, 0.1, 1);
+  m_posY = makeSpin(world, -50.0, 50.0, 0.1, 1);
+  m_posZ = makeSpin(world, -50.0, 50.0, 0.1, 1);
+  m_pitch = makeSpin(world, -180.0, 180.0, 1.0, 0);
+  m_yaw = makeSpin(world, -180.0, 180.0, 1.0, 0);
+  m_roll = makeSpin(world, -180.0, 180.0, 1.0, 0);
+  m_scaleX = makeSpin(world, 0.01, 10.0, 0.01, 2);
+  m_scaleY = makeSpin(world, 0.01, 10.0, 0.01, 2);
+  m_scaleZ = makeSpin(world, 0.01, 10.0, 0.01, 2);
   worldForm->addRow(QString::fromUtf8("Pos X"), m_posX);
   worldForm->addRow(QString::fromUtf8("Pos Y"), m_posY);
   worldForm->addRow(QString::fromUtf8("Pos Z"), m_posZ);
@@ -75,12 +75,12 @@ TransformPanel::TransformPanel(QWidget* parent)
   QGroupBox* view = new QGroupBox(QString::fromUtf8("View"), this);
   view->setObjectName(QString::fromUtf8("sectionView"));
   QFormLayout* viewForm = new QFormLayout(view);
-  m_camDistance = makeSpin(0.5, 50.0, 0.1, 1);
-  m_camPitch = makeSpin(-89.0, 89.0, 1.0, 0);
-  m_camYaw = makeSpin(-180.0, 180.0, 1.0, 0);
-  m_camTargetX = makeSpin(-200.0, 200.0, 0.1, 1);
-  m_camTargetY = makeSpin(-200.0, 200.0, 0.1, 1);
-  m_camTargetZ = makeSpin(-200.0, 200.0, 0.1, 1);
+  m_camDistance = makeSpin(view, 0.5, 50.0, 0.1, 1);
+  m_camPitch = makeSpin(view, -89.0, 89.0, 1.0, 0);
+  m_camYaw = makeSpin(view, -180.0, 180.0, 1.0, 0);
+  m_camTargetX = makeSpin(view, -200.0, 200.0, 0.1, 1);
+  m_camTargetY = makeSpin(view, -200.0, 200.0, 0.1, 1);
+  m_camTargetZ = makeSpin(view, -200.0, 200.0, 0.1, 1);
   viewForm->addRow(QString::fromUtf8("Distance"), m_camDistance);
   viewForm->addRow(QString::fromUtf8("Pitch"), m_camPitch);
   viewForm->addRow(QString::fromUtf8("Yaw"), m_camYaw);
@@ -106,9 +106,9 @@ TransformPanel::TransformPanel(QWidget* parent)
   m_proj = new QComboBox(proj);
   m_proj->addItem(QString::fromUtf8("Perspective"));
   m_proj->addItem(QString::fromUtf8("Ortho"));
-  m_fov = makeSpin(10.0, 120.0, 1.0, 0);
-  m_nearZ = makeSpin(0.01, 10.0, 0.01, 2);
-  m_farZ = makeSpin(1.0, 1000.0, 1.0, 1);
+  m_fov = makeSpin(proj, 10.0, 120.0, 1.0, 0);
+  m_nearZ = makeSpin(proj, 0.01, 10.0, 0.01, 2);
+  m_farZ = makeSpin(proj, 1.0, 1000.0, 1.0, 1);
   projForm->addRow(QString::fromUtf8("Mode"), m_proj);
   projForm->addRow(QString::fromUtf8("FOV"), m_fov);
   projForm->addRow(QString::fromUtf8("Near"), m_nearZ);
@@ -129,8 +129,8 @@ TransformPanel::TransformPanel(QWidget* parent)
   m_block = false;
 }
 
-QDoubleSpinBox* TransformPanel::makeSpin(double minv, double maxv, double step, int decimals) {
-  QDoubleSpinBox* s = new QDoubleSpinBox(this);
+QDoubleSpinBox* TransformPanel::makeSpin(QWidget* parent, double minv, double maxv, double step, int decimals) {
+  QDoubleSpinBox* s = new QDoubleSpinBox(parent);
   s->setRange(minv, maxv);
   s->setSingleStep(step);
   s->setDecimals(decimals);

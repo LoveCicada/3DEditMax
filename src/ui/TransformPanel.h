@@ -20,7 +20,7 @@ private slots:
   void onPresetTop();
   void onPresetIso();
 private:
-  QDoubleSpinBox* makeSpin(double minv, double maxv, double step, int decimals);
+  QDoubleSpinBox* makeSpin(QWidget* parent, double minv, double maxv, double step, int decimals);
   void applyViewPreset(double pitch, double yaw);
   void loadWidgets(const TeachingState& s);
 
