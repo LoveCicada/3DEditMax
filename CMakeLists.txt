@@ -42,6 +42,9 @@ add_executable(3DEditMax
 
 target_include_directories(3DEditMax PRIVATE "${CMAKE_SOURCE_DIR}/src")
 target_link_libraries(3DEditMax PRIVATE Qt5::Widgets d3d11 dxgi d3dcompiler)
+if(MSVC)
+  target_compile_options(3DEditMax PRIVATE /utf-8)
+endif()
 
 add_custom_command(TARGET 3DEditMax POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_directory

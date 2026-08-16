@@ -290,10 +290,10 @@ void D3D11Renderer::render(const StateSnapshot& snap) {
   const XMMATRIX WVP = W * V * P;
 
   FrameCBCpu cb;
-  XMStoreFloat4x4(&cb.w, W);
-  XMStoreFloat4x4(&cb.v, V);
-  XMStoreFloat4x4(&cb.p, P);
-  XMStoreFloat4x4(&cb.wvp, WVP);
+  XMStoreFloat4x4(&cb.w, XMMatrixTranspose(W));
+  XMStoreFloat4x4(&cb.v, XMMatrixTranspose(V));
+  XMStoreFloat4x4(&cb.p, XMMatrixTranspose(P));
+  XMStoreFloat4x4(&cb.wvp, XMMatrixTranspose(WVP));
 
   D3D11_MAPPED_SUBRESOURCE mapped = {};
   if (SUCCEEDED(m_context->Map(m_cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {

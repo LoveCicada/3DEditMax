@@ -25,7 +25,7 @@ MainWindow::MainWindow(QWidget* parent)
   dock->setWidget(m_log);
   addDockWidget(Qt::RightDockWidgetArea, dock);
 
-  QMenu* viewMenu = menuBar()->addMenu(QString::fromUtf8("视图"));
+  QMenu* viewMenu = menuBar()->addMenu(QString::fromUtf8("\xE8\xA7\x86\xE5\x9B\xBE"));
   viewMenu->addAction(dock->toggleViewAction());
 
   m_poll = new QTimer(this);
