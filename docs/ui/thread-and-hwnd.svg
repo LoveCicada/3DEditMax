@@ -7,8 +7,8 @@
       .bg { fill: #1c1f24; }
       .box { fill: #24282f; stroke: #3d4450; stroke-width: 1.2; }
       .head { fill: #323843; }
-      .text { fill: #e8e4dc; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; }
-      .muted { fill: #9aa3ad; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; }
+      .text { fill: #e8e4dc; font-family: Segoe UI, Microsoft YaHei, sans-serif; }
+      .muted { fill: #9aa3ad; font-family: Segoe UI, Microsoft YaHei, sans-serif; }
       .accent { fill: #c4a35a; }
       .arrow { stroke: #c4a35a; stroke-width: 1.6; fill: none; marker-end: url(#ah); }
     </style>
@@ -17,42 +17,41 @@
     </marker>
   </defs>
   <rect class="bg" width="1100" height="520"/>
-  <text class="text" x="32" y="40" font-size="18">ø HWND Le</text>
-  <text class="muted" x="32" y="64" font-size="13">( ProRes Ñó„πLQt ˙ HWNDD3D Ï`¢7:H∞90ÏÀ std::thread</text>
+  <text class="text" x="32" y="40" font-size="18">Threads and HWND embedding</text>
+  <text class="muted" x="32" y="64" font-size="13">Same HWND boundary as ProRes: Qt provides HWND, D3D owns the client area; present runs on std::thread.</text>
 
   <rect class="box" x="32" y="88" width="500" height="392" rx="4"/>
   <rect class="head" x="32" y="88" width="500" height="32"/>
-  <text class="text" x="48" y="110" font-size="14">UI øQt	</text>
-  <text class="muted" x="48" y="148" font-size="13">MainWindow / QDockWidget / b</text>
-  <text class="muted" x="48" y="172" font-size="13">ô TeachingState + LabState</text>
-  <text class="muted" x="48" y="196" font-size="13">Dx11ViewportWidgetWA_NativeWindow</text>
-  <text class="muted" x="48" y="220" font-size="13">winId() í HWND ∑ paintEngine() = nullptr</text>
-  <text class="muted" x="48" y="244" font-size="13">showstart 2”ø + Init }‰</text>
-  <text class="muted" x="48" y="268" font-size="13">resize® Resize }‰</text>
-  <text class="muted" x="48" y="292" font-size="13">hide/êÑStop + joinç∆ó„</text>
-  <text class="muted" x="48" y="316" font-size="13">QTimer n‚ FeedbackQueue</text>
-  <text class="accent" x="48" y="356" font-size="13">˙ QThread ∑ ∞ Immediate Context</text>
-  <text class="muted" x="48" y="400" font-size="12">¬ProRes VideoWidget Ñ HWND ˇ}</text>
-  <text class="muted" x="48" y="420" font-size="12">¬v QTimer Present ∆ë
- </text>
+  <text class="text" x="48" y="110" font-size="14">UI thread (Qt)</text>
+  <text class="muted" x="48" y="148" font-size="13">MainWindow / QDockWidget / panels</text>
+  <text class="muted" x="48" y="172" font-size="13">Write TeachingState + LabState</text>
+  <text class="muted" x="48" y="196" font-size="13">Dx11ViewportWidget: WA_NativeWindow</text>
+  <text class="muted" x="48" y="220" font-size="13">winId() to HWND; paintEngine() = nullptr</text>
+  <text class="muted" x="48" y="244" font-size="13">show: start render thread + Init command</text>
+  <text class="muted" x="48" y="268" font-size="13">resize: push Resize command</text>
+  <text class="muted" x="48" y="292" font-size="13">hide/destroy: Stop + join, then tear down HWND</text>
+  <text class="muted" x="48" y="316" font-size="13">QTimer polls FeedbackQueue</text>
+  <text class="accent" x="48" y="356" font-size="13">No QThread; never touch Immediate Context</text>
+  <text class="muted" x="48" y="400" font-size="12">Reference: ProRes VideoWidget HWND lifetime.</text>
+  <text class="muted" x="48" y="420" font-size="12">Do not reuse its QTimer Present or video upload.</text>
 
   <rect class="box" x="568" y="88" width="500" height="392" rx="4"/>
   <rect class="head" x="568" y="88" width="500" height="32"/>
-  <text class="text" x="584" y="110" font-size="14">2”østd::thread	</text>
-  <text class="muted" x="584" y="148" font-size="13">˙æ / ImmediateContext / Swapchain</text>
-  <text class="muted" x="584" y="172" font-size="13">OutputWindow = UI Ÿ˙Ñ HWND</text>
+  <text class="text" x="584" y="110" font-size="14">Render thread (std::thread)</text>
+  <text class="muted" x="584" y="148" font-size="13">Create Device / ImmediateContext / Swapchain</text>
+  <text class="muted" x="584" y="172" font-size="13">OutputWindow = HWND from UI</text>
   <text class="muted" x="584" y="196" font-size="13">Swap StateSnapshot</text>
-  <text class="muted" x="584" y="220" font-size="13">DirectXMath ó W / V / P</text>
-  <text class="muted" x="584" y="244" font-size="13">Ù∞ Constant Buffer í Draw í Present</text>
-  <text class="muted" x="584" y="268" font-size="13">ID3D11InfoQueue í FeedbackQueue</text>
-  <text class="muted" x="584" y="292" font-size="13">"æÕ˙ Swapchain1%\ÿ</text>
-  <text class="muted" x="584" y="316" font-size="13">w/h d 0Û« Present∆ Device</text>
-  <text class="accent" x="584" y="356" font-size="13">Í	,ø( Immediate Context</text>
-  <text class="muted" x="584" y="400" font-size="12">}‰Init / Resize / ReloadShader / Stop</text>
-  <text class="muted" x="584" y="420" font-size="12">ﬁ Â◊FPSæ"1≈	</text>
+  <text class="muted" x="584" y="220" font-size="13">DirectXMath builds W / V / P</text>
+  <text class="muted" x="584" y="244" font-size="13">Update Constant Buffer, Draw, Present</text>
+  <text class="muted" x="584" y="268" font-size="13">ID3D11InfoQueue to FeedbackQueue</text>
+  <text class="muted" x="584" y="292" font-size="13">Device lost: rebuild Swapchain; on failure stop drawing</text>
+  <text class="muted" x="584" y="316" font-size="13">w/h &lt;= 0: skip Present; keep Device</text>
+  <text class="accent" x="584" y="356" font-size="13">Only this thread uses Immediate Context</text>
+  <text class="muted" x="584" y="400" font-size="12">Commands: Init / Resize / ReloadShader / Stop</text>
+  <text class="muted" x="584" y="420" font-size="12">Feedback: logs, FPS, device lost (queue only)</text>
 
   <path class="arrow" d="M532 200 H568"/>
   <path class="arrow" d="M568 250 H532"/>
-  <text class="accent" x="500" y="192" font-size="11">Îg + }‰</text>
-  <text class="accent" x="500" y="274" font-size="11">Õà</text>
+  <text class="accent" x="488" y="192" font-size="11">snapshot + cmds</text>
+  <text class="accent" x="500" y="274" font-size="11">feedback</text>
 </svg>
