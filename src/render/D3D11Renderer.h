@@ -7,6 +7,7 @@
 #include <d3d11.h>
 #include <d3d11sdklayers.h>
 #include <dxgi.h>
+#include <DirectXMath.h>
 #include <wrl/client.h>
 #include <string>
 
@@ -25,7 +26,12 @@ public:
 private:
   bool createSizeDependentResources();
   bool createLabStates(FeedbackQueue* fb);
+  bool createEdgeBuffers(FeedbackQueue* fb);
   void bindLabStates(const StateSnapshot& snap);
+  void bindMeshPipeline(const StateSnapshot& snap);
+  void drawAxisCones(const StateSnapshot& snap,
+                     DirectX::FXMMATRIX view,
+                     DirectX::FXMMATRIX proj);
   void handlePresentResult(HRESULT hr);
   void copyVariantName(const char* name);
   void copyTriedName(const char* name);
@@ -51,6 +57,7 @@ private:
   Microsoft::WRL::ComPtr<ID3D11RasterizerState> m_raster[2][3];
   Microsoft::WRL::ComPtr<ID3D11DepthStencilState> m_depthOn;
   Microsoft::WRL::ComPtr<ID3D11DepthStencilState> m_depthOff;
+  Microsoft::WRL::ComPtr<ID3D11BlendState> m_blend;
   char m_shaderVariant[32];
   char m_triedVariant[32];
   Microsoft::WRL::ComPtr<ID3D11InfoQueue> m_infoQueue;
@@ -62,6 +69,13 @@ private:
   MeshGpu m_cube;
   MeshGpu m_sphere;
   MeshGpu m_cyl;
+  MeshGpu m_cone;
+  Microsoft::WRL::ComPtr<ID3D11Buffer> m_cubeEdges;
+  Microsoft::WRL::ComPtr<ID3D11Buffer> m_sphereEdges;
+  Microsoft::WRL::ComPtr<ID3D11Buffer> m_cylEdges;
+  UINT m_cubeEdgeVerts;
+  UINT m_sphereEdgeVerts;
+  UINT m_cylEdgeVerts;
   ShaderSet m_shaders;
   DebugDraw m_debug;
 };

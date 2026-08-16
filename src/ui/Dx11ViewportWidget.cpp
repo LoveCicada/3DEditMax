@@ -1,12 +1,16 @@
 #include "ui/Dx11ViewportWidget.h"
 #include "core/StateSnapshot.h"
 #include <QCoreApplication>
+#include <QFrame>
+#include <QGridLayout>
 #include <QHideEvent>
+#include <QLabel>
 #include <QMouseEvent>
 #include <QPaintEvent>
 #include <QResizeEvent>
 #include <QShowEvent>
 #include <QTimer>
+#include <QVBoxLayout>
 #include <QWheelEvent>
 #include <windows.h>
 
@@ -16,6 +20,7 @@ Dx11ViewportWidget::Dx11ViewportWidget(QWidget* parent)
     , m_lab(labStateDefault())
     , m_lastMouse(0, 0)
     , m_orbitEditTimer(0)
+    , m_axisLegend(0)
     , m_orbiting(false) {
   setAttribute(Qt::WA_NativeWindow, true);
   setAttribute(Qt::WA_DontCreateNativeAncestors, true);
@@ -29,6 +34,7 @@ Dx11ViewportWidget::Dx11ViewportWidget(QWidget* parent)
   m_orbitEditTimer->setSingleShot(true);
   m_orbitEditTimer->setInterval(50);
   connect(m_orbitEditTimer, &QTimer::timeout, this, &Dx11ViewportWidget::flushTeachingEdited);
+  buildAxisLegend();
 }
 
 Dx11ViewportWidget::~Dx11ViewportWidget() {
@@ -73,6 +79,11 @@ void Dx11ViewportWidget::showEvent(QShowEvent* e) {
   QWidget::showEvent(e);
   winId();
   startRenderer();
+  if (m_axisLegend) {
+    m_axisLegend->winId();
+    m_axisLegend->raise();
+    m_axisLegend->show();
+  }
 }
 
 void Dx11ViewportWidget::hideEvent(QHideEvent* e) {
@@ -182,6 +193,73 @@ void Dx11ViewportWidget::commitTeaching() {
 
 void Dx11ViewportWidget::flushTeachingEdited() {
   emit teachingEdited(m_teaching);
+}
+
+void Dx11ViewportWidget::buildAxisLegend() {
+  m_axisLegend = new QFrame(this);
+  m_axisLegend->setObjectName(QString::fromUtf8("axisLegend"));
+  m_axisLegend->setAttribute(Qt::WA_NativeWindow, true);
+  m_axisLegend->setAttribute(Qt::WA_TransparentForMouseEvents, true);
+  m_axisLegend->setStyleSheet(QString::fromUtf8(
+      "QFrame#axisLegend {"
+      "  background-color: rgba(10, 10, 24, 184);"
+      "  border: 1px solid rgba(97, 218, 251, 71);"
+      "  border-radius: 6px;"
+      "}"
+      "QLabel#axisLegendTitle {"
+      "  color: #61dafb;"
+      "  font-size: 11px;"
+      "  font-weight: 700;"
+      "}"
+      "QLabel#axisLegendName { color: #ccd6f6; font-size: 11px; }"
+      "QLabel#axisLegendDesc { color: #8892b0; font-size: 10px; }"));
+
+  QVBoxLayout* root = new QVBoxLayout(m_axisLegend);
+  root->setContentsMargins(10, 8, 10, 8);
+  root->setSpacing(6);
+
+  QLabel* title = new QLabel(QString::fromUtf8("\xE5\x9D\x90\xE6\xA0\x87\xE8\xBD\xB4\xE5\x9B\xBE\xE4\xBE\x8B"), m_axisLegend);
+  title->setObjectName(QString::fromUtf8("axisLegendTitle"));
+  root->addWidget(title);
+
+  QGridLayout* grid = new QGridLayout();
+  grid->setContentsMargins(0, 0, 0, 0);
+  grid->setHorizontalSpacing(8);
+  grid->setVerticalSpacing(5);
+  grid->setColumnStretch(2, 1);
+
+  const char* names[3] = {
+      "X \xE8\xBD\xB4",
+      "Y \xE8\xBD\xB4",
+      "Z \xE8\xBD\xB4",
+  };
+  const char* descs[3] = {
+      "World / Local \xC2\xB7 \xE7\xBA\xA2\xE8\x89\xB2 \xC2\xB7 \xE5\xB7\xA6\xE5\x8F\xB3\xE6\x96\xB9\xE5\x90\x91",
+      "World / Local \xC2\xB7 \xE7\xBB\xBF\xE8\x89\xB2 \xC2\xB7 \xE4\xB8\x8A\xE4\xB8\x8B\xE6\x96\xB9\xE5\x90\x91",
+      "World / Local \xC2\xB7 \xE8\x93\x9D\xE8\x89\xB2 \xC2\xB7 \xE5\x89\x8D\xE5\x90\x8E\xE6\x96\xB9\xE5\x90\x91",
+  };
+  const char* swatches[3] = { "#ff4444", "#44ff44", "#4444ff" };
+
+  for (int i = 0; i < 3; ++i) {
+    QLabel* swatch = new QLabel(m_axisLegend);
+    swatch->setFixedSize(10, 10);
+    swatch->setStyleSheet(QString::fromUtf8(
+        "background-color: %1; border-radius: 5px; border: 1px solid rgba(255,255,255,20);")
+                              .arg(QString::fromUtf8(swatches[i])));
+    QLabel* name = new QLabel(QString::fromUtf8(names[i]), m_axisLegend);
+    name->setObjectName(QString::fromUtf8("axisLegendName"));
+    QLabel* desc = new QLabel(QString::fromUtf8(descs[i]), m_axisLegend);
+    desc->setObjectName(QString::fromUtf8("axisLegendDesc"));
+    grid->addWidget(swatch, i, 0, Qt::AlignVCenter);
+    grid->addWidget(name, i, 1, Qt::AlignVCenter);
+    grid->addWidget(desc, i, 2, Qt::AlignVCenter);
+  }
+  root->addLayout(grid);
+
+  m_axisLegend->adjustSize();
+  m_axisLegend->move(12, 10);
+  m_axisLegend->raise();
+  m_axisLegend->show();
 }
 
 HWND Dx11ViewportWidget::hwnd() const {

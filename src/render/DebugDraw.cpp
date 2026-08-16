@@ -8,7 +8,7 @@ using namespace DirectX;
 
 namespace {
 
-const UINT kMaxLineVerts = 128;
+const UINT kMaxLineVerts = 256;
 
 struct LineVertex {
   XMFLOAT3 pos;
@@ -17,6 +17,7 @@ struct LineVertex {
 
 struct LineCBCpu {
   XMFLOAT4X4 viewProj;
+  XMFLOAT4 colorMul;
 };
 
 void pushLine(LineVertex* verts, UINT* count, UINT cap,
@@ -33,6 +34,18 @@ void pushLine(LineVertex* verts, UINT* count, UINT cap,
   verts[*count] = va;
   verts[*count + 1] = vb;
   *count += 2;
+}
+
+void uploadLineCb(ID3D11DeviceContext* context, ID3D11Buffer* cb,
+                  FXMMATRIX xform, const XMFLOAT4& colorMul) {
+  LineCBCpu cpu;
+  XMStoreFloat4x4(&cpu.viewProj, XMMatrixTranspose(xform));
+  cpu.colorMul = colorMul;
+  D3D11_MAPPED_SUBRESOURCE mapped = {};
+  if (SUCCEEDED(context->Map(cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+    std::memcpy(mapped.pData, &cpu, sizeof(cpu));
+    context->Unmap(cb, 0);
+  }
 }
 
 }  // namespace
@@ -168,6 +181,73 @@ bool DebugDraw::compileLine(ID3D11Device* device, const std::wstring& shaderDir)
   return SUCCEEDED(hr);
 }
 
+void DebugDraw::bindLinePipeline(ID3D11DeviceContext* context) {
+  ID3D11Buffer* cbuf = m_cb.Get();
+  context->VSSetConstantBuffers(0, 1, &cbuf);
+  context->PSSetConstantBuffers(0, 1, &cbuf);
+  context->VSSetShader(m_vs.Get(), 0, 0);
+  context->PSSetShader(m_ps.Get(), 0, 0);
+  context->IASetInputLayout(m_layout.Get());
+  context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
+  context->RSSetState(m_raster.Get());
+  context->OMSetDepthStencilState(m_depth.Get(), 0);
+}
+
+bool DebugDraw::createEdgeVertexBuffer(ID3D11Device* device,
+                                       const std::vector<MeshEdge>& edges,
+                                       ComPtr<ID3D11Buffer>* outVb,
+                                       UINT* outVertCount) {
+  if (!device || !outVb || !outVertCount) {
+    return false;
+  }
+  outVb->Reset();
+  *outVertCount = 0;
+  if (edges.empty()) {
+    return false;
+  }
+
+  std::vector<LineVertex> verts(edges.size() * 2);
+  const XMFLOAT4 white(1.f, 1.f, 1.f, 1.f);
+  for (size_t i = 0; i < edges.size(); ++i) {
+    LineVertex a;
+    LineVertex b;
+    a.pos = XMFLOAT3(edges[i].ax, edges[i].ay, edges[i].az);
+    b.pos = XMFLOAT3(edges[i].bx, edges[i].by, edges[i].bz);
+    a.col = white;
+    b.col = white;
+    verts[i * 2] = a;
+    verts[i * 2 + 1] = b;
+  }
+
+  D3D11_BUFFER_DESC vbd = {};
+  vbd.ByteWidth = static_cast<UINT>(verts.size() * sizeof(LineVertex));
+  vbd.Usage = D3D11_USAGE_IMMUTABLE;
+  vbd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+  D3D11_SUBRESOURCE_DATA srd = {};
+  srd.pSysMem = &verts[0];
+  if (FAILED(device->CreateBuffer(&vbd, &srd, outVb->ReleaseAndGetAddressOf()))) {
+    return false;
+  }
+  *outVertCount = static_cast<UINT>(verts.size());
+  return true;
+}
+
+void DebugDraw::drawLineList(ID3D11DeviceContext* context,
+                             ID3D11Buffer* vb,
+                             UINT vertexCount,
+                             FXMMATRIX wvp,
+                             const XMFLOAT4& color) {
+  if (!context || !valid() || !vb || vertexCount < 2) {
+    return;
+  }
+  uploadLineCb(context, m_cb.Get(), wvp, color);
+  bindLinePipeline(context);
+  UINT stride = sizeof(LineVertex);
+  UINT offset = 0;
+  context->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
+  context->Draw(vertexCount, 0);
+}
+
 void DebugDraw::draw(ID3D11DeviceContext* context,
                      const StateSnapshot& snap,
                      FXMMATRIX view,
@@ -178,6 +258,20 @@ void DebugDraw::draw(ID3D11DeviceContext* context,
 
   LineVertex verts[kMaxLineVerts];
   UINT count = 0;
+
+  const XMFLOAT4 gridMajor(0x44 / 255.f, 0x44 / 255.f, 0x66 / 255.f, 1.f);
+  const XMFLOAT4 gridMinor(0x33 / 255.f, 0x33 / 255.f, 0x55 / 255.f, 1.f);
+  const float half = 10.f;
+  const int divs = 20;
+  const int center = divs / 2;
+  for (int i = 0; i <= divs; ++i) {
+    const float t = -half + (2.f * half) * (static_cast<float>(i) / static_cast<float>(divs));
+    const XMFLOAT4& col = (i == center) ? gridMajor : gridMinor;
+    pushLine(verts, &count, kMaxLineVerts,
+             XMVectorSet(-half, 0.f, t, 0.f), XMVectorSet(half, 0.f, t, 0.f), col);
+    pushLine(verts, &count, kMaxLineVerts,
+             XMVectorSet(t, 0.f, -half, 0.f), XMVectorSet(t, 0.f, half, 0.f), col);
+  }
 
   XMVECTOR detP = XMVectorZero();
   XMVECTOR detV = XMVectorZero();
@@ -207,9 +301,13 @@ void DebugDraw::draw(ID3D11DeviceContext* context,
   }
 
   const XMVECTOR origin = XMVectorZero();
-  pushLine(verts, &count, kMaxLineVerts, origin, XMVectorSet(1.f, 0.f, 0.f, 0.f), XMFLOAT4(1.f, 0.f, 0.f, 1.f));
-  pushLine(verts, &count, kMaxLineVerts, origin, XMVectorSet(0.f, 1.f, 0.f, 0.f), XMFLOAT4(0.f, 1.f, 0.f, 1.f));
-  pushLine(verts, &count, kMaxLineVerts, origin, XMVectorSet(0.f, 0.f, 1.f, 0.f), XMFLOAT4(0.2f, 0.4f, 1.f, 1.f));
+  const float axisLen = 3.f;
+  pushLine(verts, &count, kMaxLineVerts, origin, XMVectorSet(axisLen, 0.f, 0.f, 0.f),
+           XMFLOAT4(1.f, 0x44 / 255.f, 0x44 / 255.f, 1.f));
+  pushLine(verts, &count, kMaxLineVerts, origin, XMVectorSet(0.f, axisLen, 0.f, 0.f),
+           XMFLOAT4(0x44 / 255.f, 1.f, 0x44 / 255.f, 1.f));
+  pushLine(verts, &count, kMaxLineVerts, origin, XMVectorSet(0.f, 0.f, axisLen, 0.f),
+           XMFLOAT4(0x44 / 255.f, 0x44 / 255.f, 1.f, 1.f));
 
   const TeachingState& t = snap.teaching;
   const XMMATRIX W = BuildWorld(t.objects[0].trs);
@@ -242,31 +340,17 @@ void DebugDraw::draw(ID3D11DeviceContext* context,
   }
 
   const XMMATRIX viewProj = view * proj;
-  LineCBCpu cb;
-  XMStoreFloat4x4(&cb.viewProj, XMMatrixTranspose(viewProj));
+  uploadLineCb(context, m_cb.Get(), viewProj, XMFLOAT4(1.f, 1.f, 1.f, 1.f));
   D3D11_MAPPED_SUBRESOURCE mapped = {};
-  if (SUCCEEDED(context->Map(m_cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
-    std::memcpy(mapped.pData, &cb, sizeof(cb));
-    context->Unmap(m_cb.Get(), 0);
-  }
-  mapped = D3D11_MAPPED_SUBRESOURCE();
   if (SUCCEEDED(context->Map(m_vb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
     std::memcpy(mapped.pData, verts, count * sizeof(LineVertex));
     context->Unmap(m_vb.Get(), 0);
   }
 
-  ID3D11Buffer* cbuf = m_cb.Get();
-  context->VSSetConstantBuffers(0, 1, &cbuf);
-  context->PSSetConstantBuffers(0, 1, &cbuf);
-  context->VSSetShader(m_vs.Get(), 0, 0);
-  context->PSSetShader(m_ps.Get(), 0, 0);
-  context->IASetInputLayout(m_layout.Get());
+  bindLinePipeline(context);
   UINT stride = sizeof(LineVertex);
   UINT offset = 0;
   ID3D11Buffer* vb = m_vb.Get();
   context->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
-  context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_LINELIST);
-  context->RSSetState(m_raster.Get());
-  context->OMSetDepthStencilState(m_depth.Get(), 0);
   context->Draw(count, 0);
 }

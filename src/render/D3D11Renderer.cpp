@@ -5,7 +5,9 @@
 #endif
 #include "render/D3D11Renderer.h"
 #include "core/LabState.h"
+#include "teach/MeshBuild.h"
 #include "teach/Transforms.h"
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -34,7 +36,77 @@ struct FrameCBCpu {
   XMFLOAT4X4 p;
   XMFLOAT4X4 wvp;
   XMFLOAT4 shadingMode;
+  XMFLOAT4 baseColor;
+  XMFLOAT4 emissive;
 };
+
+const int kSphereSlices = 32;
+const int kSphereStacks = 24;
+
+void objectShadeColors(int objectIndex, XMFLOAT4* base, XMFLOAT4* emit) {
+  if (objectIndex == 1) {
+    *base = XMFLOAT4(0x38 / 255.f, 0xb8 / 255.f, 0x89 / 255.f, 0.82f);
+    *emit = XMFLOAT4(0x17 / 255.f, 0x3c / 255.f, 0x31 / 255.f, 0.f);
+    return;
+  }
+  if (objectIndex == 2) {
+    *base = XMFLOAT4(0xd9 / 255.f, 0x8c / 255.f, 0x3f / 255.f, 0.82f);
+    *emit = XMFLOAT4(0x4f / 255.f, 0x2e / 255.f, 0x12 / 255.f, 0.f);
+    return;
+  }
+  *base = XMFLOAT4(0x4a / 255.f, 0x90 / 255.f, 0xd9 / 255.f, 0.9f);
+  *emit = XMFLOAT4(0x1a / 255.f, 0x3a / 255.f, 0x5c / 255.f, 0.f);
+}
+
+XMFLOAT4 objectEdgeColor(int objectIndex) {
+  if (objectIndex == 1) {
+    return XMFLOAT4(0x72 / 255.f, 0xf2 / 255.f, 0xc6 / 255.f, 1.f);
+  }
+  if (objectIndex == 2) {
+    return XMFLOAT4(1.f, 0xc1 / 255.f, 0x78 / 255.f, 1.f);
+  }
+  return XMFLOAT4(0x88 / 255.f, 0xcc / 255.f, 1.f, 1.f);
+}
+
+void writeFrameCb(ID3D11DeviceContext* context, ID3D11Buffer* buf,
+                  FXMMATRIX W, FXMMATRIX V, FXMMATRIX P,
+                  float shadeX, const XMFLOAT4& base, const XMFLOAT4& emit) {
+  FrameCBCpu cb;
+  const XMMATRIX WVP = W * V * P;
+  XMStoreFloat4x4(&cb.w, XMMatrixTranspose(W));
+  XMStoreFloat4x4(&cb.v, XMMatrixTranspose(V));
+  XMStoreFloat4x4(&cb.p, XMMatrixTranspose(P));
+  XMStoreFloat4x4(&cb.wvp, XMMatrixTranspose(WVP));
+  cb.shadingMode = XMFLOAT4(shadeX, 0.f, 0.f, 0.f);
+  cb.baseColor = base;
+  cb.emissive = emit;
+  D3D11_MAPPED_SUBRESOURCE mapped = {};
+  if (SUCCEEDED(context->Map(buf, 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+    std::memcpy(mapped.pData, &cb, sizeof(cb));
+    context->Unmap(buf, 0);
+  }
+}
+
+XMMATRIX rotationYToDir(FXMVECTOR dir) {
+  const XMVECTOR d = XMVector3Normalize(dir);
+  const XMVECTOR y = XMVectorSet(0.f, 1.f, 0.f, 0.f);
+  const float dty = XMVectorGetX(XMVector3Dot(y, d));
+  if (dty > 0.9999f) {
+    return XMMatrixIdentity();
+  }
+  if (dty < -0.9999f) {
+    return XMMatrixRotationX(XM_PI);
+  }
+  const XMVECTOR axis = XMVector3Normalize(XMVector3Cross(y, d));
+  float c = dty;
+  if (c > 1.f) {
+    c = 1.f;
+  }
+  if (c < -1.f) {
+    c = -1.f;
+  }
+  return XMMatrixRotationAxis(axis, acosf(c));
+}
 
 void pushCbFloats(FeedbackQueue* fb, const FrameCBCpu& cb) {
   if (!fb) {
@@ -71,7 +143,10 @@ D3D11Renderer::D3D11Renderer(const std::wstring& shaderDir)
     , m_lastLoggedShadeX(-1.f)
     , m_loggedCb(false)
     , m_sampleCount(1)
-    , m_sampleQuality(0) {
+    , m_sampleQuality(0)
+    , m_cubeEdgeVerts(0)
+    , m_sphereEdgeVerts(0)
+    , m_cylEdgeVerts(0) {
   std::memset(m_shaderVariant, 0, sizeof(m_shaderVariant));
   std::memset(m_triedVariant, 0, sizeof(m_triedVariant));
 }
@@ -208,7 +283,7 @@ bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, Feedback
     shutdown();
     return false;
   }
-  m_sphere = MeshGpu::createSphere(m_device.Get(), 16, 24);
+  m_sphere = MeshGpu::createSphere(m_device.Get(), kSphereSlices, kSphereStacks);
   if (!m_sphere.valid()) {
     pushFb(fb, FbError, "createSphere failed");
     shutdown();
@@ -220,6 +295,10 @@ bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, Feedback
     shutdown();
     return false;
   }
+  m_cone = MeshGpu::createCone(m_device.Get(), 0.15f, 0.36f, 8);
+  if (!m_cone.valid()) {
+    pushFb(fb, FbWarn, "createCone failed");
+  }
 
   copyVariantName("unlit");
   copyTriedName("unlit");
@@ -230,6 +309,9 @@ bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, Feedback
   m_debug.create(m_device.Get(), m_shaderDir);
   if (!m_debug.valid()) {
     pushFb(fb, FbWarn, "DebugDraw line.hlsl failed");
+  }
+  if (!createEdgeBuffers(fb)) {
+    pushFb(fb, FbWarn, "silhouette edge buffers failed");
   }
 
   m_initialized = true;
@@ -249,7 +331,15 @@ void D3D11Renderer::shutdown() {
   m_cube = MeshGpu();
   m_sphere = MeshGpu();
   m_cyl = MeshGpu();
+  m_cone = MeshGpu();
+  m_cubeEdges.Reset();
+  m_sphereEdges.Reset();
+  m_cylEdges.Reset();
+  m_cubeEdgeVerts = 0;
+  m_sphereEdgeVerts = 0;
+  m_cylEdgeVerts = 0;
   m_cb.Reset();
+  m_blend.Reset();
   m_depthOff.Reset();
   m_depthOn.Reset();
   for (int fi = 0; fi < 2; ++fi) {
@@ -334,7 +424,7 @@ void D3D11Renderer::render(const StateSnapshot& snap) {
   vp.MaxDepth = 1.f;
   m_context->RSSetViewports(1, &vp);
 
-  const float clear[4] = {0.08f, 0.10f, 0.14f, 1.f};
+  const float clear[4] = {0x0a / 255.f, 0x0a / 255.f, 0x18 / 255.f, 1.f};
   m_context->ClearRenderTargetView(m_rtv.Get(), clear);
   m_context->ClearDepthStencilView(m_dsv.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.f, 0);
 
@@ -355,47 +445,53 @@ void D3D11Renderer::render(const StateSnapshot& snap) {
   const int count = (t.layout == LayoutThree) ? 3 : 1;
   const float shadeX = labShadeModeX(snap.lab.shaderVariant, static_cast<int>(t.shading));
 
-  ID3D11Buffer* cbuf = m_cb.Get();
-  m_context->VSSetConstantBuffers(0, 1, &cbuf);
-  m_context->PSSetConstantBuffers(0, 1, &cbuf);
-  m_context->VSSetShader(m_shaders.vs(), 0, 0);
-  m_context->PSSetShader(m_shaders.ps(), 0, 0);
-  m_context->IASetInputLayout(m_shaders.layout());
-  bindLabStates(snap);
+  bindMeshPipeline(snap);
 
   for (int oi = 0; oi < count; ++oi) {
     const TeachingObject& obj = t.objects[oi];
     const XMMATRIX W = BuildWorld(obj.trs);
-    const XMMATRIX WVP = W * V * P;
-
-    FrameCBCpu cb;
-    XMStoreFloat4x4(&cb.w, XMMatrixTranspose(W));
-    XMStoreFloat4x4(&cb.v, XMMatrixTranspose(V));
-    XMStoreFloat4x4(&cb.p, XMMatrixTranspose(P));
-    XMStoreFloat4x4(&cb.wvp, XMMatrixTranspose(WVP));
-    cb.shadingMode = XMFLOAT4(shadeX, 0.f, 0.f, 0.f);
-
-    D3D11_MAPPED_SUBRESOURCE mapped = {};
-    if (SUCCEEDED(m_context->Map(m_cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
-      std::memcpy(mapped.pData, &cb, sizeof(cb));
-      m_context->Unmap(m_cb.Get(), 0);
-    }
+    XMFLOAT4 base;
+    XMFLOAT4 emit;
+    objectShadeColors(oi, &base, &emit);
+    writeFrameCb(m_context.Get(), m_cb.Get(), W, V, P, shadeX, base, emit);
     if (!m_loggedCb || shadeX != m_lastLoggedShadeX) {
       m_loggedCb = true;
       m_lastLoggedShadeX = shadeX;
-      pushCbFloats(m_fb, cb);
+      FrameCBCpu logCb;
+      const XMMATRIX WVP = W * V * P;
+      XMStoreFloat4x4(&logCb.w, XMMatrixTranspose(W));
+      XMStoreFloat4x4(&logCb.v, XMMatrixTranspose(V));
+      XMStoreFloat4x4(&logCb.p, XMMatrixTranspose(P));
+      XMStoreFloat4x4(&logCb.wvp, XMMatrixTranspose(WVP));
+      logCb.shadingMode = XMFLOAT4(shadeX, 0.f, 0.f, 0.f);
+      logCb.baseColor = base;
+      logCb.emissive = emit;
+      pushCbFloats(m_fb, logCb);
     }
 
     const MeshGpu* mesh = &m_cube;
+    ID3D11Buffer* edgeVb = m_cubeEdges.Get();
+    UINT edgeVerts = m_cubeEdgeVerts;
     if (obj.mesh == MeshSphere) {
       mesh = &m_sphere;
+      edgeVb = m_sphereEdges.Get();
+      edgeVerts = m_sphereEdgeVerts;
     } else if (obj.mesh == MeshCylinder) {
       mesh = &m_cyl;
+      edgeVb = m_cylEdges.Get();
+      edgeVerts = m_cylEdgeVerts;
     }
+    bindMeshPipeline(snap);
     mesh->draw(m_context.Get());
+
+    if (t.shading != ShadeWire && edgeVb && edgeVerts > 0 && m_debug.valid()) {
+      const XMMATRIX WVP = W * V * P;
+      m_debug.drawLineList(m_context.Get(), edgeVb, edgeVerts, WVP, objectEdgeColor(oi));
+    }
   }
 
   m_debug.draw(m_context.Get(), snap, V, P);
+  drawAxisCones(snap, V, P);
 
   const HRESULT hr = m_swap->Present(1, 0);
   handlePresentResult(hr);
@@ -475,7 +571,59 @@ bool D3D11Renderer::createLabStates(FeedbackQueue* fb) {
     pushFb(fb, FbError, "CreateDepthStencilState off failed");
     return false;
   }
+
+  D3D11_BLEND_DESC bd = {};
+  bd.RenderTarget[0].BlendEnable = TRUE;
+  bd.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
+  bd.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+  bd.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+  bd.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+  bd.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
+  bd.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+  bd.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+  hr = m_device->CreateBlendState(&bd, &m_blend);
+  if (FAILED(hr)) {
+    pushFb(fb, FbError, "CreateBlendState failed");
+    return false;
+  }
   return true;
+}
+
+bool D3D11Renderer::createEdgeBuffers(FeedbackQueue* fb) {
+  (void)fb;
+  m_cubeEdges.Reset();
+  m_sphereEdges.Reset();
+  m_cylEdges.Reset();
+  m_cubeEdgeVerts = 0;
+  m_sphereEdgeVerts = 0;
+  m_cylEdgeVerts = 0;
+  if (!m_device || !m_debug.valid()) {
+    return false;
+  }
+
+  std::vector<MeshVertex> verts;
+  std::vector<unsigned short> indices;
+  std::vector<MeshEdge> edges;
+  bool ok = true;
+
+  buildCube(&verts, &indices);
+  buildSilhouetteEdges(verts, indices, &edges, 1.f);
+  if (!m_debug.createEdgeVertexBuffer(m_device.Get(), edges, &m_cubeEdges, &m_cubeEdgeVerts)) {
+    ok = false;
+  }
+
+  buildSphere(&verts, &indices, kSphereSlices, kSphereStacks);
+  buildSilhouetteEdges(verts, indices, &edges, 1.f);
+  if (!m_debug.createEdgeVertexBuffer(m_device.Get(), edges, &m_sphereEdges, &m_sphereEdgeVerts)) {
+    ok = false;
+  }
+
+  buildCylinder(&verts, &indices, 24);
+  buildSilhouetteEdges(verts, indices, &edges, 1.f);
+  if (!m_debug.createEdgeVertexBuffer(m_device.Get(), edges, &m_cylEdges, &m_cylEdgeVerts)) {
+    ok = false;
+  }
+  return ok;
 }
 
 void D3D11Renderer::bindLabStates(const StateSnapshot& snap) {
@@ -488,6 +636,59 @@ void D3D11Renderer::bindLabStates(const StateSnapshot& snap) {
   }
   m_context->RSSetState(m_raster[fi][ci].Get());
   m_context->OMSetDepthStencilState(snap.lab.depthEnable ? m_depthOn.Get() : m_depthOff.Get(), 0);
+  const float blendFactor[4] = {0.f, 0.f, 0.f, 0.f};
+  m_context->OMSetBlendState(m_blend.Get(), blendFactor, 0xffffffff);
+}
+
+void D3D11Renderer::bindMeshPipeline(const StateSnapshot& snap) {
+  ID3D11Buffer* cbuf = m_cb.Get();
+  m_context->VSSetConstantBuffers(0, 1, &cbuf);
+  m_context->PSSetConstantBuffers(0, 1, &cbuf);
+  m_context->VSSetShader(m_shaders.vs(), 0, 0);
+  m_context->PSSetShader(m_shaders.ps(), 0, 0);
+  m_context->IASetInputLayout(m_shaders.layout());
+  bindLabStates(snap);
+}
+
+void D3D11Renderer::drawAxisCones(const StateSnapshot& snap,
+                                 FXMMATRIX view,
+                                 FXMMATRIX proj) {
+  (void)snap;
+  if (!m_context || !m_cone.valid() || !m_cb) {
+    return;
+  }
+
+  ID3D11Buffer* cbuf = m_cb.Get();
+  m_context->VSSetConstantBuffers(0, 1, &cbuf);
+  m_context->PSSetConstantBuffers(0, 1, &cbuf);
+  m_context->VSSetShader(m_shaders.vs(), 0, 0);
+  m_context->PSSetShader(m_shaders.ps(), 0, 0);
+  m_context->IASetInputLayout(m_shaders.layout());
+  m_context->RSSetState(m_raster[0][0].Get());
+  m_context->OMSetDepthStencilState(m_depthOn.Get(), 0);
+  const float blendFactor[4] = {0.f, 0.f, 0.f, 0.f};
+  m_context->OMSetBlendState(m_blend.Get(), blendFactor, 0xffffffff);
+
+  const float axisLen = 3.f;
+  const XMVECTOR dirs[3] = {
+      XMVectorSet(1.f, 0.f, 0.f, 0.f),
+      XMVectorSet(0.f, 1.f, 0.f, 0.f),
+      XMVectorSet(0.f, 0.f, 1.f, 0.f),
+  };
+  const XMFLOAT4 colors[3] = {
+      XMFLOAT4(1.f, 0x44 / 255.f, 0x44 / 255.f, 1.f),
+      XMFLOAT4(0x44 / 255.f, 1.f, 0x44 / 255.f, 1.f),
+      XMFLOAT4(0x44 / 255.f, 0x44 / 255.f, 1.f, 1.f),
+  };
+
+  for (int i = 0; i < 3; ++i) {
+    const XMMATRIX rot = rotationYToDir(dirs[i]);
+    const XMMATRIX T = XMMatrixTranslationFromVector(XMVectorScale(dirs[i], axisLen));
+    const XMMATRIX W = rot * T;
+    const XMFLOAT4 emit(colors[i].x * 0.35f, colors[i].y * 0.35f, colors[i].z * 0.35f, 0.f);
+    writeFrameCb(m_context.Get(), m_cb.Get(), W, view, proj, 0.f, colors[i], emit);
+    m_cone.draw(m_context.Get());
+  }
 }
 
 void D3D11Renderer::copyVariantName(const char* name) {

@@ -55,6 +55,13 @@ MeshGpu MeshGpu::createCylinder(ID3D11Device* device, int slices) {
   return createFromCpu(device, verts, indices);
 }
 
+MeshGpu MeshGpu::createCone(ID3D11Device* device, float radius, float height, int slices) {
+  std::vector<MeshVertex> verts;
+  std::vector<unsigned short> indices;
+  buildCone(&verts, &indices, radius, height, slices);
+  return createFromCpu(device, verts, indices);
+}
+
 void MeshGpu::draw(ID3D11DeviceContext* context) const {
   if (!context || !valid()) {
     return;

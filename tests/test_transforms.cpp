@@ -106,7 +106,7 @@ void runTransformTests() {
   TEST_CHECK(near4(corner.world.x, 0.5f) && near4(corner.world.y, 0.5f) &&
              near4(corner.world.z, 0.5f));
 
-  const int slices = 16;
+  const int slices = 32;
   const int stacks = 24;
   std::vector<MeshVertex> sphereV;
   std::vector<unsigned short> sphereI;
@@ -115,9 +115,24 @@ void runTransformTests() {
   TEST_CHECK(sphereV.size() > 0);
   TEST_CHECK(sphereI.size() > 0);
 
+  std::vector<MeshEdge> cubeEdges;
+  buildSilhouetteEdges(cubeV, cubeI, &cubeEdges, 1.f);
+  TEST_CHECK(cubeEdges.size() == 12);
+
+  std::vector<MeshEdge> sphereEdges;
+  buildSilhouetteEdges(sphereV, sphereI, &sphereEdges, 1.f);
+  TEST_CHECK(sphereEdges.size() > 12);
+  TEST_CHECK(sphereEdges.size() < sphereI.size() / 2);
+
   std::vector<MeshVertex> cylV;
   std::vector<unsigned short> cylI;
   buildCylinder(&cylV, &cylI, 24);
   TEST_CHECK(cylV.size() > 0);
   TEST_CHECK(cylI.size() > 0);
+
+  std::vector<MeshVertex> coneV;
+  std::vector<unsigned short> coneI;
+  buildCone(&coneV, &coneI, 0.15f, 0.36f, 8);
+  TEST_CHECK(coneV.size() > 0);
+  TEST_CHECK(coneI.size() > 0);
 }

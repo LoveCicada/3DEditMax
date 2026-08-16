@@ -12,6 +12,7 @@ public:
   static MeshGpu createCube(ID3D11Device* device);
   static MeshGpu createSphere(ID3D11Device* device, int slices, int stacks);
   static MeshGpu createCylinder(ID3D11Device* device, int slices);
+  static MeshGpu createCone(ID3D11Device* device, float radius, float height, int slices);
   void draw(ID3D11DeviceContext* context) const;
   bool valid() const { return m_vb && m_ib && m_indexCount > 0; }
 private:

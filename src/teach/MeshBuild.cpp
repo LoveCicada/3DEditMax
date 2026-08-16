@@ -1,5 +1,7 @@
 #include "teach/MeshBuild.h"
 #include <cmath>
+#include <map>
+#include <vector>
 
 namespace {
 
@@ -186,6 +188,244 @@ void buildCylinder(std::vector<MeshVertex>* v, std::vector<unsigned short>* i, i
     i->push_back(botCenter);
     i->push_back(static_cast<unsigned short>(botRim + sl + 1));
     i->push_back(static_cast<unsigned short>(botRim + sl));
+  }
+}
+
+void buildCone(std::vector<MeshVertex>* v, std::vector<unsigned short>* i,
+               float radius, float height, int slices) {
+  if (!v || !i) {
+    return;
+  }
+  v->clear();
+  i->clear();
+  if (slices < 3) {
+    slices = 3;
+  }
+  if (radius < 1e-4f) {
+    radius = 1e-4f;
+  }
+  if (height < 1e-4f) {
+    height = 1e-4f;
+  }
+
+  const float yApex = height * 0.5f;
+  const float yBase = -height * 0.5f;
+  const float slope = radius / height;
+  pushVert(v, 0.f, yApex, 0.f, 0.f, 1.f, 0.f, 0.5f, 0.f);
+
+  for (int sl = 0; sl < slices; ++sl) {
+    const float u = static_cast<float>(sl) / static_cast<float>(slices);
+    const float phi = u * (2.f * kPi);
+    const float x = radius * sinf(phi);
+    const float z = radius * cosf(phi);
+    float nx = x;
+    float ny = radius * slope;
+    float nz = z;
+    const float nlen = sqrtf(nx * nx + ny * ny + nz * nz);
+    if (nlen > 1e-6f) {
+      nx /= nlen;
+      ny /= nlen;
+      nz /= nlen;
+    }
+    pushVert(v, x, yBase, z, nx, ny, nz, u, 1.f);
+  }
+
+  for (int sl = 0; sl < slices; ++sl) {
+    const unsigned short a = 0;
+    const unsigned short b = static_cast<unsigned short>(1 + sl);
+    const unsigned short c = static_cast<unsigned short>(1 + ((sl + 1) % slices));
+    i->push_back(a);
+    i->push_back(b);
+    i->push_back(c);
+  }
+
+  const unsigned short baseCenter = static_cast<unsigned short>(v->size());
+  pushVert(v, 0.f, yBase, 0.f, 0.f, -1.f, 0.f, 0.5f, 0.5f);
+  const unsigned short baseRim = static_cast<unsigned short>(v->size());
+  for (int sl = 0; sl <= slices; ++sl) {
+    const float u = static_cast<float>(sl) / static_cast<float>(slices);
+    const float phi = u * (2.f * kPi);
+    const float x = radius * sinf(phi);
+    const float z = radius * cosf(phi);
+    pushVert(v, x, yBase, z, 0.f, -1.f, 0.f, 0.5f + 0.5f * x / radius, 0.5f + 0.5f * z / radius);
+  }
+  for (int sl = 0; sl < slices; ++sl) {
+    i->push_back(baseCenter);
+    i->push_back(static_cast<unsigned short>(baseRim + sl + 1));
+    i->push_back(static_cast<unsigned short>(baseRim + sl));
+  }
+}
+
+namespace {
+
+struct QPos {
+  int x;
+  int y;
+  int z;
+  bool operator<(const QPos& o) const {
+    if (x != o.x) {
+      return x < o.x;
+    }
+    if (y != o.y) {
+      return y < o.y;
+    }
+    return z < o.z;
+  }
+};
+
+struct QEdge {
+  QPos a;
+  QPos b;
+  bool operator<(const QEdge& o) const {
+    if (a < o.a) {
+      return true;
+    }
+    if (o.a < a) {
+      return false;
+    }
+    return b < o.b;
+  }
+};
+
+int quantizeAxis(float v) {
+  return static_cast<int>(floorf(v * 4096.f + (v >= 0.f ? 0.5f : -0.5f)));
+}
+
+QPos makePos(float x, float y, float z) {
+  QPos p;
+  p.x = quantizeAxis(x);
+  p.y = quantizeAxis(y);
+  p.z = quantizeAxis(z);
+  return p;
+}
+
+QEdge makeEdge(QPos a, QPos b) {
+  QEdge e;
+  if (b < a) {
+    e.a = b;
+    e.b = a;
+  } else {
+    e.a = a;
+    e.b = b;
+  }
+  return e;
+}
+
+struct EdgeRec {
+  float ax, ay, az;
+  float bx, by, bz;
+  int face0;
+  int face1;
+  int nfaces;
+};
+
+void addEdgeFace(std::map<QEdge, EdgeRec>* edges,
+                 const MeshVertex& va,
+                 const MeshVertex& vb,
+                 int face) {
+  const QEdge key = makeEdge(makePos(va.px, va.py, va.pz), makePos(vb.px, vb.py, vb.pz));
+  std::map<QEdge, EdgeRec>::iterator it = edges->find(key);
+  if (it == edges->end()) {
+    EdgeRec rec;
+    rec.ax = va.px;
+    rec.ay = va.py;
+    rec.az = va.pz;
+    rec.bx = vb.px;
+    rec.by = vb.py;
+    rec.bz = vb.pz;
+    rec.face0 = face;
+    rec.face1 = -1;
+    rec.nfaces = 1;
+    (*edges)[key] = rec;
+    return;
+  }
+  if (it->second.nfaces == 1) {
+    it->second.face1 = face;
+  }
+  it->second.nfaces += 1;
+}
+
+void faceNormal(const MeshVertex& a, const MeshVertex& b, const MeshVertex& c,
+                float* nx, float* ny, float* nz) {
+  const float e1x = b.px - a.px;
+  const float e1y = b.py - a.py;
+  const float e1z = b.pz - a.pz;
+  const float e2x = c.px - a.px;
+  const float e2y = c.py - a.py;
+  const float e2z = c.pz - a.pz;
+  float x = e1y * e2z - e1z * e2y;
+  float y = e1z * e2x - e1x * e2z;
+  float z = e1x * e2y - e1y * e2x;
+  const float len = sqrtf(x * x + y * y + z * z);
+  if (len > 1e-8f) {
+    x /= len;
+    y /= len;
+    z /= len;
+  }
+  *nx = x;
+  *ny = y;
+  *nz = z;
+}
+
+}  // namespace
+
+void buildSilhouetteEdges(const std::vector<MeshVertex>& verts,
+                          const std::vector<unsigned short>& indices,
+                          std::vector<MeshEdge>* edges,
+                          float thresholdDeg) {
+  if (!edges) {
+    return;
+  }
+  edges->clear();
+  if (verts.empty() || indices.size() < 3) {
+    return;
+  }
+  if (thresholdDeg < 0.f) {
+    thresholdDeg = 0.f;
+  }
+
+  const size_t nfaces = indices.size() / 3;
+  std::vector<float> nx(nfaces, 0.f);
+  std::vector<float> ny(nfaces, 0.f);
+  std::vector<float> nz(nfaces, 0.f);
+  std::map<QEdge, EdgeRec> unique;
+
+  for (size_t f = 0; f < nfaces; ++f) {
+    const unsigned short i0 = indices[f * 3 + 0];
+    const unsigned short i1 = indices[f * 3 + 1];
+    const unsigned short i2 = indices[f * 3 + 2];
+    if (i0 >= verts.size() || i1 >= verts.size() || i2 >= verts.size()) {
+      continue;
+    }
+    faceNormal(verts[i0], verts[i1], verts[i2], &nx[f], &ny[f], &nz[f]);
+    addEdgeFace(&unique, verts[i0], verts[i1], static_cast<int>(f));
+    addEdgeFace(&unique, verts[i1], verts[i2], static_cast<int>(f));
+    addEdgeFace(&unique, verts[i2], verts[i0], static_cast<int>(f));
+  }
+
+  const float threshRad = thresholdDeg * (kPi / 180.f);
+  const float threshDot = cosf(threshRad);
+
+  for (std::map<QEdge, EdgeRec>::const_iterator it = unique.begin(); it != unique.end(); ++it) {
+    const EdgeRec& rec = it->second;
+    bool keep = rec.nfaces == 1;
+    if (rec.nfaces >= 2 && rec.face0 >= 0 && rec.face1 >= 0) {
+      const float dot = nx[static_cast<size_t>(rec.face0)] * nx[static_cast<size_t>(rec.face1)] +
+                        ny[static_cast<size_t>(rec.face0)] * ny[static_cast<size_t>(rec.face1)] +
+                        nz[static_cast<size_t>(rec.face0)] * nz[static_cast<size_t>(rec.face1)];
+      keep = dot <= threshDot;
+    }
+    if (!keep) {
+      continue;
+    }
+    MeshEdge e;
+    e.ax = rec.ax;
+    e.ay = rec.ay;
+    e.az = rec.az;
+    e.bx = rec.bx;
+    e.by = rec.by;
+    e.bz = rec.bz;
+    edges->push_back(e);
   }
 }
 
