@@ -1,0 +1,31 @@
+#include "test_harness.h"
+#include "teach/Transforms.h"
+#include <DirectXMath.h>
+#include <cmath>
+
+static bool near4(float a, float b) {
+  return fabsf(a - b) < 1e-4f;
+}
+
+void runTransformTests() {
+  TransformTRS id = transformIdentity();
+  DirectX::XMMATRIX w = BuildWorld(id);
+  DirectX::XMFLOAT4X4 m;
+  DirectX::XMStoreFloat4x4(&m, w);
+  TEST_CHECK(near4(m._11, 1.f) && near4(m._22, 1.f) && near4(m._33, 1.f) && near4(m._44, 1.f));
+
+  TransformTRS t = transformIdentity();
+  t.pos[0] = 2.f;
+  DirectX::XMStoreFloat4x4(&m, BuildWorld(t));
+  TEST_CHECK(near4(m._41, 2.f)); /* row-major store: translation in _41,_42,_43 */
+
+  TeachingState s = teachingStateDefault();
+  DirectX::XMMATRIX P = BuildProjection(s, 1.f);
+  (void)P;
+  TEST_CHECK(s.nearZ < s.farZ);
+
+  DirectX::XMMATRIX I = DirectX::XMMatrixIdentity();
+  TrackResult tr = TrackPoint(DirectX::XMFLOAT3(1.f, 2.f, 3.f), I, I, I);
+  TEST_CHECK(near4(tr.world.x, 1.f) && near4(tr.world.y, 2.f) && near4(tr.world.z, 3.f));
+  TEST_CHECK(near4(tr.ndc.x, 1.f) && near4(tr.ndc.w, 1.f));
+}

@@ -55,6 +55,7 @@ enable_testing()
 add_executable(3deditmax_tests
   tests/test_main.cpp
   tests/test_queues.cpp
+  tests/test_transforms.cpp
   src/render/CommandQueue.cpp
   src/render/FeedbackQueue.cpp
   src/render/RenderThread.cpp
