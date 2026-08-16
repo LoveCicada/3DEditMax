@@ -1,6 +1,15 @@
+#ifdef _MSC_VER
+#ifndef _CRT_SECURE_NO_WARNINGS
+#define _CRT_SECURE_NO_WARNINGS
+#endif
+#endif
 #include "render/D3D11Renderer.h"
+#include "core/LabState.h"
 #include "teach/Transforms.h"
+#include <cstdio>
 #include <cstring>
+#include <string>
+#include <windows.h>
 
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
@@ -26,6 +35,27 @@ struct FrameCBCpu {
   XMFLOAT4 shadingMode;
 };
 
+void pushCbFloats(FeedbackQueue* fb, const FrameCBCpu& cb) {
+  if (!fb) {
+    return;
+  }
+  char chunk[64];
+  std::string text = "FrameCB";
+  const XMFLOAT4X4* mats[4] = { &cb.w, &cb.v, &cb.p, &cb.wvp };
+  const char* names[4] = { " W", " V", " P", " WVP" };
+  for (int mi = 0; mi < 4; ++mi) {
+    text += names[mi];
+    const float* f = &mats[mi]->m[0][0];
+    for (int i = 0; i < 16; ++i) {
+      std::sprintf(chunk, " %.3f", static_cast<double>(f[i]));
+      text += chunk;
+    }
+  }
+  std::sprintf(chunk, " shade=%.0f", static_cast<double>(cb.shadingMode.x));
+  text += chunk;
+  pushFb(fb, FbLog, text.c_str());
+}
+
 }  // namespace
 
 D3D11Renderer::D3D11Renderer(const std::wstring& shaderDir)
@@ -36,7 +66,11 @@ D3D11Renderer::D3D11Renderer(const std::wstring& shaderDir)
     , m_wantDebug(false)
     , m_initialized(false)
     , m_dead(false)
-    , m_fb(0) {}
+    , m_fb(0)
+    , m_lastLoggedShadeX(-1.f)
+    , m_loggedCb(false) {
+  std::memset(m_shaderVariant, 0, sizeof(m_shaderVariant));
+}
 
 bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, FeedbackQueue* fb) {
   shutdown();
@@ -145,31 +179,7 @@ bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, Feedback
     return false;
   }
 
-  D3D11_RASTERIZER_DESC rd = {};
-  rd.FillMode = D3D11_FILL_SOLID;
-  rd.CullMode = D3D11_CULL_BACK;
-  rd.DepthClipEnable = TRUE;
-  hr = m_device->CreateRasterizerState(&rd, &m_raster);
-  if (FAILED(hr)) {
-    pushFb(fb, FbError, "CreateRasterizerState failed");
-    shutdown();
-    return false;
-  }
-  rd.FillMode = D3D11_FILL_WIREFRAME;
-  hr = m_device->CreateRasterizerState(&rd, &m_rasterWire);
-  if (FAILED(hr)) {
-    pushFb(fb, FbError, "CreateRasterizerState wire failed");
-    shutdown();
-    return false;
-  }
-
-  D3D11_DEPTH_STENCIL_DESC dsd = {};
-  dsd.DepthEnable = TRUE;
-  dsd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
-  dsd.DepthFunc = D3D11_COMPARISON_LESS;
-  hr = m_device->CreateDepthStencilState(&dsd, &m_depthState);
-  if (FAILED(hr)) {
-    pushFb(fb, FbError, "CreateDepthStencilState failed");
+  if (!createLabStates(fb)) {
     shutdown();
     return false;
   }
@@ -205,8 +215,8 @@ bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, Feedback
     return false;
   }
 
-  const std::wstring shaderPath = m_shaderDir + L"/unlit.hlsl";
-  if (!m_shaders.compileFromFile(m_device.Get(), shaderPath, fb)) {
+  copyVariantName("unlit");
+  if (!m_shaders.compileVariant(m_device.Get(), m_shaderDir, m_shaderVariant, fb)) {
     shutdown();
     return false;
   }
@@ -232,9 +242,16 @@ void D3D11Renderer::shutdown() {
   m_sphere = MeshGpu();
   m_cyl = MeshGpu();
   m_cb.Reset();
-  m_depthState.Reset();
-  m_rasterWire.Reset();
-  m_raster.Reset();
+  m_depthOff.Reset();
+  m_depthOn.Reset();
+  for (int fi = 0; fi < 2; ++fi) {
+    for (int ci = 0; ci < 3; ++ci) {
+      m_raster[fi][ci].Reset();
+    }
+  }
+  std::memset(m_shaderVariant, 0, sizeof(m_shaderVariant));
+  m_lastLoggedShadeX = -1.f;
+  m_loggedCb = false;
   m_dsv.Reset();
   m_depth.Reset();
   m_rtv.Reset();
@@ -309,16 +326,20 @@ void D3D11Renderer::render(const StateSnapshot& snap) {
   m_context->ClearDepthStencilView(m_dsv.Get(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.f, 0);
 
   const TeachingState& t = snap.teaching;
+  if (std::strcmp(snap.lab.shaderVariant, m_shaderVariant) != 0) {
+    ShaderSet next;
+    if (next.compileVariant(m_device.Get(), m_shaderDir, snap.lab.shaderVariant, m_fb)) {
+      m_shaders = next;
+    }
+    copyVariantName(snap.lab.shaderVariant);
+  }
   const float aspect = t.aspectFollowViewport
       ? (static_cast<float>(m_w) / static_cast<float>(m_h))
       : t.aspect;
   const XMMATRIX V = BuildView(t.camDistance, t.camPitchDeg, t.camYawDeg);
   const XMMATRIX P = BuildProjection(t, aspect);
   const int count = (t.layout == LayoutThree) ? 3 : 1;
-  const bool wire = (t.shading == ShadeWire);
-  const float shadeX = (t.shading == ShadeNormal) ? 1.f
-      : (t.shading == ShadeChecker) ? 2.f
-      : 0.f;
+  const float shadeX = labShadeModeX(snap.lab.shaderVariant, static_cast<int>(t.shading));
 
   ID3D11Buffer* cbuf = m_cb.Get();
   m_context->VSSetConstantBuffers(0, 1, &cbuf);
@@ -326,8 +347,7 @@ void D3D11Renderer::render(const StateSnapshot& snap) {
   m_context->VSSetShader(m_shaders.vs(), 0, 0);
   m_context->PSSetShader(m_shaders.ps(), 0, 0);
   m_context->IASetInputLayout(m_shaders.layout());
-  m_context->RSSetState(wire ? m_rasterWire.Get() : m_raster.Get());
-  m_context->OMSetDepthStencilState(m_depthState.Get(), 0);
+  bindLabStates(snap);
 
   for (int oi = 0; oi < count; ++oi) {
     const TeachingObject& obj = t.objects[oi];
@@ -345,6 +365,11 @@ void D3D11Renderer::render(const StateSnapshot& snap) {
     if (SUCCEEDED(m_context->Map(m_cb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
       std::memcpy(mapped.pData, &cb, sizeof(cb));
       m_context->Unmap(m_cb.Get(), 0);
+    }
+    if (!m_loggedCb || shadeX != m_lastLoggedShadeX) {
+      m_loggedCb = true;
+      m_lastLoggedShadeX = shadeX;
+      pushCbFloats(m_fb, cb);
     }
 
     const MeshGpu* mesh = &m_cube;
@@ -366,9 +391,9 @@ bool D3D11Renderer::reloadShaders(FeedbackQueue* fb) {
   if (!m_device) {
     return false;
   }
+  const char* variant = m_shaderVariant[0] ? m_shaderVariant : "unlit";
   ShaderSet next;
-  const std::wstring shaderPath = m_shaderDir + L"/unlit.hlsl";
-  if (!next.compileFromFile(m_device.Get(), shaderPath, fb)) {
+  if (!next.compileVariant(m_device.Get(), m_shaderDir, variant, fb)) {
     return false;
   }
   m_shaders = next;
@@ -378,6 +403,85 @@ bool D3D11Renderer::reloadShaders(FeedbackQueue* fb) {
     m_debug = debugNext;
   }
   return true;
+}
+
+std::string D3D11Renderer::adapterNameUtf8() const {
+  if (!m_adapter) {
+    return std::string();
+  }
+  DXGI_ADAPTER_DESC desc;
+  if (FAILED(m_adapter->GetDesc(&desc))) {
+    return std::string();
+  }
+  const wchar_t* w = desc.Description;
+  if (!w || !w[0]) {
+    return std::string();
+  }
+  const int n = WideCharToMultiByte(CP_UTF8, 0, w, -1, 0, 0, 0, 0);
+  if (n <= 1) {
+    return std::string();
+  }
+  std::string out(static_cast<size_t>(n - 1), '\0');
+  WideCharToMultiByte(CP_UTF8, 0, w, -1, &out[0], n, 0, 0);
+  return out;
+}
+
+bool D3D11Renderer::createLabStates(FeedbackQueue* fb) {
+  const D3D11_FILL_MODE fills[2] = { D3D11_FILL_SOLID, D3D11_FILL_WIREFRAME };
+  const D3D11_CULL_MODE culls[3] = { D3D11_CULL_NONE, D3D11_CULL_FRONT, D3D11_CULL_BACK };
+  for (int fi = 0; fi < 2; ++fi) {
+    for (int ci = 0; ci < 3; ++ci) {
+      D3D11_RASTERIZER_DESC rd = {};
+      rd.FillMode = fills[fi];
+      rd.CullMode = culls[ci];
+      rd.DepthClipEnable = TRUE;
+      const HRESULT hr = m_device->CreateRasterizerState(&rd, &m_raster[fi][ci]);
+      if (FAILED(hr)) {
+        pushFb(fb, FbError, "CreateRasterizerState failed");
+        return false;
+      }
+    }
+  }
+
+  D3D11_DEPTH_STENCIL_DESC dsd = {};
+  dsd.DepthEnable = TRUE;
+  dsd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+  dsd.DepthFunc = D3D11_COMPARISON_LESS;
+  HRESULT hr = m_device->CreateDepthStencilState(&dsd, &m_depthOn);
+  if (FAILED(hr)) {
+    pushFb(fb, FbError, "CreateDepthStencilState failed");
+    return false;
+  }
+  dsd.DepthEnable = FALSE;
+  dsd.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ZERO;
+  hr = m_device->CreateDepthStencilState(&dsd, &m_depthOff);
+  if (FAILED(hr)) {
+    pushFb(fb, FbError, "CreateDepthStencilState off failed");
+    return false;
+  }
+  return true;
+}
+
+void D3D11Renderer::bindLabStates(const StateSnapshot& snap) {
+  const int fill = labEffectiveFillMode(snap.lab.fillMode, snap.teaching.shading == ShadeWire);
+  const int cull = labEffectiveCullMode(snap.lab.cullMode);
+  const int fi = (fill == 2) ? 1 : 0;
+  int ci = cull - 1;
+  if (ci < 0 || ci > 2) {
+    ci = 2;
+  }
+  m_context->RSSetState(m_raster[fi][ci].Get());
+  m_context->OMSetDepthStencilState(snap.lab.depthEnable ? m_depthOn.Get() : m_depthOff.Get(), 0);
+}
+
+void D3D11Renderer::copyVariantName(const char* name) {
+  std::memset(m_shaderVariant, 0, sizeof(m_shaderVariant));
+  if (!name) {
+    return;
+  }
+  for (int i = 0; name[i] && i < 31; ++i) {
+    m_shaderVariant[i] = name[i];
+  }
 }
 
 bool D3D11Renderer::createSizeDependentResources() {

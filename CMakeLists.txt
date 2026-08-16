@@ -40,6 +40,8 @@ add_executable(3DEditMax
   src/ui/MatrixBoardPanel.cpp
   src/ui/TutorialPanel.h
   src/ui/TutorialPanel.cpp
+  src/ui/LabPanel.h
+  src/ui/LabPanel.cpp
   src/core/SnapshotBuffer.cpp
   src/core/MatrixFormat.cpp
   src/render/CommandQueue.cpp
@@ -74,6 +76,7 @@ add_executable(3deditmax_tests
   tests/test_transforms.cpp
   tests/test_tutorial.cpp
   tests/test_json.cpp
+  tests/test_lab.cpp
   src/render/CommandQueue.cpp
   src/render/FeedbackQueue.cpp
   src/render/RenderThread.cpp

@@ -17,12 +17,16 @@ public:
   bool resize(int w, int h);
   void render(const StateSnapshot& snap);
   bool reloadShaders(FeedbackQueue* fb);
+  std::string adapterNameUtf8() const;
   bool dead() const { return m_dead; }
   bool initialized() const { return m_initialized; }
   bool viewsValid() const { return m_rtv && m_dsv; }
 private:
   bool createSizeDependentResources();
+  bool createLabStates(FeedbackQueue* fb);
+  void bindLabStates(const StateSnapshot& snap);
   void handlePresentResult(HRESULT hr);
+  void copyVariantName(const char* name);
   std::wstring m_shaderDir;
   HWND m_hwnd;
   int m_w;
@@ -39,9 +43,12 @@ private:
   Microsoft::WRL::ComPtr<ID3D11RenderTargetView> m_rtv;
   Microsoft::WRL::ComPtr<ID3D11Texture2D> m_depth;
   Microsoft::WRL::ComPtr<ID3D11DepthStencilView> m_dsv;
-  Microsoft::WRL::ComPtr<ID3D11RasterizerState> m_raster;
-  Microsoft::WRL::ComPtr<ID3D11RasterizerState> m_rasterWire;
-  Microsoft::WRL::ComPtr<ID3D11DepthStencilState> m_depthState;
+  Microsoft::WRL::ComPtr<ID3D11RasterizerState> m_raster[2][3];
+  Microsoft::WRL::ComPtr<ID3D11DepthStencilState> m_depthOn;
+  Microsoft::WRL::ComPtr<ID3D11DepthStencilState> m_depthOff;
+  char m_shaderVariant[32];
+  float m_lastLoggedShadeX;
+  bool m_loggedCb;
   Microsoft::WRL::ComPtr<ID3D11Buffer> m_cb;
   MeshGpu m_cube;
   MeshGpu m_sphere;

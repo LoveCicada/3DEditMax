@@ -13,6 +13,7 @@ public:
   explicit Dx11ViewportWidget(QWidget* parent = 0);
   ~Dx11ViewportWidget();
   void publishState(const TeachingState& t, const LabState& l);
+  void reloadShaders();
   FeedbackQueue& feedback();
 signals:
   void teachingEdited(const TeachingState& t);

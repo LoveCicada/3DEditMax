@@ -7,6 +7,7 @@
 
 class DebugLogPanel;
 class Dx11ViewportWidget;
+class LabPanel;
 class MatrixBoardPanel;
 class ObjectPanel;
 class QAction;
@@ -26,6 +27,7 @@ private slots:
   void onTrackerChanged();
   void onTeachingEdited(const TeachingState& t);
   void onTutorialApply(const TeachingState& t);
+  void onLabChanged();
   void onToggleMajor();
   void onReset();
   void onImportJson();
@@ -42,6 +44,7 @@ private:
   ObjectPanel* m_objects;
   TrackerPanel* m_tracker;
   MatrixBoardPanel* m_board;
+  LabPanel* m_labPanel;
   DebugLogPanel* m_log;
   TutorialPanel* m_tutorial;
   QTimer* m_poll;

@@ -42,6 +42,18 @@ void Dx11ViewportWidget::publishState(const TeachingState& t, const LabState& l)
   m_thread->snapshots().publish(snap);
 }
 
+void Dx11ViewportWidget::reloadShaders() {
+  if (!m_thread) {
+    return;
+  }
+  RenderCommand cmd;
+  cmd.type = CmdReloadShader;
+  cmd.hwnd = hwnd();
+  cmd.width = width();
+  cmd.height = height();
+  m_thread->commands().push(cmd);
+}
+
 FeedbackQueue& Dx11ViewportWidget::feedback() {
   if (m_thread) {
     return m_thread->feedback();

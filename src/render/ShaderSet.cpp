@@ -17,7 +17,21 @@ static void pushCompileError(FeedbackQueue* fb, ID3DBlob* err) {
   fb->push(item);
 }
 
+bool ShaderSet::compileVariant(ID3D11Device* device, const std::wstring& shaderDir, const char* variant, FeedbackQueue* fb) {
+  const char* name = (variant && variant[0]) ? variant : "unlit";
+  D3D_SHADER_MACRO macros[2] = {};
+  macros[0].Name = "SHADER_VARIANT";
+  macros[0].Definition = name;
+  const std::wstring path = shaderDir + L"/unlit.hlsl";
+  return compileFromFileEx(device, path, fb, macros);
+}
+
 bool ShaderSet::compileFromFile(ID3D11Device* device, const std::wstring& path, FeedbackQueue* fb) {
+  return compileFromFileEx(device, path, fb, 0);
+}
+
+bool ShaderSet::compileFromFileEx(ID3D11Device* device, const std::wstring& path, FeedbackQueue* fb, const void* macros) {
+  const D3D_SHADER_MACRO* defs = static_cast<const D3D_SHADER_MACRO*>(macros);
   if (!device) {
     if (fb) {
       FeedbackItem item;
@@ -35,7 +49,7 @@ bool ShaderSet::compileFromFile(ID3D11Device* device, const std::wstring& path, 
 
   HRESULT hr = D3DCompileFromFile(
       path.c_str(),
-      0,
+      defs,
       D3D_COMPILE_STANDARD_FILE_INCLUDE,
       "vs_main",
       "vs_5_0",
@@ -51,7 +65,7 @@ bool ShaderSet::compileFromFile(ID3D11Device* device, const std::wstring& path, 
   err.Reset();
   hr = D3DCompileFromFile(
       path.c_str(),
-      0,
+      defs,
       D3D_COMPILE_STANDARD_FILE_INCLUDE,
       "ps_main",
       "ps_5_0",

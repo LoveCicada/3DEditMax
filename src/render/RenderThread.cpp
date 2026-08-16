@@ -1,5 +1,6 @@
 #include "render/RenderThread.h"
 #include <chrono>
+#include <string>
 
 RenderThread::RenderThread() : RenderThread(std::wstring()) {}
 
@@ -56,6 +57,16 @@ void RenderThread::threadMain() {
         m_h = cmd.height;
 #ifndef D3DEDITMAX_NO_D3D
         allowPresent = m_renderer.initialize(cmd.hwnd, cmd.width, cmd.height, true, &m_feedback);
+        if (allowPresent) {
+          const std::string adapter = m_renderer.adapterNameUtf8();
+          if (!adapter.empty()) {
+            FeedbackItem item;
+            item.kind = FbLog;
+            item.text = std::string("Adapter: ") + adapter;
+            item.ms = 0.f;
+            m_feedback.push(item);
+          }
+        }
 #endif
       } else if (cmd.type == CmdResize) {
         m_w = cmd.width;

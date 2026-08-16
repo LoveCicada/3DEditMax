@@ -5,6 +5,7 @@ void runRenderThreadTests();
 void runTransformTests();
 void runTutorialTests();
 void runJsonTests();
+void runLabTests();
 
 int& testFailureCount() {
   static int n = 0;
@@ -18,6 +19,7 @@ int main() {
   runTransformTests();
   runTutorialTests();
   runJsonTests();
+  runLabTests();
   if (testFailureCount() != 0) {
     return 1;
   }

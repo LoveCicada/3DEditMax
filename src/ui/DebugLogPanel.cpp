@@ -18,6 +18,9 @@ void DebugLogPanel::drain(FeedbackQueue& q) {
     if (item.kind == FbFps) {
       continue;
     }
+    if (item.kind == FbLog && item.text.size() >= 9 && item.text.compare(0, 9, "Adapter: ") == 0) {
+      m_adapter = QString::fromUtf8(item.text.c_str() + 9);
+    }
     const char* tag = 0;
     if (item.kind == FbError) {
       tag = "[Error] ";
@@ -30,6 +33,10 @@ void DebugLogPanel::drain(FeedbackQueue& q) {
     }
     m_edit->appendPlainText(QString::fromUtf8(tag) + QString::fromUtf8(item.text.c_str()));
   }
+}
+
+QString DebugLogPanel::adapterName() const {
+  return m_adapter;
 }
 
 void DebugLogPanel::appendFromQueue(FeedbackQueue& q) {

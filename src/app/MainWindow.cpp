@@ -3,6 +3,7 @@
 #include "teach/Transforms.h"
 #include "ui/DebugLogPanel.h"
 #include "ui/Dx11ViewportWidget.h"
+#include "ui/LabPanel.h"
 #include "ui/MatrixBoardPanel.h"
 #include "ui/ObjectPanel.h"
 #include "ui/TrackerPanel.h"
@@ -17,6 +18,7 @@
 #include <QMessageBox>
 #include <QTimer>
 #include <QToolBar>
+#include <QVBoxLayout>
 #include <DirectXMath.h>
 #include <string>
 
@@ -27,6 +29,7 @@ MainWindow::MainWindow(QWidget* parent)
     , m_objects(0)
     , m_tracker(0)
     , m_board(0)
+    , m_labPanel(0)
     , m_log(0)
     , m_tutorial(0)
     , m_poll(0)
@@ -43,6 +46,7 @@ MainWindow::MainWindow(QWidget* parent)
   m_objects = new ObjectPanel(this);
   m_tracker = new TrackerPanel(this);
   m_board = new MatrixBoardPanel(this);
+  m_labPanel = new LabPanel(this);
   m_log = new DebugLogPanel(this);
   m_tutorial = new TutorialPanel(this);
   setCentralWidget(m_viewport);
@@ -69,9 +73,15 @@ MainWindow::MainWindow(QWidget* parent)
   addDockWidget(Qt::RightDockWidgetArea, dockTracker);
   splitDockWidget(dockMatrix, dockTracker, Qt::Vertical);
 
+  QWidget* labDockInner = new QWidget(this);
+  QVBoxLayout* labDockLay = new QVBoxLayout(labDockInner);
+  labDockLay->setContentsMargins(0, 0, 0, 0);
+  labDockLay->addWidget(m_labPanel, 1);
+  labDockLay->addWidget(m_log, 1);
+
   QDockWidget* dockDebug = new QDockWidget(QString::fromUtf8("DX11 Lab / Debug"), this);
   dockDebug->setObjectName(QString::fromUtf8("dockDebug"));
-  dockDebug->setWidget(m_log);
+  dockDebug->setWidget(labDockInner);
   addDockWidget(Qt::RightDockWidgetArea, dockDebug);
   splitDockWidget(dockMatrix, dockDebug, Qt::Vertical);
 
@@ -103,6 +113,8 @@ MainWindow::MainWindow(QWidget* parent)
   connect(m_tracker, &TrackerPanel::changed, this, &MainWindow::onTrackerChanged);
   connect(m_viewport, &Dx11ViewportWidget::teachingEdited, this, &MainWindow::onTeachingEdited);
   connect(m_tutorial, &TutorialPanel::applyState, this, &MainWindow::onTutorialApply);
+  connect(m_labPanel, &LabPanel::changed, this, &MainWindow::onLabChanged);
+  connect(m_labPanel, &LabPanel::reloadShaders, m_viewport, &Dx11ViewportWidget::reloadShaders);
   connect(m_majorAction, &QAction::triggered, this, &MainWindow::onToggleMajor);
   connect(resetAction, &QAction::triggered, this, &MainWindow::onReset);
   connect(importAction, &QAction::triggered, this, &MainWindow::onImportJson);
@@ -123,6 +135,9 @@ MainWindow::MainWindow(QWidget* parent)
 
 void MainWindow::onPollFeedback() {
   m_log->drain(m_viewport->feedback());
+  if (!m_log->adapterName().isEmpty()) {
+    m_labPanel->setDeviceDescription(m_log->adapterName());
+  }
 }
 
 void MainWindow::syncTeaching() {
@@ -158,6 +173,11 @@ void MainWindow::onTeachingEdited(const TeachingState& t) {
   refreshTracker();
 }
 
+void MainWindow::onLabChanged() {
+  m_lab = m_labPanel->state();
+  m_viewport->publishState(m_teaching, m_lab);
+}
+
 void MainWindow::onTutorialApply(const TeachingState& t) {
   if (t.demoPlaying) {
     m_teaching.demoPlaying = true;
@@ -177,11 +197,14 @@ void MainWindow::onToggleMajor() {
   m_major = (m_major == MajorColumn) ? MajorRow : MajorColumn;
   syncMajorActionText();
   m_board->setMajorOrder(m_major);
+  refreshBoard();
 }
 
 void MainWindow::onReset() {
   m_demoTimer->stop();
   m_teaching = teachingStateDefault();
+  m_lab = labStateDefault();
+  m_labPanel->setState(m_lab);
   m_tutorial->setStepIndex(0);
   syncTeaching();
 }
@@ -273,6 +296,24 @@ void MainWindow::refreshBoard() {
   XMStoreFloat4x4(&p, P);
   XMStoreFloat4x4(&wvp, WVP);
   m_board->setMatrices(w, v, p, wvp, m_major);
+
+  char lines[4][64];
+  QString cb;
+  const char* titles[4] = { "W", "V", "P", "WVP" };
+  const XMFLOAT4X4* mats[4] = { &w, &v, &p, &wvp };
+  for (int mi = 0; mi < 4; ++mi) {
+    if (mi > 0) {
+      cb += QChar::fromLatin1('\n');
+    }
+    cb += QString::fromUtf8(titles[mi]);
+    cb += QChar::fromLatin1('\n');
+    formatMatrix4(*mats[mi], m_major, lines);
+    for (int i = 0; i < 4; ++i) {
+      cb += QString::fromUtf8(lines[i]);
+      cb += QChar::fromLatin1('\n');
+    }
+  }
+  m_labPanel->setCbText(cb);
 }
 
 void MainWindow::refreshTracker() {
