@@ -30,7 +30,12 @@ add_executable(3DEditMax
   src/ui/Dx11ViewportWidget.cpp
   src/ui/DebugLogPanel.h
   src/ui/DebugLogPanel.cpp
+  src/ui/TransformPanel.h
+  src/ui/TransformPanel.cpp
+  src/ui/MatrixBoardPanel.h
+  src/ui/MatrixBoardPanel.cpp
   src/core/SnapshotBuffer.cpp
+  src/core/MatrixFormat.cpp
   src/render/CommandQueue.cpp
   src/render/FeedbackQueue.cpp
   src/render/RenderThread.cpp
@@ -60,6 +65,7 @@ add_executable(3deditmax_tests
   src/render/FeedbackQueue.cpp
   src/render/RenderThread.cpp
   src/core/SnapshotBuffer.cpp
+  src/core/MatrixFormat.cpp
   src/teach/Transforms.cpp
 )
 target_include_directories(3deditmax_tests PRIVATE
