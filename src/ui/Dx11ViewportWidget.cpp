@@ -6,6 +6,7 @@
 #include <QPaintEvent>
 #include <QResizeEvent>
 #include <QShowEvent>
+#include <QTimer>
 #include <QWheelEvent>
 #include <windows.h>
 
@@ -13,7 +14,9 @@ Dx11ViewportWidget::Dx11ViewportWidget(QWidget* parent)
     : QWidget(parent)
     , m_teaching(teachingStateDefault())
     , m_lab(labStateDefault())
-    , m_lastMouse(0, 0) {
+    , m_lastMouse(0, 0)
+    , m_orbitEditTimer(0)
+    , m_orbiting(false) {
   setAttribute(Qt::WA_NativeWindow, true);
   setAttribute(Qt::WA_DontCreateNativeAncestors, true);
   setAttribute(Qt::WA_OpaquePaintEvent, true);
@@ -22,6 +25,10 @@ Dx11ViewportWidget::Dx11ViewportWidget(QWidget* parent)
   setMinimumSize(320, 180);
   setMouseTracking(true);
   setFocusPolicy(Qt::StrongFocus);
+  m_orbitEditTimer = new QTimer(this);
+  m_orbitEditTimer->setSingleShot(true);
+  m_orbitEditTimer->setInterval(50);
+  connect(m_orbitEditTimer, &QTimer::timeout, this, &Dx11ViewportWidget::flushTeachingEdited);
 }
 
 Dx11ViewportWidget::~Dx11ViewportWidget() {
@@ -93,9 +100,22 @@ void Dx11ViewportWidget::paintEvent(QPaintEvent*) {
 void Dx11ViewportWidget::mousePressEvent(QMouseEvent* e) {
   if (e->button() == Qt::LeftButton) {
     m_lastMouse = e->pos();
+    m_orbiting = true;
+    grabMouse();
     setFocus(Qt::MouseFocusReason);
   }
   QWidget::mousePressEvent(e);
+}
+
+void Dx11ViewportWidget::mouseReleaseEvent(QMouseEvent* e) {
+  if (e->button() == Qt::LeftButton && m_orbiting) {
+    m_orbiting = false;
+    releaseMouse();
+    m_orbitEditTimer->stop();
+    publishState(m_teaching, m_lab);
+    emit teachingEdited(m_teaching);
+  }
+  QWidget::mouseReleaseEvent(e);
 }
 
 void Dx11ViewportWidget::mouseMoveEvent(QMouseEvent* e) {
@@ -151,6 +171,16 @@ void Dx11ViewportWidget::stopRenderer() {
 
 void Dx11ViewportWidget::commitTeaching() {
   publishState(m_teaching, m_lab);
+  if (!m_orbiting) {
+    emit teachingEdited(m_teaching);
+    return;
+  }
+  if (!m_orbitEditTimer->isActive()) {
+    m_orbitEditTimer->start();
+  }
+}
+
+void Dx11ViewportWidget::flushTeachingEdited() {
   emit teachingEdited(m_teaching);
 }
 

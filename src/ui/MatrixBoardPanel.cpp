@@ -1,5 +1,6 @@
 #include "ui/MatrixBoardPanel.h"
 #include <QFont>
+#include <QFontMetrics>
 #include <QGroupBox>
 #include <QPlainTextEdit>
 #include <QVBoxLayout>
@@ -14,6 +15,8 @@ static QPlainTextEdit* makeMatrixEdit(QWidget* parent) {
   edit->setFont(font);
   edit->setLineWrapMode(QPlainTextEdit::NoWrap);
   edit->setTabChangesFocus(true);
+  const QFontMetrics fm(edit->font());
+  edit->setMinimumHeight(fm.lineSpacing() * 4 + 28);
   return edit;
 }
 

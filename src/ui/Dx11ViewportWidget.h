@@ -7,6 +7,8 @@
 #include <QWidget>
 #include <memory>
 
+class QTimer;
+
 class Dx11ViewportWidget : public QWidget {
   Q_OBJECT
 public:
@@ -23,6 +25,7 @@ protected:
   void resizeEvent(QResizeEvent* e);
   void paintEvent(QPaintEvent* e);
   void mousePressEvent(QMouseEvent* e);
+  void mouseReleaseEvent(QMouseEvent* e);
   void mouseMoveEvent(QMouseEvent* e);
   void wheelEvent(QWheelEvent* e);
   QPaintEngine* paintEngine() const;
@@ -30,9 +33,12 @@ private:
   void startRenderer();
   void stopRenderer();
   void commitTeaching();
+  void flushTeachingEdited();
   HWND hwnd() const;
   std::unique_ptr<RenderThread> m_thread;
   TeachingState m_teaching;
   LabState m_lab;
   QPoint m_lastMouse;
+  QTimer* m_orbitEditTimer;
+  bool m_orbiting;
 };

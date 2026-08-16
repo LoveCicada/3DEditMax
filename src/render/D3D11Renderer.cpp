@@ -277,6 +277,9 @@ bool D3D11Renderer::resize(int w, int h) {
   if (!m_swap || !m_context) {
     return false;
   }
+  if (w == m_w && h == m_h && m_rtv && m_dsv) {
+    return true;
+  }
   m_w = w;
   m_h = h;
   m_context->OMSetRenderTargets(0, 0, 0);
