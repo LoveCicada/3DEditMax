@@ -38,6 +38,8 @@ add_executable(3DEditMax
   src/ui/TrackerPanel.cpp
   src/ui/MatrixBoardPanel.h
   src/ui/MatrixBoardPanel.cpp
+  src/ui/TutorialPanel.h
+  src/ui/TutorialPanel.cpp
   src/core/SnapshotBuffer.cpp
   src/core/MatrixFormat.cpp
   src/render/CommandQueue.cpp
@@ -49,6 +51,9 @@ add_executable(3DEditMax
   src/render/ShaderSet.cpp
   src/teach/Transforms.cpp
   src/teach/MeshBuild.cpp
+  src/teach/TutorialScript.cpp
+  src/teach/DemoPlayer.cpp
+  src/teach/JsonIo.cpp
 )
 
 target_include_directories(3DEditMax PRIVATE "${CMAKE_SOURCE_DIR}/src")
@@ -67,6 +72,8 @@ add_executable(3deditmax_tests
   tests/test_main.cpp
   tests/test_queues.cpp
   tests/test_transforms.cpp
+  tests/test_tutorial.cpp
+  tests/test_json.cpp
   src/render/CommandQueue.cpp
   src/render/FeedbackQueue.cpp
   src/render/RenderThread.cpp
@@ -74,10 +81,16 @@ add_executable(3deditmax_tests
   src/core/MatrixFormat.cpp
   src/teach/Transforms.cpp
   src/teach/MeshBuild.cpp
+  src/teach/TutorialScript.cpp
+  src/teach/DemoPlayer.cpp
+  src/teach/JsonIo.cpp
 )
 target_include_directories(3deditmax_tests PRIVATE
   "${CMAKE_SOURCE_DIR}/src"
   "${CMAKE_SOURCE_DIR}/tests"
 )
 target_compile_definitions(3deditmax_tests PRIVATE D3DEDITMAX_NO_D3D)
+if(MSVC)
+  target_compile_options(3deditmax_tests PRIVATE /utf-8)
+endif()
 add_test(NAME 3deditmax_tests COMMAND 3deditmax_tests)

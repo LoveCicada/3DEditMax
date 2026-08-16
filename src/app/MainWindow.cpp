@@ -1,4 +1,5 @@
 #include "app/MainWindow.h"
+#include "teach/JsonIo.h"
 #include "teach/Transforms.h"
 #include "ui/DebugLogPanel.h"
 #include "ui/Dx11ViewportWidget.h"
@@ -6,13 +7,18 @@
 #include "ui/ObjectPanel.h"
 #include "ui/TrackerPanel.h"
 #include "ui/TransformPanel.h"
+#include "ui/TutorialPanel.h"
 #include <QAction>
 #include <QDockWidget>
+#include <QFile>
+#include <QFileDialog>
 #include <QMenu>
 #include <QMenuBar>
+#include <QMessageBox>
 #include <QTimer>
 #include <QToolBar>
 #include <DirectXMath.h>
+#include <string>
 
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
@@ -22,7 +28,9 @@ MainWindow::MainWindow(QWidget* parent)
     , m_tracker(0)
     , m_board(0)
     , m_log(0)
+    , m_tutorial(0)
     , m_poll(0)
+    , m_demoTimer(0)
     , m_majorAction(0)
     , m_teaching(teachingStateDefault())
     , m_lab(labStateDefault())
@@ -36,6 +44,7 @@ MainWindow::MainWindow(QWidget* parent)
   m_tracker = new TrackerPanel(this);
   m_board = new MatrixBoardPanel(this);
   m_log = new DebugLogPanel(this);
+  m_tutorial = new TutorialPanel(this);
   setCentralWidget(m_viewport);
 
   QDockWidget* dockTransforms = new QDockWidget(QString::fromUtf8("\xE5\x8F\x98\xE6\x8D\xA2"), this);
@@ -66,11 +75,20 @@ MainWindow::MainWindow(QWidget* parent)
   addDockWidget(Qt::RightDockWidgetArea, dockDebug);
   splitDockWidget(dockMatrix, dockDebug, Qt::Vertical);
 
+  QDockWidget* dockTutorial = new QDockWidget(QString::fromUtf8("\xE6\x95\x99\xE7\xA8\x8B"), this);
+  dockTutorial->setObjectName(QString::fromUtf8("dockTutorial"));
+  dockTutorial->setWidget(m_tutorial);
+  addDockWidget(Qt::BottomDockWidgetArea, dockTutorial);
+
   QToolBar* toolbar = addToolBar(QString::fromUtf8("Teach"));
   toolbar->setObjectName(QString::fromUtf8("toolbarTeach"));
   m_majorAction = toolbar->addAction(QString());
   QAction* resetAction = toolbar->addAction(QString::fromUtf8("\xE9\x87\x8D\xE7\xBD\xAE"));
   syncMajorActionText();
+
+  QMenu* fileMenu = menuBar()->addMenu(QString::fromUtf8("\xE6\x96\x87\xE4\xBB\xB6"));
+  QAction* importAction = fileMenu->addAction(QString::fromUtf8("\xE5\xAF\xBC\xE5\x85\xA5"));
+  QAction* exportAction = fileMenu->addAction(QString::fromUtf8("\xE5\xAF\xBC\xE5\x87\xBA"));
 
   QMenu* viewMenu = menuBar()->addMenu(QString::fromUtf8("\xE8\xA7\x86\xE5\x9B\xBE"));
   viewMenu->addAction(dockTransforms->toggleViewAction());
@@ -78,56 +96,57 @@ MainWindow::MainWindow(QWidget* parent)
   viewMenu->addAction(dockMatrix->toggleViewAction());
   viewMenu->addAction(dockTracker->toggleViewAction());
   viewMenu->addAction(dockDebug->toggleViewAction());
+  viewMenu->addAction(dockTutorial->toggleViewAction());
 
   connect(m_transforms, &TransformPanel::changed, this, &MainWindow::onTransformsChanged);
   connect(m_objects, &ObjectPanel::changed, this, &MainWindow::onObjectsChanged);
   connect(m_tracker, &TrackerPanel::changed, this, &MainWindow::onTrackerChanged);
   connect(m_viewport, &Dx11ViewportWidget::teachingEdited, this, &MainWindow::onTeachingEdited);
+  connect(m_tutorial, &TutorialPanel::applyState, this, &MainWindow::onTutorialApply);
   connect(m_majorAction, &QAction::triggered, this, &MainWindow::onToggleMajor);
   connect(resetAction, &QAction::triggered, this, &MainWindow::onReset);
+  connect(importAction, &QAction::triggered, this, &MainWindow::onImportJson);
+  connect(exportAction, &QAction::triggered, this, &MainWindow::onExportJson);
 
-  m_transforms->setState(m_teaching);
-  m_objects->setState(m_teaching);
-  m_tracker->setState(m_teaching);
-  m_viewport->publishState(m_teaching, m_lab);
-  refreshBoard();
-  refreshTracker();
+  m_tutorial->setStepIndex(m_teaching.tutorialStep);
+  syncTeaching();
 
   m_poll = new QTimer(this);
   m_poll->setInterval(100);
   connect(m_poll, &QTimer::timeout, this, &MainWindow::onPollFeedback);
   m_poll->start();
+
+  m_demoTimer = new QTimer(this);
+  m_demoTimer->setInterval(16);
+  connect(m_demoTimer, &QTimer::timeout, this, &MainWindow::onDemoTick);
 }
 
 void MainWindow::onPollFeedback() {
   m_log->drain(m_viewport->feedback());
 }
 
-void MainWindow::onTransformsChanged() {
-  m_teaching = m_transforms->state();
+void MainWindow::syncTeaching() {
+  m_transforms->setState(m_teaching);
   m_objects->setState(m_teaching);
   m_tracker->setState(m_teaching);
   m_viewport->publishState(m_teaching, m_lab);
   refreshBoard();
   refreshTracker();
+}
+
+void MainWindow::onTransformsChanged() {
+  m_teaching = m_transforms->state();
+  syncTeaching();
 }
 
 void MainWindow::onObjectsChanged() {
   m_teaching = m_objects->state();
-  m_transforms->setState(m_teaching);
-  m_tracker->setState(m_teaching);
-  m_viewport->publishState(m_teaching, m_lab);
-  refreshBoard();
-  refreshTracker();
+  syncTeaching();
 }
 
 void MainWindow::onTrackerChanged() {
   m_teaching = m_tracker->state();
-  m_transforms->setState(m_teaching);
-  m_objects->setState(m_teaching);
-  m_viewport->publishState(m_teaching, m_lab);
-  refreshBoard();
-  refreshTracker();
+  syncTeaching();
 }
 
 void MainWindow::onTeachingEdited(const TeachingState& t) {
@@ -139,6 +158,21 @@ void MainWindow::onTeachingEdited(const TeachingState& t) {
   refreshTracker();
 }
 
+void MainWindow::onTutorialApply(const TeachingState& t) {
+  if (t.demoPlaying) {
+    m_teaching.demoPlaying = true;
+    m_demo.start(m_teaching);
+    m_demo.tick(0.f, &m_teaching);
+    syncTeaching();
+    m_demoTimer->start();
+    return;
+  }
+  m_demoTimer->stop();
+  m_teaching = t;
+  m_teaching.demoPlaying = false;
+  syncTeaching();
+}
+
 void MainWindow::onToggleMajor() {
   m_major = (m_major == MajorColumn) ? MajorRow : MajorColumn;
   syncMajorActionText();
@@ -146,13 +180,76 @@ void MainWindow::onToggleMajor() {
 }
 
 void MainWindow::onReset() {
+  m_demoTimer->stop();
   m_teaching = teachingStateDefault();
-  m_transforms->setState(m_teaching);
-  m_objects->setState(m_teaching);
-  m_tracker->setState(m_teaching);
-  m_viewport->publishState(m_teaching, m_lab);
-  refreshBoard();
-  refreshTracker();
+  m_tutorial->setStepIndex(0);
+  syncTeaching();
+}
+
+void MainWindow::onImportJson() {
+  const QString path = QFileDialog::getOpenFileName(
+      this,
+      QString::fromUtf8("\xE5\xAF\xBC\xE5\x85\xA5"),
+      QString(),
+      QString::fromUtf8("JSON (*.json)"));
+  if (path.isEmpty()) {
+    return;
+  }
+  QFile file(path);
+  if (!file.open(QIODevice::ReadOnly)) {
+    QMessageBox::warning(this,
+                         QString::fromUtf8("\xE5\xAF\xBC\xE5\x85\xA5"),
+                         QString::fromUtf8("JSON \xE6\x97\xA0\xE6\x95\x88"));
+    return;
+  }
+  const QByteArray bytes = file.readAll();
+  const std::string in(bytes.constData(), static_cast<size_t>(bytes.size()));
+  TeachingState s;
+  if (!teachingFromJson(in, &s)) {
+    QMessageBox::warning(this,
+                         QString::fromUtf8("\xE5\xAF\xBC\xE5\x85\xA5"),
+                         QString::fromUtf8("JSON \xE6\x97\xA0\xE6\x95\x88"));
+    return;
+  }
+  m_demoTimer->stop();
+  s.demoPlaying = false;
+  m_teaching = s;
+  syncTeaching();
+}
+
+void MainWindow::onExportJson() {
+  const QString path = QFileDialog::getSaveFileName(
+      this,
+      QString::fromUtf8("\xE5\xAF\xBC\xE5\x87\xBA"),
+      QString(),
+      QString::fromUtf8("JSON (*.json)"));
+  if (path.isEmpty()) {
+    return;
+  }
+  std::string json;
+  if (!teachingToJson(m_teaching, &json)) {
+    return;
+  }
+  QFile file(path);
+  if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+    QMessageBox::warning(this,
+                         QString::fromUtf8("\xE5\xAF\xBC\xE5\x87\xBA"),
+                         QString::fromUtf8("JSON \xE6\x97\xA0\xE6\x95\x88"));
+    return;
+  }
+  file.write(json.data(), static_cast<qint64>(json.size()));
+}
+
+void MainWindow::onDemoTick() {
+  if (!m_teaching.demoPlaying) {
+    m_demoTimer->stop();
+    return;
+  }
+  if (!m_demo.tick(0.016f, &m_teaching)) {
+    m_teaching.demoPlaying = false;
+    m_demoTimer->stop();
+  }
+  syncTeaching();
 }
 
 void MainWindow::refreshBoard() {
