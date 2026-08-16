@@ -9,7 +9,6 @@
 #include <QPaintEvent>
 #include <QResizeEvent>
 #include <QShowEvent>
-#include <QTimer>
 #include <QVBoxLayout>
 #include <QWheelEvent>
 #include <windows.h>
@@ -19,7 +18,6 @@ Dx11ViewportWidget::Dx11ViewportWidget(QWidget* parent)
     , m_teaching(teachingStateDefault())
     , m_lab(labStateDefault())
     , m_lastMouse(0, 0)
-    , m_orbitEditTimer(0)
     , m_axisLegend(0)
     , m_orbiting(false) {
   setAttribute(Qt::WA_NativeWindow, true);
@@ -30,10 +28,6 @@ Dx11ViewportWidget::Dx11ViewportWidget(QWidget* parent)
   setMinimumSize(320, 180);
   setMouseTracking(true);
   setFocusPolicy(Qt::StrongFocus);
-  m_orbitEditTimer = new QTimer(this);
-  m_orbitEditTimer->setSingleShot(true);
-  m_orbitEditTimer->setInterval(50);
-  connect(m_orbitEditTimer, &QTimer::timeout, this, &Dx11ViewportWidget::flushTeachingEdited);
   buildAxisLegend();
 }
 
@@ -116,7 +110,6 @@ void Dx11ViewportWidget::mouseReleaseEvent(QMouseEvent* e) {
   if (e->button() == Qt::LeftButton && m_orbiting) {
     m_orbiting = false;
     releaseMouse();
-    m_orbitEditTimer->stop();
     publishState(m_teaching, m_lab);
     emit teachingEdited(m_teaching);
   }
@@ -174,15 +167,7 @@ void Dx11ViewportWidget::commitTeaching() {
   publishState(m_teaching, m_lab);
   if (!m_orbiting) {
     emit teachingEdited(m_teaching);
-    return;
   }
-  if (!m_orbitEditTimer->isActive()) {
-    m_orbitEditTimer->start();
-  }
-}
-
-void Dx11ViewportWidget::flushTeachingEdited() {
-  emit teachingEdited(m_teaching);
 }
 
 void Dx11ViewportWidget::buildAxisLegend() {

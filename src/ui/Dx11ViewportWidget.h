@@ -8,7 +8,6 @@
 #include <memory>
 
 class QFrame;
-class QTimer;
 
 class Dx11ViewportWidget : public QWidget {
   Q_OBJECT
@@ -34,14 +33,12 @@ private:
   void startRenderer();
   void stopRenderer();
   void commitTeaching();
-  void flushTeachingEdited();
   void buildAxisLegend();
   HWND hwnd() const;
   std::unique_ptr<RenderThread> m_thread;
   TeachingState m_teaching;
   LabState m_lab;
   QPoint m_lastMouse;
-  QTimer* m_orbitEditTimer;
   QFrame* m_axisLegend;
   bool m_orbiting;
 };
