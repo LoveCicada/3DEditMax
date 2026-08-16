@@ -330,8 +330,8 @@ void D3D11Renderer::render(const StateSnapshot& snap) {
     ShaderSet next;
     if (next.compileVariant(m_device.Get(), m_shaderDir, snap.lab.shaderVariant, m_fb)) {
       m_shaders = next;
+      copyVariantName(snap.lab.shaderVariant);
     }
-    copyVariantName(snap.lab.shaderVariant);
   }
   const float aspect = t.aspectFollowViewport
       ? (static_cast<float>(m_w) / static_cast<float>(m_h))
