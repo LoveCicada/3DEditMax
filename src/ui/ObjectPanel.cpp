@@ -64,7 +64,8 @@ ObjectPanel::ObjectPanel(QWidget* parent)
   root->addWidget(scene);
   root->addStretch(1);
 
-  connect(m_mesh, &QButtonGroup::idClicked, this, &ObjectPanel::onEdited);
+  connect(m_mesh, static_cast<void (QButtonGroup::*)(int)>(&QButtonGroup::buttonClicked),
+          this, &ObjectPanel::onEdited);
   connect(m_layout, static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged),
           this, &ObjectPanel::onEdited);
   connect(m_shading, static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged),
