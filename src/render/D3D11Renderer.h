@@ -31,7 +31,9 @@ private:
   void bindMeshPipeline(const StateSnapshot& snap);
   void drawAxisCones(const StateSnapshot& snap,
                      DirectX::FXMMATRIX view,
-                     DirectX::FXMMATRIX proj);
+                     DirectX::FXMMATRIX proj,
+                     DirectX::FXMVECTOR origin,
+                     float axisLen);
   void handlePresentResult(HRESULT hr);
   void copyVariantName(const char* name);
   void copyTriedName(const char* name);

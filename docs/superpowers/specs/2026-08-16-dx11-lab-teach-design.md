@@ -19,7 +19,7 @@
 
 **非目标（本 spec 不做）：**
 
-- 选择集、Gizmo、撤销栈、材质编辑器、3ds Max 文件格式
+- 选择集、完整 Gizmo（旋转/缩放柄）、撤销栈、材质编辑器、3ds Max 文件格式。主物体世界轴平移手柄是 follow-up 例外，见 §14。
 - 通用 Scene / Node 场景图
 - `QThread` / `QtConcurrent` 渲染
 - 自动截图对比回归
@@ -95,12 +95,13 @@ flowchart TB
 
 ### 4.2 HWND 嵌入
 
-与 ProRes `VideoWidget` 相同的窗口边界，不同的呈现循环：
+与 ProRes `VideoWidget` 相同的窗口边界，不同的呈现循环。`Dx11ViewportWidget` 外层是普通 `QWidget`：
 
-- `Qt::WA_NativeWindow`、`WA_DontCreateNativeAncestors`、`WA_OpaquePaintEvent`、`WA_NoSystemBackground`
-- `paintEngine()` 返回 `nullptr`
-- `winId()` 转为 `HWND`，交给 `DXGI_SWAP_CHAIN_DESC.OutputWindow`
-- 不把 D3D 画面读回 `QImage`，不用 `QPainter` 覆盖视口
+- **顶栏 HUD（非 native）：** 轴图例（红 X 左右、绿 Y 上下、蓝 Z 前后、品红追踪点）与演示词条。不能把 Qt 控件叠在 Swapchain 上，否则会被 D3D 盖住。
+- **子控件 `Dx11NativeSurface`：** `Qt::WA_NativeWindow`、`WA_DontCreateNativeAncestors`、`WA_OpaquePaintEvent`、`WA_NoSystemBackground`；`paintEngine()` 返回 `nullptr`；`winId()` 转为 `HWND` 交给 `DXGI_SWAP_CHAIN_DESC.OutputWindow`。鼠标轨道/平移/轴拖都在该子控件上。
+- 不把 D3D 画面读回 `QImage`，不用 `QPainter` 覆盖视口。
+
+视口交互：左键点物体世界轴手柄则沿该轴平移 `objects[0]`；点空白处轨道旋转；右键抓取场景式平移；滚轮推拉。拖动中不刷新矩阵看板，松开再同步。
 
 图示：[`docs/ui/thread-and-hwnd.svg`](../../ui/thread-and-hwnd.svg)。
 
@@ -129,7 +130,7 @@ docs/superpowers/  本 spec 与实现计划
 
 依赖方向：`app` → `ui` → `core`；`render` 读 `core` 快照；`teach` 为纯 CPU，被 `ui` 与 `render` 使用。`ui` 不链接 D3D 绘制调用；`render` 不包含 Qt 头（队列与快照为标准库类型；`HWND` 仅以 `void*` 或 `<windows.h>` 出现在 render 的 viewport 桥接处）。
 
-`Dx11ViewportWidget` 是唯一允许同时看见 Qt 与 `HWND` 的 UI 文件。命令结构体在 `src/render/CommandQueue.h` 中用 `HWND`（包含 `<windows.h>`）。Widget 把 `winId()` 转成 `HWND` 推进队列，不持有 `ID3D11Device`。`src/ui` 下其余面板不包含 Windows / D3D 头。
+`Dx11ViewportWidget` 是唯一允许同时看见 Qt 与 `HWND` 的 UI 文件。命令结构体在 `src/render/CommandQueue.h` 中用 `HWND`（包含 `<windows.h>`）。Widget 把 **native 子控件** 的 `winId()` 转成 `HWND` 推进队列，不持有 `ID3D11Device`。`src/ui` 下其余面板不包含 Windows / D3D 头。
 
 ## 6. 数据
 
@@ -140,8 +141,8 @@ docs/superpowers/  本 spec 与实现计划
 - 材质：`Solid`、`Normal`、`Checker`、`Wire`。
 - 相机：距离、俯仰、方位（弧度对内、度对外）。
 - 投影：`Perspective` / `Ortho`、FOV（度）、aspect（可 `followViewport`）、near、far。
-- 追踪点：模型空间 `XMFLOAT3`。
-- 脚本/演示：当前步、是否播放（阶段 3）。
+- 追踪点：模型空间 `XMFLOAT3`；视口品红线框八面体标出其世界位置（默认立方体角 `0.5,0.5,0.5`）。
+- 脚本/演示：当前步、是否播放。`DemoPlayer` 依次套用 8 个 `tutorialStepAt(i)`（每步约 2s），HUD 显示 `N/8`、标题与正文；不是 8 秒转相机。
 
 ### 6.2 LabState（UI 可写）
 
@@ -239,7 +240,11 @@ Phase 0–4 功能落地后，按用户反馈增加抛光计划（不改架构�
 | 模型简陋 | 半透明 Lambert、轮廓边、地面网格、锥形 RGB 轴（对照 DX11-Study `scene.js`） |
 | UI 粗糙 | Fusion + QSS：DX11-Study 色板、圆角、W/V/P/MVP 分色 |
 | 右键平移方向 | 3ds Max 式抓取场景：内容跟随光标；公式见 pan 计划 |
+| 轴图例被 HWND 盖住 | 视口拆成顶栏 Qt HUD + native 子控件；红 X / 绿 Y / 蓝 Z / 品红追踪点 |
+| 粉色线框八面体 | Tracker 追踪点（默认立方体角 0.5,0.5,0.5），不是坐标轴锥体 |
+| 沿轴拖模型 | 主物体世界轴平移手柄；左键点轴拖、点空处仍轨道旋转 |
+| 演示无词条 | 「演示」依次播放 8 个教学步（每步约 2s），HUD 显示 N/8、标题与正文 |
 
-约束：停靠栏不叠在 HWND 上做真半透明；不做 PBR / 漂浮 3D 字。
+约束：停靠栏不叠在 HWND 上做真半透明；不做 PBR / 漂浮 3D 字。完整选择集 Gizmo / 旋转缩放柄仍不做，仅世界轴平移。
 
 详细任务见 [`docs/superpowers/plans/2026-08-16-viewport-polish.md`](../plans/2026-08-16-viewport-polish.md)、[`docs/superpowers/plans/2026-08-16-viewport-pan-layout.md`](../plans/2026-08-16-viewport-pan-layout.md)。

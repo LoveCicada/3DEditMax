@@ -189,6 +189,7 @@ void MainWindow::onTutorialApply(const TeachingState& t) {
     m_teaching.demoPlaying = true;
     m_demo.start(m_teaching);
     m_demo.tick(0.f, &m_teaching);
+    m_tutorial->setStepIndex(m_teaching.tutorialStep);
     syncTeaching();
     m_demoTimer->start();
     return;
@@ -278,6 +279,7 @@ void MainWindow::onDemoTick() {
     m_teaching.demoPlaying = false;
     m_demoTimer->stop();
   }
+  m_tutorial->setStepIndex(m_teaching.tutorialStep);
   syncTeaching();
 }
 
@@ -285,9 +287,9 @@ void MainWindow::refreshBoard() {
   using namespace DirectX;
   const TeachingState& t = m_teaching;
   float aspect = t.aspect;
-  if (t.aspectFollowViewport && m_viewport->height() > 0) {
-    aspect = static_cast<float>(m_viewport->width()) /
-             static_cast<float>(m_viewport->height());
+  if (t.aspectFollowViewport && m_viewport->surfaceHeight() > 0) {
+    aspect = static_cast<float>(m_viewport->surfaceWidth()) /
+             static_cast<float>(m_viewport->surfaceHeight());
   }
   const XMMATRIX W = BuildWorld(t.objects[0].trs);
   const XMMATRIX V = BuildView(t.camDistance, t.camPitchDeg, t.camYawDeg, t.camTarget);
@@ -326,9 +328,9 @@ void MainWindow::refreshTracker() {
   using namespace DirectX;
   const TeachingState& t = m_teaching;
   float aspect = t.aspect;
-  if (t.aspectFollowViewport && m_viewport->height() > 0) {
-    aspect = static_cast<float>(m_viewport->width()) /
-             static_cast<float>(m_viewport->height());
+  if (t.aspectFollowViewport && m_viewport->surfaceHeight() > 0) {
+    aspect = static_cast<float>(m_viewport->surfaceWidth()) /
+             static_cast<float>(m_viewport->surfaceHeight());
   }
   const XMMATRIX W = BuildWorld(t.objects[0].trs);
   const XMMATRIX V = BuildView(t.camDistance, t.camPitchDeg, t.camYawDeg, t.camTarget);

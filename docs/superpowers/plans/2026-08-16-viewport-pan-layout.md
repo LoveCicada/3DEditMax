@@ -110,7 +110,7 @@ flowchart LR
 - Full web-like translucent docks over HWND
 - Replacing QMainWindow dock shell with a custom layout
 - Middle-button pan (unless added later as alias)
-- Selection gizmos / 3ds Max-style tools
+- Selection gizmos / 3ds Max-style rotate-scale tools (world-axis translate of `objects[0]` is a later spec follow-up, not this plan)
 
 ## Spec / doc links
 

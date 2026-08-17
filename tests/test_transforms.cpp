@@ -124,6 +124,37 @@ void runTransformTests() {
   TEST_CHECK(near4(pan.camTarget[1], 2.f));
   TEST_CHECK(near4(pan.camTarget[2], 0.f));
 
+  TeachingState axisT = teachingStateDefault();
+  axisT.objects[0].trs.pos[0] = 0.f;
+  axisT.objects[0].trs.pos[1] = 0.f;
+  axisT.objects[0].trs.pos[2] = 0.f;
+  applyAxisTranslateDrag(&axisT, 0, 1.5f);
+  TEST_CHECK(near4(axisT.objects[0].trs.pos[0], 1.5f));
+  applyAxisTranslateDrag(&axisT, 1, -0.5f);
+  TEST_CHECK(near4(axisT.objects[0].trs.pos[1], -0.5f));
+  {
+    TeachingState hitT = teachingStateDefault();
+    hitT.camPitchDeg = 0.f;
+    hitT.camYawDeg = 0.f;
+    hitT.camDistance = 10.f;
+    hitT.camTarget[0] = 0.f;
+    hitT.camTarget[1] = 0.f;
+    hitT.camTarget[2] = 0.f;
+    hitT.objects[0].trs.pos[0] = 0.f;
+    hitT.objects[0].trs.pos[1] = 0.f;
+    hitT.objects[0].trs.pos[2] = 0.f;
+    float ox = 0.f;
+    float oy = 0.f;
+    float ex = 0.f;
+    float ey = 0.f;
+    TEST_CHECK(projectWorldToScreen(hitT, 0.f, 0.f, 0.f, 200.f, 200.f, &ox, &oy));
+    TEST_CHECK(projectWorldToScreen(hitT, worldAxisGizmoLength(), 0.f, 0.f, 200.f, 200.f, &ex, &ey));
+    TEST_CHECK(hitWorldAxisHandle(hitT, (ox + ex) * 0.5f, (oy + ey) * 0.5f, 200.f, 200.f) == 0);
+    TEST_CHECK(hitWorldAxisHandle(hitT, 2.f, 2.f, 200.f, 200.f) < 0);
+    const float drag = axisTranslateFromDrag(hitT, 0, ex - ox, ey - oy, 200.f, 200.f);
+    TEST_CHECK(near4(drag, worldAxisGizmoLength()));
+  }
+
   /* Task 11: CPU mesh builders */
   TEST_CHECK(cubeVertexCount() > 0);
   std::vector<MeshVertex> cubeV;

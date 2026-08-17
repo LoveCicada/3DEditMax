@@ -8,6 +8,13 @@ DirectX::XMMATRIX BuildView(float distance, float pitchDeg, float yawDeg,
                             const float target[3]);
 DirectX::XMMATRIX BuildProjection(const TeachingState& s, float aspect);
 
+bool projectWorldToScreen(const TeachingState& t, float wx, float wy, float wz,
+                          float viewportW, float viewportH, float* sx, float* sy);
+int hitWorldAxisHandle(const TeachingState& t, float mx, float my,
+                       float viewportW, float viewportH);
+float axisTranslateFromDrag(const TeachingState& t, int axis, float dx, float dy,
+                            float viewportW, float viewportH);
+
 struct TrackResult {
   DirectX::XMFLOAT4 model;
   DirectX::XMFLOAT4 world;

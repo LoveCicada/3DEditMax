@@ -27,9 +27,11 @@ void runTutorialTests() {
   demo.start(from);
   TeachingState io = from;
   TEST_CHECK(demo.tick(0.f, &io) == true);
-  TEST_CHECK(nearf(io.camYawDeg, 0.f));
-  TEST_CHECK(demo.tick(4.f, &io) == true);
-  TEST_CHECK(nearf(io.camYawDeg, 90.f));
-  TEST_CHECK(demo.tick(4.f, &io) == false);
-  TEST_CHECK(nearf(io.camYawDeg, 0.f));
+  TEST_CHECK(io.tutorialStep == 0);
+  TEST_CHECK(io.demoPlaying == true);
+  TEST_CHECK(demo.tick(2.f, &io) == true);
+  TEST_CHECK(io.tutorialStep == 1);
+  TEST_CHECK(demo.tick(14.f, &io) == false);
+  TEST_CHECK(io.tutorialStep == 7);
+  TEST_CHECK(io.demoPlaying == false);
 }

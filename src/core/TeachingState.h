@@ -129,6 +129,17 @@ inline void applyPanDrag(TeachingState* t, float dx, float dy, float viewportW,
   t->camTarget[2] += rz * moveR + uz * moveU;
 }
 
+inline float worldAxisGizmoLength() {
+  return 1.2f;
+}
+
+inline void applyAxisTranslateDrag(TeachingState* t, int axis, float worldDelta) {
+  if (!t || axis < 0 || axis > 2) {
+    return;
+  }
+  t->objects[0].trs.pos[axis] += worldDelta;
+}
+
 inline void applyDollyWheel(TeachingState* t, int delta) {
   t->camDistance *= (delta > 0 ? 0.9f : 1.1f);
   if (t->camDistance < 0.5f) {

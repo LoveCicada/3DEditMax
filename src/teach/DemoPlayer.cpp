@@ -1,12 +1,15 @@
 #include "teach/DemoPlayer.h"
+#include "teach/TutorialScript.h"
+
+static const float kSecPerStep = 2.f;
 
 DemoPlayer::DemoPlayer()
     : m_from(teachingStateDefault())
     , m_elapsed(0.f) {
 }
 
-void DemoPlayer::start(const TeachingState& from) {
-  m_from = from;
+void DemoPlayer::start(const TeachingState&) {
+  m_from = teachingStateDefault();
   m_elapsed = 0.f;
 }
 
@@ -15,19 +18,18 @@ bool DemoPlayer::tick(float dtSec, TeachingState* io) {
     return false;
   }
   m_elapsed += dtSec;
-  *io = m_from;
-  if (m_elapsed >= 8.f) {
-    io->camYawDeg = 0.f;
+  const int n = tutorialStepCount();
+  if (n <= 0) {
     io->demoPlaying = false;
     return false;
   }
-  float yaw = 0.f;
-  if (m_elapsed <= 4.f) {
-    yaw = 90.f * (m_elapsed / 4.f);
-  } else {
-    yaw = 90.f * (1.f - (m_elapsed - 4.f) / 4.f);
+  int step = static_cast<int>(m_elapsed / kSecPerStep);
+  if (step >= n) {
+    *io = tutorialStepAt(n - 1).state;
+    io->demoPlaying = false;
+    return false;
   }
-  io->camYawDeg = yaw;
+  *io = tutorialStepAt(step).state;
   io->demoPlaying = true;
   return true;
 }

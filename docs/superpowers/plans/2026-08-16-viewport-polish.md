@@ -138,7 +138,7 @@ Palette from DX11-Study `:root`:
 - Teaching pipeline / JSON / column-major upload math
 - True translucent docks over the D3D HWND
 - Selection gizmos, 3ds Max materials, PBR, shadow maps
-- Floating 3D “WORLD” sprites (legend substitutes)
+- Floating 3D “WORLD” sprites (axis letters are DebugDraw polylines; color key lives in the Qt HUD bar above the HWND)
 
 ## Spec / doc links
 

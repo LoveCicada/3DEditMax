@@ -506,7 +506,10 @@ void D3D11Renderer::render(const StateSnapshot& snap) {
   }
 
   m_debug.draw(m_context.Get(), snap, V, P);
-  drawAxisCones(snap, V, P);
+  drawAxisCones(snap, V, P, DirectX::XMVectorZero(), 3.f);
+  const float* op = t.objects[0].trs.pos;
+  drawAxisCones(snap, V, P, DirectX::XMVectorSet(op[0], op[1], op[2], 0.f),
+                worldAxisGizmoLength());
 
   // Sync interval 0: callers may hold a mutex shared with the UI resize path;
   // never block here on vsync or the UI thread can deadlock.
@@ -669,7 +672,9 @@ void D3D11Renderer::bindMeshPipeline(const StateSnapshot& snap) {
 
 void D3D11Renderer::drawAxisCones(const StateSnapshot& snap,
                                  FXMMATRIX view,
-                                 FXMMATRIX proj) {
+                                 FXMMATRIX proj,
+                                 FXMVECTOR origin,
+                                 float axisLen) {
   (void)snap;
   if (!m_context || !m_cone.valid() || !m_cb) {
     return;
@@ -686,7 +691,6 @@ void D3D11Renderer::drawAxisCones(const StateSnapshot& snap,
   const float blendFactor[4] = {0.f, 0.f, 0.f, 0.f};
   m_context->OMSetBlendState(m_blend.Get(), blendFactor, 0xffffffff);
 
-  const float axisLen = 3.f;
   const XMVECTOR dirs[3] = {
       XMVectorSet(1.f, 0.f, 0.f, 0.f),
       XMVectorSet(0.f, 1.f, 0.f, 0.f),
@@ -700,7 +704,8 @@ void D3D11Renderer::drawAxisCones(const StateSnapshot& snap,
 
   for (int i = 0; i < 3; ++i) {
     const XMMATRIX rot = rotationYToDir(dirs[i]);
-    const XMMATRIX T = XMMatrixTranslationFromVector(XMVectorScale(dirs[i], axisLen));
+    const XMMATRIX T = XMMatrixTranslationFromVector(
+        XMVectorAdd(origin, XMVectorScale(dirs[i], axisLen)));
     const XMMATRIX W = rot * T;
     const XMFLOAT4 emit(colors[i].x * 0.35f, colors[i].y * 0.35f, colors[i].z * 0.35f, 0.f);
     writeFrameCb(m_context.Get(), m_cb.Get(), W, view, proj, 0.f, colors[i], emit);
