@@ -238,7 +238,8 @@ Phase 0–4 功能落地后，按用户反馈增加抛光计划（不改架构�
 | 锯齿 / 穿模 | Swapchain 4x MSAA；Debug 线 depth bias、不写深度 |
 | 模型简陋 | 半透明 Lambert、轮廓边、地面网格、锥形 RGB 轴（对照 DX11-Study `scene.js`） |
 | UI 粗糙 | Fusion + QSS：DX11-Study 色板、圆角、W/V/P/MVP 分色 |
+| 右键平移方向 | 3ds Max 式抓取场景：内容跟随光标；公式见 pan 计划 |
 
 约束：停靠栏不叠在 HWND 上做真半透明；不做 PBR / 漂浮 3D 字。
 
-详细任务见 [`docs/superpowers/plans/2026-08-16-viewport-polish.md`](../plans/2026-08-16-viewport-polish.md)。
+详细任务见 [`docs/superpowers/plans/2026-08-16-viewport-polish.md`](../plans/2026-08-16-viewport-polish.md)、[`docs/superpowers/plans/2026-08-16-viewport-pan-layout.md`](../plans/2026-08-16-viewport-pan-layout.md)。

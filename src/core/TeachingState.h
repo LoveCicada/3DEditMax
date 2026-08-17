@@ -122,8 +122,8 @@ inline void applyPanDrag(TeachingState* t, float dx, float dy, float viewportW,
   const float ux = fy * rz - fz * ry;
   const float uy = fz * rx - fx * rz;
   const float uz = fx * ry - fy * rx;
-  const float moveR = dx * scale;
-  const float moveU = -dy * scale;
+  const float moveR = -dx * scale;
+  const float moveU = dy * scale;
   t->camTarget[0] += rx * moveR + ux * moveU;
   t->camTarget[1] += ry * moveR + uy * moveU;
   t->camTarget[2] += rz * moveR + uz * moveU;

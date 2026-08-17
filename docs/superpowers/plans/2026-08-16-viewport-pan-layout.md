@@ -69,7 +69,7 @@ flowchart LR
 
 - [ ] **Step 1:** Add `camTarget[3]` default `{0,0,0}` to `TeachingState` / defaults / reset.
 - [ ] **Step 2:** `BuildView(distance, pitch, yaw, target)`: `eye = target + sphericalOffset`, `XMMatrixLookAtLH(eye, target, up)`.
-- [ ] **Step 3:** `applyPanDrag`: move target along camera right/up; scale with `camDistance` and viewport size.
+- [ ] **Step 3:** `applyPanDrag`: grab-the-world pan (content follows the cursor, 3ds Max style). Move `camTarget` along camera right/up, scaled by `camDistance / viewportH`. Signs: `moveR = -dx * scale`, `moveU = dy * scale` (`dy` is Qt screen-space, down positive). Camera therefore moves opposite the mouse so the scene sticks to the cursor.
 - [ ] **Step 4:** Viewport: RMB press → pan mode + `grabMouse`; move → pan; release → UI sync (Task 1 path). LMB still orbits around **current target**. Wheel still changes distance.
 - [ ] **Step 5:** JSON round-trip `camTarget`; missing key → origin (compat).
 - [ ] **Step 6:** Transform View section: Target X/Y/Z (editable or display + drag).
@@ -97,7 +97,7 @@ flowchart LR
 ### Task 4: Verify
 
 - [ ] Left-drag orbit: no black flash; release syncs UI.
-- [ ] Right-drag pan: content moves up/down/left/right; further orbit uses new target.
+- [ ] Right-drag pan: content follows the cursor up/down/left/right; further orbit uses new target.
 - [ ] Wheel dolly still works; Reset restores default camera + target.
 - [ ] Real window resize still recreates buffers when size changes.
 - [ ] `ctest --test-dir build --output-on-failure` PASS.

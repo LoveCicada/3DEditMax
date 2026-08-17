@@ -116,12 +116,12 @@ void runTransformTests() {
   pan.camYawDeg = 0.f;
   pan.camDistance = 10.f;
   applyPanDrag(&pan, 100.f, 0.f, 200.f, 200.f);
-  TEST_CHECK(near4(pan.camTarget[0], -5.f));
+  TEST_CHECK(near4(pan.camTarget[0], 5.f));
   TEST_CHECK(near4(pan.camTarget[1], 0.f));
   TEST_CHECK(near4(pan.camTarget[2], 0.f));
   applyPanDrag(&pan, 0.f, 40.f, 200.f, 200.f);
-  TEST_CHECK(near4(pan.camTarget[0], -5.f));
-  TEST_CHECK(near4(pan.camTarget[1], -2.f));
+  TEST_CHECK(near4(pan.camTarget[0], 5.f));
+  TEST_CHECK(near4(pan.camTarget[1], 2.f));
   TEST_CHECK(near4(pan.camTarget[2], 0.f));
 
   /* Task 11: CPU mesh builders */
