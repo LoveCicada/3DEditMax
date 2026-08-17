@@ -20,7 +20,8 @@ if(DEFINED ENV{QT_DIR})
   message(STATUS "Qt prefix from QT_DIR: ${_qt_dir}")
 endif()
 
-find_package(Qt5 5.15 REQUIRED COMPONENTS Widgets)
+find_package(Qt5 5.12 REQUIRED COMPONENTS Widgets)
+message(STATUS "Found Qt5 ${Qt5_VERSION}")
 
 add_executable(3DEditMax
   src/main.cpp
