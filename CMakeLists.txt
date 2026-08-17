@@ -65,15 +65,17 @@ if(MSVC)
   target_compile_options(3DEditMax PRIVATE /utf-8)
 endif()
 
+# Avoid cmake -E copy*: it read/writes bytes and local encryption rewrites new files.
+file(TO_NATIVE_PATH "${CMAKE_SOURCE_DIR}/assets/shaders" _shader_src)
+file(TO_NATIVE_PATH "${CMAKE_SOURCE_DIR}/src/app/app.qss" _qss_src)
 add_custom_command(TARGET 3DEditMax POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E copy_directory
-    "${CMAKE_SOURCE_DIR}/assets/shaders"
-    "$<TARGET_FILE_DIR:3DEditMax>/shaders")
-
-add_custom_command(TARGET 3DEditMax POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    "${CMAKE_SOURCE_DIR}/src/app/app.qss"
-    "$<TARGET_FILE_DIR:3DEditMax>/app.qss")
+  COMMAND ${CMAKE_COMMAND} -E make_directory
+    "$<TARGET_FILE_DIR:3DEditMax>/shaders"
+  COMMAND copy /Y /B "${_shader_src}\\*"
+          "$<SHELL_PATH:$<TARGET_FILE_DIR:3DEditMax>/shaders>"
+  COMMAND copy /Y /B "${_qss_src}"
+          "$<SHELL_PATH:$<TARGET_FILE_DIR:3DEditMax>/app.qss>"
+  VERBATIM)
 
 enable_testing()
 add_executable(3deditmax_tests
