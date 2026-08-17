@@ -34,4 +34,11 @@ void runTutorialTests() {
   TEST_CHECK(demo.tick(14.f, &io) == false);
   TEST_CHECK(io.tutorialStep == 7);
   TEST_CHECK(io.demoPlaying == false);
+
+  DemoMatrixFocus idle = demoMatrixFocus(1, false);
+  TEST_CHECK(idle.w == false && idle.v == false && idle.p == false && idle.mvp == false);
+  DemoMatrixFocus worldF = demoMatrixFocus(1, true);
+  TEST_CHECK(worldF.w == true && worldF.v == false && worldF.p == false && worldF.mvp == true);
+  DemoMatrixFocus projF = demoMatrixFocus(3, true);
+  TEST_CHECK(projF.w == false && projF.v == false && projF.p == true && projF.mvp == true);
 }

@@ -88,3 +88,40 @@ TutorialStep tutorialStepAt(int index) {
   step.state = makeStepState(index);
   return step;
 }
+
+DemoMatrixFocus demoMatrixFocus(int tutorialStep, bool demoPlaying) {
+  DemoMatrixFocus f;
+  f.w = false;
+  f.v = false;
+  f.p = false;
+  f.mvp = false;
+  if (!demoPlaying) {
+    return f;
+  }
+  switch (tutorialStep) {
+    case 0:
+    case 4:
+    case 7:
+      f.w = true;
+      f.v = true;
+      f.p = true;
+      f.mvp = true;
+      break;
+    case 1:
+      f.w = true;
+      f.mvp = true;
+      break;
+    case 2:
+      f.v = true;
+      f.mvp = true;
+      break;
+    case 3:
+    case 5:
+      f.p = true;
+      f.mvp = true;
+      break;
+    default:
+      break;
+  }
+  return f;
+}

@@ -169,6 +169,14 @@ QGroupBox#sectionMVP::title {
   color: #a55eea;
 }
 
+QGroupBox#sectionMatrixW[demoHot="true"],
+QGroupBox#sectionMatrixV[demoHot="true"],
+QGroupBox#sectionMatrixP[demoHot="true"],
+QGroupBox#sectionMVP[demoHot="true"] {
+  background-color: rgba(255, 213, 74, 28);
+  border: 1px solid #ffd54a;
+}
+
 QLabel {
   background: transparent;
   color: #ccd6f6;

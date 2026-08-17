@@ -3,6 +3,7 @@
 #include <QFontMetrics>
 #include <QGroupBox>
 #include <QPlainTextEdit>
+#include <QStyle>
 #include <QVBoxLayout>
 
 static QPlainTextEdit* makeMatrixEdit(QWidget* parent) {
@@ -23,6 +24,10 @@ static QPlainTextEdit* makeMatrixEdit(QWidget* parent) {
 MatrixBoardPanel::MatrixBoardPanel(QWidget* parent)
     : QWidget(parent)
     , m_order(MajorColumn)
+    , m_gw(0)
+    , m_gv(0)
+    , m_gp(0)
+    , m_gm(0)
     , m_mw(0)
     , m_mv(0)
     , m_mp(0)
@@ -33,30 +38,30 @@ MatrixBoardPanel::MatrixBoardPanel(QWidget* parent)
   DirectX::XMStoreFloat4x4(&m_wvp, DirectX::XMMatrixIdentity());
 
   QVBoxLayout* root = new QVBoxLayout(this);
-  QGroupBox* gw = new QGroupBox(QString::fromUtf8("M_W"), this);
-  gw->setObjectName(QString::fromUtf8("sectionMatrixW"));
-  QGroupBox* gv = new QGroupBox(QString::fromUtf8("M_V"), this);
-  gv->setObjectName(QString::fromUtf8("sectionMatrixV"));
-  QGroupBox* gp = new QGroupBox(QString::fromUtf8("M_P"), this);
-  gp->setObjectName(QString::fromUtf8("sectionMatrixP"));
-  QGroupBox* gm = new QGroupBox(QString::fromUtf8("MVP"), this);
-  gm->setObjectName(QString::fromUtf8("sectionMVP"));
-  QVBoxLayout* lw = new QVBoxLayout(gw);
-  QVBoxLayout* lv = new QVBoxLayout(gv);
-  QVBoxLayout* lp = new QVBoxLayout(gp);
-  QVBoxLayout* lm = new QVBoxLayout(gm);
-  m_mw = makeMatrixEdit(gw);
-  m_mv = makeMatrixEdit(gv);
-  m_mp = makeMatrixEdit(gp);
-  m_mvp = makeMatrixEdit(gm);
+  m_gw = new QGroupBox(QString::fromUtf8("M_W"), this);
+  m_gw->setObjectName(QString::fromUtf8("sectionMatrixW"));
+  m_gv = new QGroupBox(QString::fromUtf8("M_V"), this);
+  m_gv->setObjectName(QString::fromUtf8("sectionMatrixV"));
+  m_gp = new QGroupBox(QString::fromUtf8("M_P"), this);
+  m_gp->setObjectName(QString::fromUtf8("sectionMatrixP"));
+  m_gm = new QGroupBox(QString::fromUtf8("MVP"), this);
+  m_gm->setObjectName(QString::fromUtf8("sectionMVP"));
+  QVBoxLayout* lw = new QVBoxLayout(m_gw);
+  QVBoxLayout* lv = new QVBoxLayout(m_gv);
+  QVBoxLayout* lp = new QVBoxLayout(m_gp);
+  QVBoxLayout* lm = new QVBoxLayout(m_gm);
+  m_mw = makeMatrixEdit(m_gw);
+  m_mv = makeMatrixEdit(m_gv);
+  m_mp = makeMatrixEdit(m_gp);
+  m_mvp = makeMatrixEdit(m_gm);
   lw->addWidget(m_mw);
   lv->addWidget(m_mv);
   lp->addWidget(m_mp);
   lm->addWidget(m_mvp);
-  root->addWidget(gw);
-  root->addWidget(gv);
-  root->addWidget(gp);
-  root->addWidget(gm);
+  root->addWidget(m_gw);
+  root->addWidget(m_gv);
+  root->addWidget(m_gp);
+  root->addWidget(m_gm);
   refresh();
 }
 
@@ -103,4 +108,21 @@ void MatrixBoardPanel::fillBlock(QPlainTextEdit* edit, const DirectX::XMFLOAT4X4
     text += QString::fromUtf8(lines[i]);
   }
   edit->setPlainText(text);
+}
+
+void MatrixBoardPanel::applyHot(QGroupBox* box, bool hot) {
+  if (!box) {
+    return;
+  }
+  box->setProperty("demoHot", hot);
+  box->style()->unpolish(box);
+  box->style()->polish(box);
+  box->update();
+}
+
+void MatrixBoardPanel::setDemoFocus(DemoMatrixFocus focus) {
+  applyHot(m_gw, focus.w);
+  applyHot(m_gv, focus.v);
+  applyHot(m_gp, focus.p);
+  applyHot(m_gm, focus.mvp);
 }

@@ -7,5 +7,13 @@ struct TutorialStep {
   TeachingState state;
 };
 
+struct DemoMatrixFocus {
+  bool w;
+  bool v;
+  bool p;
+  bool mvp;
+};
+
 int tutorialStepCount();
 TutorialStep tutorialStepAt(int index);
+DemoMatrixFocus demoMatrixFocus(int tutorialStep, bool demoPlaying);

@@ -1,6 +1,7 @@
 #include "app/MainWindow.h"
 #include "teach/JsonIo.h"
 #include "teach/Transforms.h"
+#include "teach/TutorialScript.h"
 #include "ui/DebugLogPanel.h"
 #include "ui/Dx11ViewportWidget.h"
 #include "ui/LabPanel.h"
@@ -304,6 +305,7 @@ void MainWindow::refreshBoard() {
   XMStoreFloat4x4(&p, P);
   XMStoreFloat4x4(&wvp, WVP);
   m_board->setMatrices(w, v, p, wvp, m_major);
+  m_board->setDemoFocus(demoMatrixFocus(t.tutorialStep, t.demoPlaying));
 
   char lines[4][64];
   QString cb;
