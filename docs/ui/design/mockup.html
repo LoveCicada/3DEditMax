@@ -1,0 +1,1450 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=1440, initial-scale=1" />
+<title>3DEditMax — UI 设计稿（重构版）</title>
+<style>
+  :root{
+    /* === Surfaces === */
+    --bg-base:#0e1320;
+    --bg-canvas:#0a0e18;
+    --bg-panel:#161b2b;
+    --bg-elev:#1d2335;
+    --bg-input:#0c1019;
+    --bg-hover:rgba(91,141,239,.08);
+    --bg-active:rgba(91,141,239,.16);
+
+    /* === Borders === */
+    --border:#272e44;
+    --border-light:#323a55;
+    --border-strong:#3d4666;
+
+    /* === Text === */
+    --text-1:#eef1f9;
+    --text-2:#b3bbd1;
+    --text-3:#7c8499;
+    --text-4:#5a6175;
+
+    /* === Accent === */
+    --accent:#5b8def;
+    --accent-2:#7aa1ff;
+    --accent-soft:rgba(91,141,239,.18);
+
+    /* === Domain colors === */
+    --world:#ef476f;       /* red */
+    --view:#06d6a0;        /* green */
+    --proj:#ffb703;        /* orange */
+
+    /* === Axis === */
+    --x:#ef476f;
+    --y:#06d6a0;
+    --z:#4cc9f0;
+    --tracker:#f72585;
+
+    /* === Matrix === */
+    --mw:#4cc9f0;
+    --mv:#b388ff;
+    --mp:#ffb703;
+    --mmvp:#f72585;
+  }
+
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{
+    width:100%;height:100%;
+    background:#06080f;
+    color:var(--text-1);
+    font-family:"Segoe UI Variable","Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    font-size:13px;
+    line-height:1.45;
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+  }
+  body{
+    display:flex;align-items:center;justify-content:center;
+    padding:24px;
+    background:
+      radial-gradient(1200px 600px at 20% -10%, rgba(91,141,239,.10), transparent 60%),
+      radial-gradient(900px 500px at 90% 110%, rgba(247,37,133,.08), transparent 60%),
+      #06080f;
+    min-height:100vh;
+  }
+
+  /* === Window chrome === */
+  .app{
+    width:1440px;height:900px;
+    background:var(--bg-base);
+    border-radius:14px;
+    border:1px solid #1f2538;
+    box-shadow:
+      0 1px 0 rgba(255,255,255,.04) inset,
+      0 30px 80px rgba(0,0,0,.55),
+      0 6px 24px rgba(0,0,0,.35);
+    overflow:hidden;
+    display:flex;flex-direction:column;
+    position:relative;
+  }
+
+  /* --- Title bar --- */
+  .titlebar{
+    height:36px;flex:none;
+    display:flex;align-items:center;
+    background:linear-gradient(180deg,#181d2e,#11151f);
+    border-bottom:1px solid #1a2032;
+    user-select:none;
+  }
+  .titlebar .brand{
+    display:flex;align-items:center;gap:8px;
+    padding:0 14px;height:100%;
+    border-right:1px solid #1a2032;
+  }
+  .titlebar .logo{
+    width:18px;height:18px;border-radius:5px;
+    background:
+      conic-gradient(from 210deg at 50% 50%,
+        var(--x) 0 25%, var(--y) 25% 50%, var(--z) 50% 75%, var(--tracker) 75% 100%);
+    box-shadow:0 0 0 1px rgba(255,255,255,.05),0 0 12px rgba(76,201,240,.35);
+    position:relative;
+  }
+  .titlebar .logo::after{
+    content:"";position:absolute;inset:4px;border-radius:50%;
+    background:var(--bg-base);
+  }
+  .titlebar .name{
+    font-weight:600;letter-spacing:.4px;color:var(--text-1);
+    font-size:12.5px;
+  }
+  .titlebar .name span{
+    color:var(--text-3);font-weight:400;margin-left:6px;
+  }
+  .titlebar .tabs{
+    display:flex;align-items:center;gap:2px;
+    padding:0 10px;height:100%;
+  }
+  .titlebar .tab{
+    padding:0 12px;height:100%;
+    display:flex;align-items:center;
+    color:var(--text-2);font-size:12.5px;
+    border-right:1px solid transparent;border-left:1px solid transparent;
+    cursor:default;
+  }
+  .titlebar .tab:hover{color:var(--text-1);background:var(--bg-hover)}
+  .titlebar .tab.active{
+    color:var(--text-1);
+    background:linear-gradient(180deg, rgba(91,141,239,.18), rgba(91,141,239,.06));
+    box-shadow:inset 0 -2px 0 var(--accent);
+  }
+  .titlebar .winctrls{margin-left:auto;display:flex;height:100%}
+  .titlebar .winctrls .btn{
+    width:46px;height:100%;
+    display:flex;align-items:center;justify-content:center;
+    color:var(--text-2);cursor:default;
+  }
+  .titlebar .winctrls .btn:hover{background:#222a3e;color:var(--text-1)}
+  .titlebar .winctrls .close:hover{background:#d63a3a;color:#fff}
+
+  /* --- Menu bar --- */
+  .menubar{
+    height:28px;flex:none;
+    display:flex;align-items:center;
+    background:#10141f;
+    border-bottom:1px solid #181d2c;
+    padding:0 8px;gap:2px;
+  }
+  .menubar .m{
+    padding:0 10px;height:22px;
+    display:flex;align-items:center;
+    border-radius:5px;
+    color:var(--text-2);font-size:12px;
+    cursor:default;
+  }
+  .menubar .m:hover{background:var(--bg-hover);color:var(--text-1)}
+  .menubar .spacer{flex:1}
+
+  /* --- Toolbar --- */
+  .toolbar{
+    height:46px;flex:none;
+    display:flex;align-items:center;gap:6px;
+    padding:0 12px;
+    background:linear-gradient(180deg,#161b2a,#131826);
+    border-bottom:1px solid #1a2032;
+  }
+  .tool-group{
+    display:flex;align-items:center;gap:2px;
+    padding:3px;border-radius:8px;
+    background:#0d1119;border:1px solid #1d2335;
+  }
+  .tool-group + .tool-group{margin-left:6px}
+  .tool{
+    height:32px;min-width:34px;padding:0 8px;
+    display:inline-flex;align-items:center;justify-content:center;gap:6px;
+    border-radius:6px;
+    color:var(--text-2);font-size:12px;
+    cursor:default;
+    border:1px solid transparent;
+    background:transparent;
+  }
+  .tool:hover{background:#1a2032;color:var(--text-1)}
+  .tool.active{
+    background:linear-gradient(180deg,#2a3a64,#1b2541);
+    border-color:#3a4a76;
+    color:#fff;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.07),0 0 0 1px rgba(91,141,239,.25);
+  }
+  .tool svg{display:block}
+  .tool .lbl{font-weight:500}
+  .divider-v{width:1px;height:24px;background:#1d2335;margin:0 6px}
+
+  /* Demo progress in toolbar */
+  .demo-bar{
+    margin-left:8px;display:flex;align-items:center;gap:10px;
+    padding:6px 10px;border-radius:8px;
+    background:linear-gradient(180deg,#172033,#101626);
+    border:1px solid #1f273b;
+    color:var(--text-2);
+  }
+  .demo-bar .step-pill{
+    display:inline-flex;align-items:center;gap:6px;
+    padding:2px 8px;border-radius:999px;
+    background:rgba(91,141,239,.14);color:#b9cdff;
+    font-size:11px;font-weight:600;letter-spacing:.4px;
+  }
+  .demo-bar .step-pill .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 6px var(--accent)}
+  .demo-bar .title{font-size:12px;color:var(--text-1);font-weight:600}
+  .demo-bar .body{font-size:11.5px;color:var(--text-3);max-width:380px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .demo-bar .ctrls{display:flex;align-items:center;gap:2px;margin-left:2px}
+  .demo-bar .ctrls button{
+    width:24px;height:22px;border-radius:5px;border:1px solid #232a3f;background:#0e1320;color:var(--text-2);
+    display:inline-flex;align-items:center;justify-content:center;cursor:default;
+  }
+  .demo-bar .ctrls button:hover{background:#1a2032;color:var(--text-1)}
+
+  /* === Main grid === */
+  main{
+    flex:1;display:grid;
+    grid-template-columns:312px 1fr 320px;
+    min-height:0;
+  }
+  aside,section{
+    min-height:0;min-width:0;
+    display:flex;flex-direction:column;
+  }
+  aside{background:var(--bg-panel);border-right:1px solid #1a2032}
+  aside.right{border-right:none;border-left:1px solid #1a2032}
+
+  /* === Panels === */
+  .panel{
+    display:flex;flex-direction:column;
+    border-bottom:1px solid #1a2032;
+  }
+  .panel:last-child{border-bottom:none}
+  .panel-head{
+    height:34px;flex:none;
+    display:flex;align-items:center;
+    padding:0 12px 0 0;gap:8px;
+    background:linear-gradient(180deg,#1a2032,#151a28);
+    border-top:1px solid #1f2538;
+    user-select:none;
+  }
+  .panel-head .accent{
+    width:4px;align-self:stretch;
+    border-radius:0 3px 3px 0;
+    background:var(--world);
+    box-shadow:0 0 12px rgba(239,71,111,.55);
+  }
+  .panel-head .title{
+    display:flex;align-items:center;gap:8px;
+    font-size:12.5px;font-weight:600;color:var(--text-1);letter-spacing:.2px;
+  }
+  .panel-head .title svg{opacity:.95}
+  .panel-head .title .badge{
+    font-size:10px;font-weight:600;letter-spacing:.5px;
+    padding:2px 6px;border-radius:4px;
+    background:rgba(91,141,239,.15);color:#9fbcff;
+    text-transform:uppercase;
+  }
+  .panel-head .spacer{flex:1}
+  .panel-head .actions{display:flex;align-items:center;gap:2px}
+  .panel-head .icon-btn{
+    width:22px;height:22px;border-radius:5px;
+    display:inline-flex;align-items:center;justify-content:center;
+    color:var(--text-3);cursor:default;
+  }
+  .panel-head .icon-btn:hover{background:#212841;color:var(--text-1)}
+  .panel-body{padding:10px 12px 12px}
+
+  /* Accent variants */
+  .panel.view .panel-head .accent{background:var(--view);box-shadow:0 0 12px rgba(6,214,160,.55)}
+  .panel.proj .panel-head .accent{background:var(--proj);box-shadow:0 0 12px rgba(255,183,3,.55)}
+  .panel.matrices .panel-head .accent{background:linear-gradient(180deg,#4cc9f0,#b388ff);box-shadow:0 0 12px rgba(91,141,239,.5)}
+  .panel.debug .panel-head .accent{background:linear-gradient(180deg,#06d6a0,#5b8def);box-shadow:0 0 12px rgba(91,141,239,.4)}
+  .panel.tracker .panel-head .accent{background:var(--tracker);box-shadow:0 0 12px rgba(247,37,133,.55)}
+
+  /* --- Form rows --- */
+  .row{
+    display:grid;
+    grid-template-columns:62px 1fr;
+    align-items:center;
+    gap:8px;
+    padding:5px 0;
+  }
+  .row.row-wide{grid-template-columns:74px 1fr}
+  .row .lbl{
+    color:var(--text-3);
+    font-size:11.5px;
+    font-weight:500;
+    letter-spacing:.2px;
+    display:flex;align-items:center;gap:6px;
+  }
+  .row .lbl .swatch{
+    width:7px;height:7px;border-radius:2px;flex:none;
+  }
+  .row .lbl .swatch.x{background:var(--x)}
+  .row .lbl .swatch.y{background:var(--y)}
+  .row .lbl .swatch.z{background:var(--z)}
+
+  /* Numeric input */
+  .num{
+    display:flex;align-items:center;
+    background:var(--bg-input);
+    border:1px solid var(--border);
+    border-radius:6px;
+    height:28px;
+    overflow:hidden;
+    transition:border-color .15s ease, box-shadow .15s ease;
+  }
+  .num:focus-within{
+    border-color:var(--accent);
+    box-shadow:0 0 0 3px var(--accent-soft);
+  }
+  .num input{
+    flex:1;min-width:0;
+    background:transparent;border:none;outline:none;
+    color:var(--text-1);font-size:12px;
+    font-family:"JetBrains Mono","Consolas",ui-monospace,monospace;
+    padding:0 8px;height:100%;
+    text-align:right;
+    font-variant-numeric:tabular-nums;
+  }
+  .num .steppers{display:flex;flex-direction:column;height:100%;width:18px;border-left:1px solid var(--border)}
+  .num .steppers button{
+    flex:1;border:none;background:transparent;
+    color:var(--text-3);cursor:default;
+    display:flex;align-items:center;justify-content:center;
+    font-size:9px;line-height:1;
+  }
+  .num .steppers button + button{border-top:1px solid var(--border)}
+  .num .steppers button:hover{background:#1a2032;color:var(--text-1)}
+
+  /* Triple input (XYZ) */
+  .triple{
+    display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;
+  }
+  .triple .num{padding-left:0}
+  .triple .num .axis{
+    width:18px;align-self:stretch;
+    display:flex;align-items:center;justify-content:center;
+    font-size:10px;font-weight:700;
+    background:#0a0e18;border-right:1px solid var(--border);
+    color:var(--text-3);
+    font-family:"JetBrains Mono",monospace;
+  }
+  .triple .num.x .axis{color:var(--x)}
+  .triple .num.y .axis{color:var(--y)}
+  .triple .num.z .axis{color:var(--z)}
+  .triple .num input{padding-left:6px}
+
+  /* Slider w/ value */
+  .slider-row{display:flex;align-items:center;gap:8px}
+  .slider{
+    flex:1;height:22px;position:relative;
+    display:flex;align-items:center;
+  }
+  .slider .track{
+    height:4px;width:100%;border-radius:999px;
+    background:#1a2032;
+    position:relative;overflow:hidden;
+  }
+  .slider .track .fill{
+    position:absolute;left:0;top:0;bottom:0;
+    background:linear-gradient(90deg,#3a6ee0,#5b8def);
+    box-shadow:0 0 12px rgba(91,141,239,.6);
+    border-radius:inherit;
+  }
+  .slider .thumb{
+    position:absolute;top:50%;
+    width:14px;height:14px;border-radius:50%;
+    background:#fff;border:2px solid var(--accent);
+    transform:translate(-50%,-50%);
+    box-shadow:0 2px 6px rgba(0,0,0,.4);
+  }
+  .slider .track::before{
+    content:"";position:absolute;inset:0;
+    background:repeating-linear-gradient(90deg,transparent 0 calc(10% - 1px),rgba(255,255,255,.07) calc(10% - 1px) 10%);
+    pointer-events:none;
+  }
+
+  /* Segmented control */
+  .seg{
+    display:flex;
+    background:var(--bg-input);
+    border:1px solid var(--border);
+    border-radius:7px;
+    padding:2px;gap:2px;
+    height:28px;
+  }
+  .seg button{
+    flex:1;border:none;background:transparent;
+    color:var(--text-3);font-size:11.5px;font-weight:500;
+    border-radius:5px;cursor:default;
+    letter-spacing:.2px;
+  }
+  .seg button:hover{color:var(--text-1);background:#1a2032}
+  .seg button.on{
+    background:linear-gradient(180deg,#2a3a64,#1b2541);
+    color:#fff;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.08);
+  }
+
+  /* Switch */
+  .switch{
+    width:34px;height:18px;border-radius:999px;
+    background:#222a3e;border:1px solid var(--border);
+    position:relative;cursor:default;flex:none;
+  }
+  .switch::after{
+    content:"";position:absolute;top:1px;left:1px;
+    width:14px;height:14px;border-radius:50%;
+    background:#cdd5e6;transition:left .18s ease,background .18s ease;
+  }
+  .switch.on{background:linear-gradient(180deg,#2a5cbf,#1b408a);border-color:#2a5cbf}
+  .switch.on::after{left:17px;background:#fff}
+
+  /* Toggle pill row */
+  .toggle-row{display:flex;align-items:center;justify-content:space-between;padding:6px 0}
+  .toggle-row .lbl{font-size:12px;color:var(--text-2)}
+  .toggle-row .hint{font-size:10.5px;color:var(--text-4);margin-top:2px}
+
+  /* Section divider */
+  .sec-title{
+    display:flex;align-items:center;gap:8px;
+    margin:10px 0 4px;font-size:10.5px;letter-spacing:1px;
+    color:var(--text-4);font-weight:600;text-transform:uppercase;
+  }
+  .sec-title::after{
+    content:"";flex:1;height:1px;background:linear-gradient(90deg,#1d2335,transparent);
+  }
+
+  /* Select control */
+  .select{
+    height:28px;display:flex;align-items:center;
+    background:var(--bg-input);border:1px solid var(--border);border-radius:6px;
+    padding:0 8px;color:var(--text-1);font-size:12px;
+    justify-content:space-between;
+  }
+  .select .caret{color:var(--text-3)}
+
+  /* === Right side: Matrices === */
+  .matrix{
+    background:var(--bg-input);
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:8px 10px;margin-bottom:8px;
+    transition:border-color .2s ease, box-shadow .2s ease;
+    position:relative;overflow:hidden;
+  }
+  .matrix.focus{
+    border-color:rgba(91,141,239,.55);
+    box-shadow:0 0 0 1px rgba(91,141,239,.35),0 0 24px rgba(91,141,239,.18);
+  }
+  .matrix.focus::before{
+    content:"";position:absolute;left:0;top:0;bottom:0;width:3px;
+    background:linear-gradient(180deg,var(--mw),var(--mmvp));
+  }
+  .matrix-head{
+    display:flex;align-items:center;gap:8px;margin-bottom:6px;
+  }
+  .matrix-head .chip{
+    font-size:10.5px;font-weight:700;letter-spacing:.6px;
+    padding:2px 6px;border-radius:4px;
+    background:rgba(76,201,240,.12);color:var(--mw);
+    font-family:"JetBrains Mono",monospace;
+  }
+  .matrix-head .desc{font-size:11px;color:var(--text-3);flex:1}
+  .matrix-head .ord{
+    display:flex;align-items:center;gap:4px;font-size:10.5px;color:var(--text-4);
+  }
+  .matrix table{
+    width:100%;border-collapse:separate;border-spacing:1px;
+    font-family:"JetBrains Mono","Consolas",monospace;
+    font-size:10.5px;
+    line-height:1;
+  }
+  .matrix table td{
+    padding:3px 4px;border-radius:3px;
+    background:#11151f;color:var(--text-2);
+    text-align:right;
+    font-variant-numeric:tabular-nums;
+  }
+  .matrix.mv table td{color:#d9c8ff}
+  .matrix.mp table td{color:#ffe2a3}
+  .matrix.mvp table td{color:#ffc4dc}
+  .matrix table tr:nth-child(2) td{
+    background:#141925;
+  }
+
+  /* Debug card */
+  .card{
+    background:var(--bg-input);
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:10px 12px;margin-bottom:8px;
+  }
+  .card .k{font-size:10.5px;letter-spacing:.6px;text-transform:uppercase;color:var(--text-4);font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+  .card .v{font-family:"JetBrains Mono",monospace;font-size:11.5px;color:var(--text-2)}
+  .kv{display:flex;align-items:center;gap:6px;margin-top:4px}
+  .kv .k{font-size:11px;letter-spacing:.3px;text-transform:none;color:var(--text-3);font-weight:500;margin:0;width:62px;flex:none}
+  .kv .v{font-size:12px;color:var(--text-1)}
+  .btn-row{display:flex;gap:6px;flex-wrap:wrap}
+  .btn{
+    display:inline-flex;align-items:center;gap:6px;
+    padding:5px 10px;border-radius:6px;
+    background:#1a2032;border:1px solid var(--border-light);
+    color:var(--text-1);font-size:11.5px;font-weight:500;
+    cursor:default;
+  }
+  .btn:hover{background:#222a3e}
+  .btn.primary{
+    background:linear-gradient(180deg,#2a5cbf,#1b408a);
+    border-color:#2a5cbf;color:#fff;
+    box-shadow:0 1px 0 rgba(255,255,255,.1) inset;
+  }
+  .btn.primary:hover{filter:brightness(1.1)}
+  .btn.ghost{background:transparent}
+
+  .stack{display:flex;flex-direction:column;gap:8px}
+
+  /* Tracker */
+  .tracker-pad{
+    height:120px;border-radius:8px;border:1px solid var(--border);
+    background:radial-gradient(circle at 50% 60%, #1a233a 0%, #0a0f1c 70%);
+    display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;
+    margin-bottom:8px;
+  }
+  .tracker-coord{
+    display:grid;grid-template-columns:repeat(3,1fr);gap:8px;
+  }
+
+  /* === Viewport === */
+  .viewport{
+    position:relative;background:var(--bg-canvas);overflow:hidden;
+    display:flex;flex-direction:column;min-height:0;
+  }
+  .vp-area{flex:1;position:relative;min-height:0}
+  .vp-stage{position:absolute;inset:0}
+
+  /* Viewport top HUD */
+  .vp-hud{
+    position:absolute;left:14px;top:14px;right:14px;
+    display:flex;align-items:flex-start;gap:10px;
+    pointer-events:none;
+  }
+  .vp-hud .ax-legend{
+    background:rgba(14,19,32,.7);
+    backdrop-filter:blur(8px);
+    border:1px solid rgba(255,255,255,.06);
+    border-radius:10px;padding:8px 10px;
+    pointer-events:auto;
+  }
+  .vp-hud .ax-legend .row2{
+    display:flex;align-items:center;gap:8px;
+    font-family:"JetBrains Mono",monospace;
+    font-size:11px;color:var(--text-2);
+    padding:2px 0;
+  }
+  .vp-hud .ax-legend .row2 .sw{
+    width:18px;height:6px;border-radius:3px;
+  }
+  .vp-hud .ax-legend .row2 .sw.x{background:var(--x);box-shadow:0 0 8px rgba(239,71,111,.5)}
+  .vp-hud .ax-legend .row2 .sw.y{background:var(--y);box-shadow:0 0 8px rgba(6,214,160,.5)}
+  .vp-hud .ax-legend .row2 .sw.z{background:var(--z);box-shadow:0 0 8px rgba(76,201,240,.5)}
+  .vp-hud .ax-legend .row2 .sw.t{background:var(--tracker);box-shadow:0 0 8px rgba(247,37,133,.5)}
+
+  /* Floating viewport toolbar (right side) */
+  .vp-tools{
+    position:absolute;right:14px;top:14px;
+    display:flex;flex-direction:column;gap:6px;
+    pointer-events:auto;
+  }
+  .vp-tools .g{
+    background:rgba(14,19,32,.72);
+    backdrop-filter:blur(8px);
+    border:1px solid rgba(255,255,255,.06);
+    border-radius:10px;
+    padding:4px;
+    display:flex;flex-direction:column;gap:2px;
+  }
+  .vp-tools .g.horiz{flex-direction:row}
+  .vp-tools .vbtn{
+    width:30px;height:30px;border-radius:7px;
+    display:flex;align-items:center;justify-content:center;
+    color:var(--text-2);cursor:default;
+  }
+  .vp-tools .vbtn:hover{background:#1a2032;color:var(--text-1)}
+  .vp-tools .vbtn.on{
+    background:linear-gradient(180deg,#2a3a64,#1b2541);
+    color:#fff;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.1);
+  }
+
+  /* Performance HUD */
+  .vp-perf{
+    position:absolute;left:14px;bottom:14px;
+    background:rgba(14,19,32,.7);backdrop-filter:blur(8px);
+    border:1px solid rgba(255,255,255,.06);border-radius:8px;
+    padding:6px 10px;
+    display:flex;align-items:center;gap:14px;
+    font-family:"JetBrains Mono",monospace;
+    font-size:10.5px;color:var(--text-2);
+    pointer-events:auto;
+  }
+  .vp-perf .it{display:flex;align-items:center;gap:5px}
+  .vp-perf .it .k{color:var(--text-4)}
+  .vp-perf .dot{width:6px;height:6px;border-radius:50%;background:var(--view);box-shadow:0 0 6px var(--view)}
+  .vp-perf .dot.warn{background:var(--proj);box-shadow:0 0 6px var(--proj)}
+  .vp-perf .dot.err{background:var(--world);box-shadow:0 0 6px var(--world)}
+
+  /* Bottom strip controls */
+  .vp-bottom-strip{
+    flex:none;height:36px;
+    display:flex;align-items:center;gap:6px;
+    padding:0 12px;
+    border-top:1px solid #1a2032;
+    background:linear-gradient(180deg,#131826,#10141e);
+  }
+  .vp-bottom-strip .spacer{flex:1}
+  .pill{
+    display:inline-flex;align-items:center;gap:6px;
+    padding:4px 10px;border-radius:999px;
+    background:#0d1119;border:1px solid #1f273b;
+    color:var(--text-2);font-size:11px;
+    font-family:"JetBrains Mono",monospace;
+  }
+  .pill .dot{width:6px;height:6px;border-radius:50%;background:var(--view)}
+  .pill.warn .dot{background:var(--proj)}
+  .pill.err .dot{background:var(--world)}
+
+  /* === Status bar === */
+  .statusbar{
+    height:24px;flex:none;
+    display:flex;align-items:center;gap:12px;
+    padding:0 12px;
+    background:#0c1019;border-top:1px solid #1a2032;
+    color:var(--text-3);font-size:11px;
+  }
+  .statusbar .seg-status{
+    display:flex;align-items:center;gap:6px;
+    padding:0 8px;height:100%;
+  }
+  .statusbar .seg-status .ok{color:var(--view)}
+  .statusbar .seg-status .err{color:var(--world)}
+  .statusbar .seg-status .warn{color:var(--proj)}
+  .statusbar .spacer{flex:1}
+  .statusbar .msaa{font-family:"JetBrains Mono",monospace;color:var(--text-3)}
+  .statusbar .msaa b{color:var(--text-1)}
+
+  /* Mini axis widget top right inside viewport */
+  .mini-axis{
+    position:absolute;right:14px;top:14px;
+    width:96px;height:96px;border-radius:14px;
+    background:rgba(14,19,32,.6);backdrop-filter:blur(8px);
+    border:1px solid rgba(255,255,255,.06);
+    display:flex;align-items:center;justify-content:center;
+    pointer-events:auto;
+  }
+
+  /* small SVG icons */
+  .i{width:14px;height:14px;display:block;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+  .i-lg{width:16px;height:16px}
+  .i-sm{width:12px;height:12px}
+
+  /* Toast */
+  .toast{
+    position:absolute;left:50%;bottom:60px;transform:translateX(-50%);
+    padding:8px 14px;border-radius:999px;
+    background:rgba(14,19,32,.92);
+    border:1px solid rgba(255,255,255,.06);
+    color:var(--text-2);font-size:11.5px;
+    display:flex;align-items:center;gap:8px;
+    box-shadow:0 6px 24px rgba(0,0,0,.4);
+    backdrop-filter:blur(8px);
+  }
+  .toast .dot{width:8px;height:8px;border-radius:50%;background:var(--view);box-shadow:0 0 8px var(--view)}
+
+  /* Selection menu */
+  .vp-cursor-info{
+    position:absolute;right:14px;bottom:60px;
+    background:rgba(14,19,32,.7);backdrop-filter:blur(8px);
+    border:1px solid rgba(255,255,255,.06);border-radius:8px;
+    padding:5px 9px;font-family:"JetBrains Mono",monospace;
+    font-size:10.5px;color:var(--text-3);
+  }
+
+  /* Scrollbar */
+  .scroll{overflow:auto;flex:1}
+  .scroll::-webkit-scrollbar{width:8px;height:8px}
+  .scroll::-webkit-scrollbar-thumb{background:#222a3e;border-radius:6px}
+  .scroll::-webkit-scrollbar-thumb:hover{background:#2c3650}
+  .scroll::-webkit-scrollbar-track{background:transparent}
+
+  /* dot */
+  .dot{width:6px;height:6px;border-radius:50%;display:inline-block}
+
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- ============== Title bar ============== -->
+  <div class="titlebar">
+    <div class="brand">
+      <div class="logo"></div>
+      <div class="name">3DEditMax <span>· DX11 Lab</span></div>
+    </div>
+    <div class="tabs">
+      <div class="tab active">文件</div>
+      <div class="tab">视图</div>
+      <div class="tab">渲染</div>
+      <div class="tab">演示</div>
+      <div class="tab">帮助</div>
+    </div>
+    <div class="winctrls">
+      <div class="btn">
+        <svg class="i" viewBox="0 0 24 24"><path d="M5 12h14"/></svg>
+      </div>
+      <div class="btn">
+        <svg class="i" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="1.5"/></svg>
+      </div>
+      <div class="btn close">
+        <svg class="i" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============== Menu bar ============== -->
+  <div class="menubar">
+    <div class="m">文件</div>
+    <div class="m">编辑</div>
+    <div class="m">视图</div>
+    <div class="m">对象</div>
+    <div class="m">渲染</div>
+    <div class="m">演示</div>
+    <div class="m">窗口</div>
+    <div class="m">帮助</div>
+    <div class="spacer"></div>
+    <div class="m">Lab ▾</div>
+    <div class="m">v1.0.0</div>
+  </div>
+
+  <!-- ============== Toolbar ============== -->
+  <div class="toolbar">
+    <div class="tool-group">
+      <div class="tool active" title="选择 (Q)">
+        <svg class="i" viewBox="0 0 24 24"><path d="M5 3l13 7-6 2-2 6L5 3z"/></svg>
+      </div>
+      <div class="tool" title="平移 (W)">
+        <svg class="i" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M8 7l4-4 4 4M16 17l-4 4-4-4M7 8l-4 4 4 4M17 8l4 4-4 4"/></svg>
+      </div>
+      <div class="tool" title="轨道 (E)">
+        <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M4 12h16M12 4c3 3 3 13 0 16M12 4c-3 3-3 13 0 16"/></svg>
+      </div>
+      <div class="tool" title="推拉 (R)">
+        <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M3 12h4M17 12h4M12 3v4M12 17v4"/></svg>
+      </div>
+    </div>
+
+    <div class="tool-group">
+      <div class="tool active" title="实心">
+        <svg class="i" viewBox="0 0 24 24"><path d="M4 7l8-4 8 4v10l-8 4-8-4V7z"/></svg>
+        <span class="lbl">实心</span>
+      </div>
+      <div class="tool" title="选择">
+        <svg class="i" viewBox="0 0 24 24"><path d="M4 7l8-4 8 4v10l-8 4-8-4V7z"/><path d="M12 3v18M4 7l16 10M20 7L4 17"/></svg>
+        <span class="lbl">选择</span>
+      </div>
+      <div class="tool" title="线框">
+        <svg class="i" viewBox="0 0 24 24"><path d="M12 3l9 5v8l-9 5-9-5V8l9-5zM12 3v18M3 8l18 10M21 8L3 18"/></svg>
+        <span class="lbl">线框</span>
+      </div>
+      <div class="tool" title="追踪点">
+        <svg class="i" viewBox="0 0 24 24"><path d="M12 2l10 10-10 10L2 12 12 2z"/><circle cx="12" cy="12" r="2.5"/></svg>
+        <span class="lbl">追踪点</span>
+      </div>
+    </div>
+
+    <div class="tool-group">
+      <div class="tool" title="立方体">
+        <svg class="i" viewBox="0 0 24 24"><path d="M4 7l8-4 8 4v10l-8 4-8-4V7z"/></svg>
+      </div>
+      <div class="tool" title="球体">
+        <svg class="i" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c4 3 4 15 0 18M12 3c-4 3-4 15 0 18"/></svg>
+      </div>
+      <div class="tool" title="圆柱">
+        <svg class="i" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="7" ry="2.5"/><path d="M5 5v14M19 5v14"/><ellipse cx="12" cy="19" rx="7" ry="2.5"/></svg>
+      </div>
+    </div>
+
+    <div class="divider-v"></div>
+
+    <div class="demo-bar">
+      <span class="step-pill"><span class="dot"></span> 演示 3 / 8</span>
+      <span class="title">投影变换：观察空间 → 屏幕空间</span>
+      <span class="body">FOV、近远平面与宽高比共同决定透视投影矩阵 M_P 的形状</span>
+      <div class="ctrls">
+        <button>
+          <svg class="i-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 6l-6 6 6 6"/></svg>
+        </button>
+        <button>
+          <svg class="i-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="spacer" style="flex:1"></div>
+
+    <div class="tool-group">
+      <div class="tool" title="录制">
+        <svg class="i" viewBox="0 0 24 24" style="color:var(--world)"><circle cx="12" cy="12" r="4" fill="currentColor"/></svg>
+      </div>
+      <div class="tool" title="性能分析">
+        <svg class="i" viewBox="0 0 24 24"><path d="M4 20V8M10 20V4M16 20v-7M22 20H2"/></svg>
+      </div>
+      <div class="tool" title="截图">
+        <svg class="i" viewBox="0 0 24 24"><path d="M4 7h3l2-2h6l2 2h3v12H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============== Main grid ============== -->
+  <main>
+    <!-- ====================== LEFT DOCK ====================== -->
+    <aside>
+      <div class="scroll">
+
+        <!-- World -->
+        <div class="panel">
+          <div class="panel-head">
+            <div class="accent"></div>
+            <div class="title">
+              <svg class="i" viewBox="0 0 24 24" style="color:var(--world)"><path d="M4 7l8-4 8 4v10l-8 4-8-4V7z"/></svg>
+              World
+              <span class="badge">变换</span>
+            </div>
+            <div class="spacer"></div>
+            <div class="actions">
+              <div class="icon-btn" title="重置">
+                <svg class="i-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6"/></svg>
+              </div>
+              <div class="icon-btn" title="折叠">
+                <svg class="i-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+              </div>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="sec-title">位置 Position</div>
+            <div class="triple">
+              <div class="num x"><div class="axis">X</div><input value="0.00"/></div>
+              <div class="num y"><div class="axis">Y</div><input value="0.00"/></div>
+              <div class="num z"><div class="axis">Z</div><input value="0.00"/></div>
+            </div>
+            <div class="sec-title">旋转 Rotation · 度(°)</div>
+            <div class="row">
+              <div class="lbl"><span class="swatch x"></span>Yaw</div>
+              <div class="num"><input value="10"/><div class="steppers"><button>▲</button><button>▼</button></div></div>
+            </div>
+            <div class="row">
+              <div class="lbl"><span class="swatch y"></span>Pitch</div>
+              <div class="num"><input value="20"/><div class="steppers"><button>▲</button><button>▼</button></div></div>
+            </div>
+            <div class="row">
+              <div class="lbl"><span class="swatch z"></span>Roll</div>
+              <div class="num"><input value="0"/><div class="steppers"><button>▲</button><button>▼</button></div></div>
+            </div>
+            <div class="sec-title">缩放 Scale</div>
+            <div class="triple">
+              <div class="num x"><div class="axis">X</div><input value="1.00"/></div>
+              <div class="num y"><div class="axis">Y</div><input value="1.00"/></div>
+              <div class="num z"><div class="axis">Z</div><input value="1.00"/></div>
+            </div>
+            <div class="row" style="margin-top:6px">
+              <div class="lbl">均匀</div>
+              <div class="seg">
+                <button class="on">Uniform</button>
+                <button>Non-Uniform</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- View -->
+        <div class="panel view">
+          <div class="panel-head">
+            <div class="accent"></div>
+            <div class="title">
+              <svg class="i" viewBox="0 0 24 24" style="color:var(--view)"><circle cx="12" cy="12" r="3"/><path d="M3 12c4-9 14-9 18 0M3 12c4 9 14 9 18 0"/></svg>
+              View
+              <span class="badge" style="background:rgba(6,214,160,.14);color:#5fe2bd">相机</span>
+            </div>
+            <div class="spacer"></div>
+            <div class="actions">
+              <div class="icon-btn"><svg class="i-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6"/></svg></div>
+              <div class="icon-btn"><svg class="i-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></div>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="row">
+              <div class="lbl">Distance</div>
+              <div class="num"><input value="6.9"/><div class="steppers"><button>▲</button><button>▼</button></div></div>
+            </div>
+            <div class="row">
+              <div class="lbl">Pitch</div>
+              <div class="num"><input value="20"/><div class="steppers"><button>▲</button><button>▼</button></div></div>
+            </div>
+            <div class="row">
+              <div class="lbl">Yaw</div>
+              <div class="num"><input value="45"/><div class="steppers"><button>▲</button><button>▼</button></div></div>
+            </div>
+            <div class="sec-title">目标 Target</div>
+            <div class="triple">
+              <div class="num x"><div class="axis">X</div><input value="0.0"/></div>
+              <div class="num y"><div class="axis">Y</div><input value="0.0"/></div>
+              <div class="num z"><div class="axis">Z</div><input value="0.0"/></div>
+            </div>
+            <div class="sec-title">预设视图</div>
+            <div class="seg" style="height:30px;padding:3px">
+              <button>Front</button>
+              <button>Side</button>
+              <button class="on">Top</button>
+              <button>Iso</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Projection -->
+        <div class="panel proj">
+          <div class="panel-head">
+            <div class="accent"></div>
+            <div class="title">
+              <svg class="i" viewBox="0 0 24 24" style="color:var(--proj)"><path d="M4 6l16-3v18L4 18z"/><path d="M4 6l16 15"/></svg>
+              Projection
+              <span class="badge" style="background:rgba(255,183,3,.16);color:#ffd670">投影</span>
+            </div>
+            <div class="spacer"></div>
+            <div class="actions">
+              <div class="icon-btn"><svg class="i-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6"/></svg></div>
+              <div class="icon-btn"><svg class="i-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></div>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="toggle-row">
+              <div>
+                <div class="lbl">Mode</div>
+                <div class="hint">透视 / 正交</div>
+              </div>
+              <div class="seg" style="height:24px;padding:2px">
+                <button class="on">Perspective</button>
+                <button>Ortho</button>
+              </div>
+            </div>
+            <div class="row">
+              <div class="lbl">FOV</div>
+              <div class="slider-row">
+                <div class="slider">
+                  <div class="track"><div class="fill" style="width:66%"></div></div>
+                  <div class="thumb" style="left:66%"></div>
+                </div>
+                <div class="num" style="width:74px;flex:none"><input value="60"/><div class="steppers"><button>▲</button><button>▼</button></div></div>
+              </div>
+            </div>
+            <div class="row">
+              <div class="lbl">Near</div>
+              <div class="num"><input value="0.10"/><div class="steppers"><button>▲</button><button>▼</button></div></div>
+            </div>
+            <div class="row">
+              <div class="lbl">Far</div>
+              <div class="num"><input value="100.0"/><div class="steppers"><button>▲</button><button>▼</button></div></div>
+            </div>
+            <div class="row">
+              <div class="lbl">Aspect</div>
+              <div class="select" style="cursor:default">
+                <span>锁定窗口 (1.778)</span>
+                <span class="caret">▾</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </aside>
+
+    <!-- ====================== CENTER VIEWPORT ====================== -->
+    <section class="viewport">
+      <div class="vp-area">
+        <div class="vp-stage">
+          <svg viewBox="0 0 800 600" preserveAspectRatio="xMidYMid slice" style="width:100%;height:100%;display:block">
+            <defs>
+              <!-- Background gradient -->
+              <radialGradient id="bg" cx="50%" cy="60%" r="80%">
+                <stop offset="0%" stop-color="#1b2540"/>
+                <stop offset="60%" stop-color="#0b1020"/>
+                <stop offset="100%" stop-color="#05080f"/>
+              </radialGradient>
+              <!-- Cube gradient -->
+              <linearGradient id="cubeTop" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#5b8def" stop-opacity=".65"/>
+                <stop offset="100%" stop-color="#3a6ee0" stop-opacity=".50"/>
+              </linearGradient>
+              <linearGradient id="cubeLeft" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#3a6ee0" stop-opacity=".55"/>
+                <stop offset="100%" stop-color="#2a4ea8" stop-opacity=".40"/>
+              </linearGradient>
+              <linearGradient id="cubeRight" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#7aa1ff" stop-opacity=".55"/>
+                <stop offset="100%" stop-color="#5b8def" stop-opacity=".40"/>
+              </linearGradient>
+              <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+                <feGaussianBlur stdDeviation="2.5"/>
+                <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+              </filter>
+            </defs>
+
+            <!-- BG -->
+            <rect width="800" height="600" fill="url(#bg)"/>
+
+            <!-- Grid floor (perspective) -->
+            <g stroke="#2a3553" stroke-width=".6" opacity=".9">
+              <!-- Horizontal lines (Z direction) -->
+              <line x1="-200" y1="430" x2="1000" y2="430"/>
+              <line x1="-200" y1="455" x2="1000" y2="455" opacity=".75"/>
+              <line x1="-200" y1="485" x2="1000" y2="485" opacity=".6"/>
+              <line x1="-200" y1="520" x2="1000" y2="520" opacity=".45"/>
+              <line x1="-200" y1="565" x2="1000" y2="565" opacity=".3"/>
+              <line x1="-200" y1="610" x2="1000" y2="610" opacity=".2"/>
+              <!-- Converging lines (X direction) -->
+              <g opacity=".55">
+                <line x1="400" y1="200" x2="-50" y2="700"/>
+                <line x1="400" y1="200" x2="200" y2="700"/>
+                <line x1="400" y1="200" x2="400" y2="700"/>
+                <line x1="400" y1="200" x2="600" y2="700"/>
+                <line x1="400" y1="200" x2="850" y2="700"/>
+              </g>
+              <!-- Bright center axis -->
+              <line x1="-200" y1="430" x2="1000" y2="430" stroke="#3a4870" stroke-width="1"/>
+            </g>
+
+            <!-- Axis cones & lines (drawn behind cube mostly) -->
+            <!-- Z axis: blue, going forward-right-down -->
+            <g stroke-linecap="round">
+              <!-- Y axis vertical (up) -->
+              <line x1="400" y1="430" x2="400" y2="180" stroke="#06d6a0" stroke-width="2.2" filter="url(#glow)"/>
+              <!-- arrow Y -->
+              <polygon points="400,170 393,194 407,194" fill="#06d6a0" filter="url(#glow)"/>
+
+              <!-- X axis: red, going left-front -->
+              <line x1="400" y1="430" x2="220" y2="505" stroke="#ef476f" stroke-width="2.2" filter="url(#glow)"/>
+              <polygon points="216,508 240,494 232,514" fill="#ef476f" filter="url(#glow)"/>
+
+              <!-- Z axis: blue, going right-front -->
+              <line x1="400" y1="430" x2="610" y2="500" stroke="#4cc9f0" stroke-width="2.2" filter="url(#glow)"/>
+              <polygon points="612,503 590,490 602,510" fill="#4cc9f0" filter="url(#glow)"/>
+            </g>
+
+            <!-- Cube (rotated, with X=10°, Y=20°, Z=0°, scale 1) -->
+            <g transform="translate(490 350)">
+              <!-- Cube coords (centered) -->
+              <!-- We'll draw manually with rhombus illusion -->
+
+              <!-- BACK face (left-back) -->
+              <path d="M 0,-50 L -65,15 L 0,30 L 65,15 Z"
+                    fill="url(#cubeLeft)" stroke="#7aa1ff" stroke-width="1.2"/>
+              <!-- RIGHT face -->
+              <path d="M 0,-50 L 65,15 L 65,80 L 0,115 Z"
+                    fill="url(#cubeRight)" stroke="#7aa1ff" stroke-width="1.2"/>
+              <!-- FRONT face -->
+              <path d="M 0,30 L 65,15 L 65,80 L 0,95 Z"
+                    fill="url(#cubeTop)" stroke="#9ec1ff" stroke-width="1.2" opacity=".85"/>
+              <!-- LEFT face -->
+              <path d="M 0,30 L -65,15 L -65,80 L 0,95 Z"
+                    fill="url(#cubeLeft)" stroke="#7aa1ff" stroke-width="1.2" opacity=".75"/>
+
+              <!-- top diamond -->
+              <path d="M 0,-50 L 65,15 L 0,30 L -65,15 Z"
+                    fill="url(#cubeTop)" stroke="#9ec1ff" stroke-width="1.2"/>
+
+              <!-- Edges highlight -->
+              <g stroke="#cfdcff" stroke-width="1.4" fill="none" opacity=".55">
+                <path d="M 0,-50 L 65,15 M 0,-50 L -65,15 M 0,30 L 0,95 M 65,15 L 65,80 M -65,15 L -65,80 M 65,80 L 0,95 M -65,80 L 0,95 M 65,80 L 0,30 M -65,80 L 0,30"/>
+              </g>
+
+              <!-- Tracker (magenta octahedron at corner 0.5,0.5,0.5) -->
+              <g transform="translate(35 47)">
+                <polygon points="0,-12 12,0 0,12 -12,0" fill="none" stroke="#f72585" stroke-width="1.6" filter="url(#glow)"/>
+                <polygon points="0,-6 6,0 0,6 -6,0" fill="rgba(247,37,133,.4)" stroke="#f72585" stroke-width="1"/>
+                <circle r="2" fill="#f72585"/>
+              </g>
+
+              <!-- World axis handles (small gizmo at cube center) -->
+              <g stroke-width="1.6" stroke-linecap="round" opacity=".85">
+                <line x1="0" y1="35" x2="0" y2="2" stroke="#06d6a0"/>
+                <line x1="-22" y1="49" x2="-8" y2="38" stroke="#ef476f"/>
+                <line x1="22" y1="49" x2="8" y2="38" stroke="#4cc9f0"/>
+              </g>
+            </g>
+
+            <!-- Axis labels (Y up top, X left, Z right) -->
+            <g font-family="JetBrains Mono, Consolas, monospace" font-weight="700" font-size="20" filter="url(#glow)">
+              <text x="412" y="166" fill="#06d6a0">Y</text>
+              <text x="200" y="510" fill="#ef476f">X</text>
+              <text x="618" y="505" fill="#4cc9f0">Z</text>
+            </g>
+            <g font-family="JetBrains Mono, Consolas, monospace" font-size="9" fill="#7c8499">
+              <text x="412" y="184">up</text>
+              <text x="200" y="528">left</text>
+              <text x="618" y="524">front</text>
+            </g>
+
+            <!-- Selection hint ring around tracker -->
+            <g transform="translate(525 397)" fill="none" stroke="#f72585" stroke-width="1" opacity=".6">
+              <circle r="22"/>
+              <circle r="28" stroke-dasharray="3 4" opacity=".5"/>
+            </g>
+
+            <!-- Decorative HUD overlays -->
+            <!-- Reticle / crosshair faint -->
+            <g stroke="#3a4870" stroke-width=".6" opacity=".35">
+              <line x1="0" y1="300" x2="20" y2="300"/>
+              <line x1="780" y1="300" x2="800" y2="300"/>
+            </g>
+          </svg>
+        </div>
+
+        <!-- HUD: axis legend (top left) -->
+        <div class="vp-hud">
+          <div class="ax-legend">
+            <div style="font-size:10.5px;letter-spacing:1px;color:#7c8499;font-weight:600;margin-bottom:4px">AXES · 左手系 · Y-up</div>
+            <div class="row2"><span class="sw x"></span><span style="color:var(--x);font-weight:600">X</span> left</div>
+            <div class="row2"><span class="sw y"></span><span style="color:var(--y);font-weight:600">Y</span> up</div>
+            <div class="row2"><span class="sw z"></span><span style="color:var(--z);font-weight:600">Z</span> front</div>
+            <div class="row2"><span class="sw t"></span><span style="color:var(--tracker);font-weight:600">T</span> tracker (0.5,0.5,0.5)</div>
+          </div>
+        </div>
+
+        <!-- Mini navigator (top right) -->
+        <div class="mini-axis">
+          <svg viewBox="0 0 100 100" style="width:100%;height:100%">
+            <defs>
+              <radialGradient id="miniBg" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stop-color="#1a2032" stop-opacity=".7"/>
+                <stop offset="100%" stop-color="#0d1119" stop-opacity=".3"/>
+              </radialGradient>
+            </defs>
+            <circle cx="50" cy="50" r="44" fill="url(#miniBg)" stroke="#272e44"/>
+            <circle cx="50" cy="50" r="44" fill="none" stroke="#5b8def" stroke-opacity=".3" stroke-dasharray="2 4"/>
+            <!-- camera frustum -->
+            <path d="M 50 50 L 26 30 L 12 14 M 50 50 L 74 30 L 88 14 M 50 50 L 26 70 L 12 86 M 50 50 L 74 70 L 88 86"
+                  stroke="#5b8def" stroke-width="1.2" fill="none" stroke-opacity=".7"/>
+            <!-- axes -->
+            <g stroke-width="2.5" stroke-linecap="round">
+              <line x1="50" y1="50" x2="50" y2="22" stroke="#06d6a0"/>
+              <line x1="50" y1="50" x2="22" y2="50" stroke="#ef476f"/>
+              <line x1="50" y1="50" x2="78" y2="50" stroke="#4cc9f0"/>
+            </g>
+            <text x="53" y="20" fill="#06d6a0" font-family="JetBrains Mono" font-weight="700" font-size="9">Y</text>
+            <text x="18" y="53" fill="#ef476f" font-family="JetBrains Mono" font-weight="700" font-size="9">X</text>
+            <text x="80" y="53" fill="#4cc9f0" font-family="JetBrains Mono" font-weight="700" font-size="9">Z</text>
+            <circle cx="50" cy="50" r="2" fill="#fff"/>
+          </svg>
+        </div>
+
+        <!-- Floating viewport tools (right side, center-right) -->
+        <div class="vp-tools" style="top:auto;bottom:120px;right:14px">
+          <div class="g">
+            <div class="vbtn on" title="实体"><svg class="i" viewBox="0 0 24 24"><path d="M4 7l8-4 8 4v10l-8 4-8-4V7z"/></svg></div>
+            <div class="vbtn" title="线框"><svg class="i" viewBox="0 0 24 24"><path d="M12 3l9 5v8l-9 5-9-5V8l9-5zM12 3v18M3 8l18 10M21 8L3 18"/></svg></div>
+            <div class="vbtn" title="材质"><svg class="i" viewBox="0 0 24 24"><circle cx="8" cy="8" r="3"/><circle cx="16" cy="8" r="3"/><circle cx="8" cy="16" r="3"/><circle cx="16" cy="16" r="3"/></svg></div>
+          </div>
+          <div class="g">
+            <div class="vbtn" title="网格"><svg class="i" viewBox="0 0 24 24"><path d="M3 3h18v18H3zM3 9h18M3 15h18M9 3v18M15 3v18"/></svg></div>
+            <div class="vbtn on" title="轴向"><svg class="i" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18"/></svg></div>
+            <div class="vbtn" title="追踪点"><svg class="i" viewBox="0 0 24 24"><path d="M12 2l10 10-10 10L2 12 12 2z"/></svg></div>
+          </div>
+        </div>
+
+        <!-- Cursor info -->
+        <div class="vp-cursor-info">X: 0.533  Y: 0.526  Z: 0.498 · 1.42 m</div>
+
+        <!-- Performance HUD (bottom left) -->
+        <div class="vp-perf">
+          <div class="it"><span class="dot"></span> <span class="k">FPS</span> 144.0</div>
+          <div class="it"><span class="k">MS</span> 6.9</div>
+          <div class="it"><span class="k">GPU</span> 38%</div>
+          <div class="it"><span class="k">VRAM</span> 312 MB</div>
+          <div class="it"><span class="k">Draws</span> 24</div>
+        </div>
+
+        <!-- Toast -->
+        <div class="toast">
+          <span class="dot"></span>
+          已应用"演示 3/8": 投影变换观察空间 → 屏幕空间
+        </div>
+      </div>
+
+      <!-- Bottom strip controls -->
+      <div class="vp-bottom-strip">
+        <div class="pill"><span class="dot" style="background:var(--view)"></span> MSAA 4×</div>
+        <div class="pill">Vsync ON</div>
+        <div class="pill">材质：<b style="color:var(--text-1);font-weight:600">Solid</b></div>
+        <div class="pill">剔除：<b style="color:var(--text-1);font-weight:600">Back</b></div>
+        <div class="pill"><span class="dot" style="background:var(--view)"></span> Depth ON</div>
+        <div class="pill">HDR OFF</div>
+        <div class="spacer"></div>
+        <div class="pill"><span class="dot" style="background:var(--accent)"></span> 800 × 600 · 1.33:1</div>
+        <div class="pill warn"><span class="dot"></span> 演示模式</div>
+      </div>
+    </section>
+
+    <!-- ====================== RIGHT DOCK ====================== -->
+    <aside class="right">
+      <div class="scroll">
+
+        <!-- Matrices -->
+        <div class="panel matrices">
+          <div class="panel-head">
+            <div class="accent"></div>
+            <div class="title">
+              <svg class="i" viewBox="0 0 24 24" style="color:#9fbcff"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/></svg>
+              矩阵看板
+              <span class="badge">MV · MVP</span>
+            </div>
+            <div class="spacer"></div>
+            <div class="actions">
+              <div class="icon-btn" title="主序切换">
+                <svg class="i-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h16M4 16h16M8 4v16M16 4v16"/></svg>
+              </div>
+              <div class="icon-btn"><svg class="i-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></div>
+            </div>
+          </div>
+          <div class="panel-body">
+
+            <!-- M_W -->
+            <div class="matrix">
+              <div class="matrix-head">
+                <span class="chip" style="background:rgba(76,201,240,.16);color:var(--mw)">M_W</span>
+                <span class="desc">世界矩阵 · Rotation · Translation</span>
+                <span class="ord">col-major</span>
+              </div>
+              <table>
+                <tr><td>0.985</td><td>-0.174</td><td>0.000</td><td>0.000</td></tr>
+                <tr><td>0.174</td><td>0.985</td><td>0.000</td><td>0.000</td></tr>
+                <tr><td>0.000</td><td>0.000</td><td>1.000</td><td>0.000</td></tr>
+                <tr><td>0.000</td><td>0.000</td><td>0.000</td><td>1.000</td></tr>
+              </table>
+            </div>
+
+            <!-- M_V focused -->
+            <div class="matrix mv focus">
+              <div class="matrix-head">
+                <span class="chip" style="background:rgba(179,136,255,.16);color:var(--mv)">M_V</span>
+                <span class="desc">观察矩阵 · LookAt(Rh, Up)</span>
+                <span class="ord">col-major</span>
+              </div>
+              <table>
+                <tr><td>0.767</td><td>0.000</td><td>-0.642</td><td>0.000</td></tr>
+                <tr><td>-0.252</td><td>0.917</td><td>-0.302</td><td>0.000</td></tr>
+                <tr><td>0.589</td><td>0.398</td><td>0.704</td><td>-6.900</td></tr>
+                <tr><td>0.000</td><td>0.000</td><td>0.000</td><td>1.000</td></tr>
+              </table>
+            </div>
+
+            <!-- M_P -->
+            <div class="matrix mp">
+              <div class="matrix-head">
+                <span class="chip" style="background:rgba(255,183,3,.16);color:var(--mp)">M_P</span>
+                <span class="desc">投影矩阵 · Perspective</span>
+                <span class="ord">col-major</span>
+              </div>
+              <table>
+                <tr><td>1.299</td><td>0.000</td><td>0.000</td><td>0.000</td></tr>
+                <tr><td>0.000</td><td>1.732</td><td>0.000</td><td>0.000</td></tr>
+                <tr><td>0.000</td><td>0.000</td><td>-1.001</td><td>-0.200</td></tr>
+                <tr><td>0.000</td><td>0.000</td><td>-0.100</td><td>1.000</td></tr>
+              </table>
+            </div>
+
+            <!-- MVP -->
+            <div class="matrix mvp">
+              <div class="matrix-head">
+                <span class="chip" style="background:rgba(247,37,133,.16);color:var(--mmvp)">MVP</span>
+                <span class="desc">复合矩阵 · M_P × M_V × M_W</span>
+                <span class="ord">col-major</span>
+              </div>
+              <table>
+                <tr><td>1.005</td><td>-0.156</td><td>-0.832</td><td>4.426</td></tr>
+                <tr><td>-0.211</td><td>1.586</td><td>-0.260</td><td>0.292</td></tr>
+                <tr><td>0.077</td><td>-0.413</td><td>-0.708</td><td>7.500</td></tr>
+                <tr><td>-0.492</td><td>-0.376</td><td>-0.741</td><td>1.768</td></tr>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Debug -->
+        <div class="panel debug">
+          <div class="panel-head">
+            <div class="accent"></div>
+            <div class="title">
+              <svg class="i" viewBox="0 0 24 24" style="color:#7c8499"><path d="M9 3v3H4v6h3v3l5-4V8H9z"/><circle cx="18" cy="18" r="3"/><path d="M11 18h4"/></svg>
+              DX11 Lab / Debug
+              <span class="badge" style="background:rgba(6,214,160,.16);color:#5fe2bd">GPU</span>
+            </div>
+            <div class="spacer"></div>
+            <div class="actions">
+              <div class="icon-btn"><svg class="i-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6"/></svg></div>
+              <div class="icon-btn"><svg class="i-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></div>
+            </div>
+          </div>
+          <div class="panel-body">
+
+            <div class="card">
+              <div class="k">Device</div>
+              <div class="v" style="display:flex;align-items:center;gap:6px">
+                <span class="dot" style="background:var(--view)"></span>
+                NVIDIA GeForce RTX 4060 Laptop GPU
+              </div>
+              <div class="kv"><span class="k">Driver</span><span class="v">552.22 · Feature Lvl 12_2</span></div>
+              <div class="kv"><span class="k">Adapter</span><span class="v">\\.\DISPLAY1 · Output 0</span></div>
+            </div>
+
+            <div class="card">
+              <div class="k">Shader</div>
+              <div class="btn-row" style="margin-top:4px">
+                <span class="chip" style="font-family:JetBrains Mono,monospace;font-size:11px;padding:3px 8px;border-radius:5px;background:rgba(91,141,239,.16);color:#9fbcff">unlit.hlsl</span>
+                <button class="btn">Hull</button>
+                <button class="btn">Domain</button>
+              </div>
+              <div class="btn-row" style="margin-top:8px">
+                <button class="btn primary">Compile</button>
+                <button class="btn">
+                  <svg class="i-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6"/></svg>
+                  Reload
+                </button>
+                <button class="btn ghost">Watch</button>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="k">Rasterizer</div>
+              <div class="row" style="grid-template-columns:60px 1fr">
+                <div class="lbl">Fill</div>
+                <div class="seg"><button>Wire</button><button class="on">Solid</button></div>
+              </div>
+              <div class="row" style="grid-template-columns:60px 1fr">
+                <div class="lbl">Cull</div>
+                <div class="seg"><button>None</button><button>Front</button><button class="on">Back</button></div>
+              </div>
+              <div class="row" style="grid-template-columns:60px 1fr">
+                <div class="lbl">Depth</div>
+                <div class="toggle-row" style="padding:0;flex:1;justify-content:space-between">
+                  <span class="lbl" style="font-size:11.5px">深度测试</span>
+                  <div class="switch on"></div>
+                </div>
+              </div>
+              <div class="row" style="grid-template-columns:60px 1fr">
+                <div class="lbl">Scissor</div>
+                <div class="toggle-row" style="padding:0;flex:1;justify-content:space-between">
+                  <span class="lbl" style="font-size:11.5px">视口裁剪</span>
+                  <div class="switch"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="k">Constant Buffer — CB_MVP</div>
+              <div class="v" style="font-family:JetBrains Mono,monospace;font-size:10.5px">
+                <div>mvp[0]  :  1.005  -0.156  -0.832   4.426</div>
+                <div>mvp[1]  : -0.211   1.586  -0.260   0.292</div>
+                <div>mvp[2]  :  0.077  -0.413  -0.708   7.500</div>
+                <div>mvp[3]  : -0.492  -0.376  -0.741   1.768</div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Tracker -->
+        <div class="panel tracker">
+          <div class="panel-head">
+            <div class="accent"></div>
+            <div class="title">
+              <svg class="i" viewBox="0 0 24 24" style="color:var(--tracker)"><path d="M12 2l10 10-10 10L2 12 12 2z"/></svg>
+              Tracker
+              <span class="badge" style="background:rgba(247,37,133,.16);color:#ff8db6">模型空间</span>
+            </div>
+            <div class="spacer"></div>
+            <div class="actions">
+              <div class="icon-btn"><svg class="i-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 3v6h6"/></svg></div>
+              <div class="icon-btn"><svg class="i-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></div>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="tracker-pad">
+              <svg viewBox="-30 -30 60 60" style="width:78%;height:78%">
+                <defs>
+                  <linearGradient id="octtop" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#ffbce0"/>
+                    <stop offset="100%" stop-color="#f72585"/>
+                  </linearGradient>
+                </defs>
+                <g stroke="#f72585" stroke-width=".7" fill="url(#octtop)" opacity=".85">
+                  <polygon points="0,-22 22,0 0,22 -22,0"/>
+                  <polygon points="0,-12 12,0 0,12 -12,0" stroke="none"/>
+                </g>
+                <circle r="2" fill="#fff"/>
+                <text x="22" y="-14" fill="#f72585" font-family="JetBrains Mono" font-size="6">T</text>
+              </svg>
+            </div>
+            <div class="triple tracker-coord">
+              <div class="num x"><div class="axis">X</div><input value="0.530"/></div>
+              <div class="num y"><div class="axis">Y</div><input value="0.526"/></div>
+              <div class="num z"><div class="axis">Z</div><input value="0.498"/></div>
+            </div>
+            <div class="row" style="margin-top:8px">
+              <div class="lbl">Snapping</div>
+              <div class="seg" style="height:24px;padding:2px">
+                <button class="on">0.01</button>
+                <button>0.05</button>
+                <button>0.10</button>
+                <button>Free</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </aside>
+  </main>
+
+  <!-- ============== Status bar ============== -->
+  <div class="statusbar">
+    <div class="seg-status seg-status"><span class="ok">●</span> Device OK</div>
+    <div class="seg-status">SwapChain · <b style="color:var(--text-1);margin-left:4px">DXGI 1.4</b></div>
+    <div class="seg-status">Backbuffer <b style="color:var(--text-1);margin:0 4px">R8G8B8A8_UNorm</b> · 4×MSAA</div>
+    <div class="seg-status">Tick <b style="color:var(--text-1);margin-left:4px">14286</b></div>
+    <div class="spacer"></div>
+    <div class="msaa">Polling <b>1.0 ms</b></div>
+    <div class="msaa">CB Upload <b>0.2 ms</b></div>
+    <div class="seg-status">Render thread <b style="color:var(--text-1);margin-left:4px">std::thread #2</b></div>
+    <div class="seg-status">DPI 100%</div>
+  </div>
+</div>
+</body>
+</html>

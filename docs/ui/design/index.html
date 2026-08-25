@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>3DEditMax · UI 设计改进方案</title>
+<style>
+  :root{
+    --bg:#06080f;
+    --bg-1:#0e1320;
+    --bg-2:#161b2b;
+    --bg-3:#1d2335;
+    --bg-input:#0c1019;
+
+    --border:#272e44;
+    --border-light:#323a55;
+
+    --text-1:#eef1f9;
+    --text-2:#b3bbd1;
+    --text-3:#7c8499;
+    --text-4:#5a6175;
+
+    --accent:#5b8def;
+    --accent-2:#7aa1ff;
+
+    --world:#ef476f;
+    --view:#06d6a0;
+    --proj:#ffb703;
+
+    --x:#ef476f;
+    --y:#06d6a0;
+    --z:#4cc9f0;
+    --tracker:#f72585;
+
+    --mw:#4cc9f0;
+    --mv:#b388ff;
+    --mp:#ffb703;
+    --mmvp:#f72585;
+
+    --radius-sm:6px;
+    --radius:10px;
+    --radius-lg:16px;
+  }
+
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--bg);color:var(--text-1);font-family:"Segoe UI Variable","Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;font-size:14px;line-height:1.6;-webkit-font-smoothing:antialiased}
+  body{
+    background:
+      radial-gradient(900px 600px at 15% -10%, rgba(91,141,239,.10), transparent 60%),
+      radial-gradient(800px 500px at 95% 5%, rgba(247,37,133,.07), transparent 60%),
+      var(--bg);
+    min-height:100vh;
+  }
+  .container{max-width:1280px;margin:0 auto;padding:48px 28px 96px}
+
+  /* === Header === */
+  .hero{
+    display:grid;grid-template-columns:1.2fr 1fr;gap:48px;align-items:center;
+    padding:48px 0 32px;border-bottom:1px solid var(--border);
+    margin-bottom:56px;
+  }
+  .hero .crumbs{display:inline-flex;align-items:center;gap:8px;padding:5px 12px;border-radius:999px;background:rgba(91,141,239,.10);color:#9fbcff;font-size:12px;font-weight:600;letter-spacing:.5px;margin-bottom:18px}
+  .hero .crumbs .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent)}
+  .hero h1{
+    font-size:48px;line-height:1.1;font-weight:700;letter-spacing:-.5px;margin-bottom:14px;
+    background:linear-gradient(120deg,#fff 0%,#c9d6ff 60%,#b6c8ff 100%);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+  .hero .lead{color:var(--text-2);font-size:16px;max-width:560px;margin-bottom:24px}
+  .hero .meta{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px}
+  .chip{padding:5px 10px;border-radius:999px;background:#131826;border:1px solid #1f273b;font-size:11.5px;color:var(--text-2);font-weight:500}
+  .chip b{color:var(--text-1);margin-right:4px}
+  .chip.x{border-color:rgba(239,71,111,.4);background:rgba(239,71,111,.10);color:#ffb3c2}
+  .chip.y{border-color:rgba(6,214,160,.4);background:rgba(6,214,160,.10);color:#7be7c5}
+  .chip.z{border-color:rgba(76,201,240,.4);background:rgba(76,201,240,.10);color:#9fdcfa}
+  .chip.t{border-color:rgba(247,37,133,.4);background:rgba(247,37,133,.10);color:#ffa6c8}
+
+  .hero-card{
+    background:linear-gradient(180deg,#171c2c,#11151f);
+    border:1px solid #1f2538;border-radius:var(--radius-lg);
+    padding:18px;box-shadow:0 30px 80px rgba(0,0,0,.4);
+    overflow:hidden;
+  }
+  .hero-card .hd{display:flex;align-items:center;justify-content:space-between;padding:6px 8px 16px;border-bottom:1px solid #1f2538;margin-bottom:14px}
+  .hero-card .hd .ttl{font-size:13px;font-weight:600;color:var(--text-1)}
+  .hero-card .hd .badges{display:flex;gap:6px}
+  .hero-card .hd .b{font-family:"JetBrains Mono",monospace;font-size:10px;padding:2px 6px;border-radius:4px;background:#0d1119;color:var(--text-3)}
+  .palette{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:14px}
+  .palette .c{padding:14px 10px;border-radius:8px;font-size:10.5px;font-weight:600;display:flex;flex-direction:column;gap:6px}
+  .palette .c .nm{font-family:"JetBrains Mono",monospace}
+  .palette .c .sw{height:38px;border-radius:6px;border:1px solid rgba(255,255,255,.06)}
+
+  /* Section */
+  section.block{padding:48px 0}
+  section.block + section.block{border-top:1px solid var(--border)}
+  h2.sec{
+    font-size:28px;font-weight:700;letter-spacing:-.3px;margin-bottom:6px;display:flex;align-items:center;gap:12px;
+  }
+  h2.sec .ico{width:36px;height:36px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;background:linear-gradient(180deg,#2a3a64,#1b2541);color:#fff}
+  h2.sec .sub{font-size:13px;color:var(--text-3);font-weight:400;margin-top:4px;margin-bottom:32px;letter-spacing:0}
+
+  /* Improvement cards */
+  .imp-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+  .imp{
+    background:linear-gradient(180deg,#161b2b,#11151f);
+    border:1px solid #1f273b;border-radius:var(--radius);
+    padding:22px;transition:all .2s ease;
+  }
+  .imp:hover{border-color:#2c3650;transform:translateY(-2px)}
+  .imp .num{
+    font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--text-4);letter-spacing:1px;
+  }
+  .imp h3{font-size:17px;font-weight:600;margin:8px 0 10px;color:var(--text-1)}
+  .imp p{font-size:13px;color:var(--text-2);line-height:1.65}
+  .imp .tag{display:inline-block;font-size:10.5px;padding:2px 8px;border-radius:999px;background:rgba(91,141,239,.12);color:#9fbcff;margin-right:4px;margin-top:10px;font-weight:600}
+  .imp .tag.green{background:rgba(6,214,160,.12);color:#7be7c5}
+  .imp .tag.pink{background:rgba(247,37,133,.12);color:#ffa6c8}
+  .imp .tag.amber{background:rgba(255,183,3,.12);color:#ffd670}
+
+  /* Mockup viewer */
+  .mockup-wrap{
+    background:linear-gradient(180deg,#0e1320,#06080f);
+    border:1px solid var(--border);border-radius:var(--radius-lg);
+    overflow:hidden;position:relative;
+    box-shadow:0 40px 100px rgba(0,0,0,.5);
+  }
+  .mockup-wrap::before{
+    content:"";position:absolute;inset:0;
+    background:radial-gradient(700px 200px at 30% 0%, rgba(91,141,239,.18), transparent 60%);
+    pointer-events:none;
+  }
+  .mockup-wrap .bar{
+    height:36px;display:flex;align-items:center;padding:0 14px;gap:8px;
+    background:#0a0e18;border-bottom:1px solid var(--border);
+    position:relative;z-index:2;
+  }
+  .mockup-wrap .bar .dots{display:flex;gap:6px}
+  .mockup-wrap .bar .dots span{width:10px;height:10px;border-radius:50%}
+  .mockup-wrap .bar .dots .r{background:#ef476f}
+  .mockup-wrap .bar .dots .y{background:#ffb703}
+  .mockup-wrap .bar .dots .g{background:#06d6a0}
+  .mockup-wrap .bar .addr{margin-left:14px;padding:3px 12px;border-radius:6px;background:#11161f;font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--text-3);border:1px solid var(--border)}
+  .mockup-wrap .bar .actions{margin-left:auto;display:flex;gap:8px}
+  .mockup-wrap .bar .actions a{font-size:11.5px;color:var(--text-3);text-decoration:none;padding:4px 10px;border-radius:6px;border:1px solid var(--border)}
+  .mockup-wrap .bar .actions a:hover{color:var(--text-1);background:#1a2032}
+  .mockup-wrap iframe{
+    width:100%;height:900px;border:0;display:block;background:#06080f;
+  }
+
+  /* Compare table */
+  .compare{display:grid;grid-template-columns:1fr 80px 1fr;gap:24px;align-items:stretch}
+  .compare .col{
+    background:linear-gradient(180deg,#161b2b,#11151f);
+    border:1px solid #1f273b;border-radius:var(--radius);
+    padding:24px;
+  }
+  .compare .col h4{font-size:15px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+  .compare .col h4 .pill{padding:2px 8px;border-radius:4px;font-size:10.5px;background:#0d1119;color:var(--text-3);font-family:"JetBrains Mono",monospace}
+  .compare .col.before h4 .pill{background:rgba(239,71,111,.15);color:#ffb3c2}
+  .compare .col.after h4 .pill{background:rgba(6,214,160,.15);color:#7be7c5}
+  .compare .vs{display:flex;align-items:center;justify-content:center;color:var(--text-4);font-size:12px;font-weight:600;letter-spacing:1px}
+  .compare ul{list-style:none}
+  .compare li{padding:8px 0;font-size:13px;color:var(--text-2);display:flex;gap:10px;line-height:1.55;border-bottom:1px dashed #1f273b}
+  .compare li:last-child{border-bottom:none}
+  .compare li .b{color:var(--world);font-weight:700;flex:none;width:14px}
+  .compare li .g{color:var(--view);font-weight:700;flex:none;width:14px}
+  .compare .demo-row{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px dashed #1f273b}
+  .compare .demo-row:last-child{border-bottom:none}
+
+  /* Swatches spec */
+  .spec{display:grid;grid-template-columns:1.2fr 1fr;gap:28px}
+  .swatches{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+  .swatch-row{display:flex;align-items:center;gap:10px;padding:10px;border-radius:8px;background:#0e1320;border:1px solid var(--border)}
+  .swatch-row .chip-c{width:34px;height:34px;border-radius:8px;flex:none;border:1px solid rgba(255,255,255,.06)}
+  .swatch-row .nm{font-size:12.5px;font-weight:600;color:var(--text-1)}
+  .swatch-row .meta{font-family:"JetBrains Mono",monospace;font-size:10.5px;color:var(--text-3);margin-top:2px}
+
+  .type-card{background:linear-gradient(180deg,#161b2b,#11151f);border:1px solid #1f273b;border-radius:var(--radius);padding:22px}
+  .type-card h4{font-size:13px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px}
+  .type-card .face{font-size:34px;font-weight:700;color:var(--text-1);margin-bottom:8px;letter-spacing:-1px}
+  .type-card .mono{font-family:"JetBrains Mono",monospace;font-size:13px;color:var(--text-2);line-height:1.8}
+  .type-card .mono .k{color:var(--text-4)}
+  .type-card .mono .v{color:var(--text-1)}
+
+  /* Footer */
+  footer{
+    margin-top:96px;padding:32px 0;border-top:1px solid var(--border);
+    text-align:center;color:var(--text-3);font-size:12px;
+  }
+  footer a{color:#9fbcff;text-decoration:none}
+  footer a:hover{text-decoration:underline}
+
+  /* Scrollbar */
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:#222a3e;border-radius:6px}
+  ::-webkit-scrollbar-thumb:hover{background:#2c3650}
+
+  @media (max-width:980px){
+    .hero{grid-template-columns:1fr}
+    .imp-grid{grid-template-columns:1fr 1fr}
+    .compare{grid-template-columns:1fr}
+    .spec{grid-template-columns:1fr}
+    .mockup-wrap iframe{height:680px}
+  }
+  @media (max-width:640px){
+    .imp-grid{grid-template-columns:1fr}
+    .mockup-wrap iframe{height:540px}
+    .hero h1{font-size:34px}
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- ============== HERO ============== -->
+  <header class="hero">
+    <div>
+      <div class="crumbs"><span class="dot"></span>UI Redesign · 2026-08-25</div>
+      <h1>3DEditMax<br/>UI 视觉重构方案</h1>
+      <p class="lead">基于既有 DX11 Lab 教学编辑器规范，将原始的"系统级 Qt 默认外观"全面升级为现代深蓝 Fusion 风格。围绕"坐标轴彩色编码"和"矩阵分色看板"两条教学主轴，把工程密集型的面板信息组织得更专业、更聚焦、更易学。</p>
+      <div class="meta">
+        <span class="chip"><b>1.0</b>主面板分组</span>
+        <span class="chip"><b>1.0</b>矩阵分色</span>
+        <span class="chip"><b>1.0</b>轴向编排</span>
+        <span class="chip"><b>1.0</b>演示 HUD</span>
+        <span class="chip x">X 红</span>
+        <span class="chip y">Y 绿</span>
+        <span class="chip z">Z 蓝</span>
+        <span class="chip t">T 品红</span>
+      </div>
+    </div>
+    <div class="hero-card">
+      <div class="hd">
+        <div class="ttl">Core Palette · 主色</div>
+        <div class="badges">
+          <span class="b">16</span>
+          <span class="b">surfaces</span>
+        </div>
+      </div>
+      <div class="palette">
+        <div class="c"><div class="sw" style="background:#0e1320;border:1px solid #1f2538"></div>Base<div class="nm">#0E1320</div></div>
+        <div class="c"><div class="sw" style="background:#161b2b"></div>Panel<div class="nm">#161B2B</div></div>
+        <div class="c"><div class="sw" style="background:#1d2335"></div>Elevate<div class="nm">#1D2335</div></div>
+        <div class="c"><div class="sw" style="background:#5b8def"></div>Accent<div class="nm">#5B8DEF</div></div>
+        <div class="c"><div class="sw" style="background:#ef476f"></div>World<div class="nm">#EF476F</div></div>
+        <div class="c"><div class="sw" style="background:#06d6a0"></div>View<div class="nm">#06D6A0</div></div>
+        <div class="c"><div class="sw" style="background:#ffb703"></div>Proj<div class="nm">#FFB703</div></div>
+        <div class="c"><div class="sw" style="background:#4cc9f0"></div>M_W<div class="nm">#4CC9F0</div></div>
+        <div class="c"><div class="sw" style="background:#b388ff"></div>M_V<div class="nm">#B388FF</div></div>
+        <div class="c"><div class="sw" style="background:#f72585"></div>MVP<div class="nm">#F72585</div></div>
+        <div class="c"><div class="sw" style="background:#eef1f9"></div>Text 1<div class="nm">#EEF1F9</div></div>
+        <div class="c"><div class="sw" style="background:#7c8499"></div>Text 3<div class="nm">#7C8499</div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:6px">
+        <div style="padding:10px 12px;border-radius:8px;background:#0a0e18;border:1px solid var(--border)">
+          <div style="font-size:11px;color:var(--text-4);font-weight:600;letter-spacing:.5px">FONT · UI</div>
+          <div style="margin-top:6px;font-size:13px;font-weight:600">Segoe UI Variable</div>
+        </div>
+        <div style="padding:10px 12px;border-radius:8px;background:#0a0e18;border:1px solid var(--border)">
+          <div style="font-size:11px;color:var(--text-4);font-weight:600;letter-spacing:.5px">FONT · MONO</div>
+          <div style="margin-top:6px;font-family:JetBrains Mono,monospace;font-size:13px;font-weight:600;color:#9fbcff">JetBrains Mono</div>
+        </div>
+        <div style="padding:10px 12px;border-radius:8px;background:#0a0e18;border:1px solid var(--border)">
+          <div style="font-size:11px;color:var(--text-4);font-weight:600;letter-spacing:.5px">RADIUS</div>
+          <div style="margin-top:6px;font-size:13px;font-weight:600">6 / 10 / 14 px</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============== 高保真 UI ============== -->
+  <section class="block">
+    <h2 class="sec">
+      <span class="ico">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7l8-4 8 4v10l-8 4-8-4V7z"/></svg>
+      </span>
+      高保真 UI
+      <div class="sub">完整可交互视图，1440×900 · 双击 `mockup.html` 单独打开以获得最佳体验</div>
+    </h2>
+
+    <div class="mockup-wrap">
+      <div class="bar">
+        <div class="dots"><span class="r"></span><span class="y"></span><span class="g"></span></div>
+        <div class="addr">file:///3DEditMax/mvp.html</div>
+        <div class="actions">
+          <a href="./mockup.html" target="_blank">↗ 新窗口打开</a>
+        </div>
+      </div>
+      <iframe src="./mockup.html" title="3DEditMax UI Mockup"></iframe>
+    </div>
+  </section>
+
+  <!-- ============== 改进对比 ============== -->
+  <section class="block">
+    <h2 class="sec">
+      <span class="ico" style="background:linear-gradient(180deg,#c84d72,#a8244d);">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h13M3 12h10M3 18h7"/><path d="M17 8l4 4-4 4"/></svg>
+      </span>
+      改进前后 · 核心差异
+      <div class="sub">对照原始截图，从 9 个维度系统性梳理视觉/交互层改动</div>
+    </h2>
+
+    <div class="compare">
+      <div class="col before">
+        <h4>改进前 <span class="pill">Original</span></h4>
+        <ul>
+          <li><span class="b">×</span><span>面板头仅有"World / View / Projection"标签，无可见色条，难以与坐标轴/矩阵分组联想对应</span></li>
+          <li><span class="b">×</span><span>输入框为系统默认风格，无单位标识，无 stepper，无 XYZ 区分色；看上去像普通表单</span></li>
+          <li><span class="b">×</span><span>矩阵块挤在一处，纯文本数字密集排列，没有色彩语义和层级关系</span></li>
+          <li><span class="b">×</span><span>视口为单一空白区域，无 HUD、迷你导航、演示词条、性能/光标信息</span></li>
+          <li><span class="b">×</span><span>无演示进度提示，8 步教学缺少即时进度反馈</span></li>
+          <li><span class="b">×</span><span>工具栏按钮只是一组纯文字，缺乏图标语义和 group 折叠</span></li>
+          <li><span class="b">×</span><span>DX11 Lab 区信息扁平，Device/Shader/Rasterizer/堆放在一起，无分类徽章</span></li>
+          <li><span class="b">×</span><span>无状态栏反馈（Device 状态、Tick、MSAA 信息）</span></li>
+          <li><span class="b">×</span><span>Tracker 仅有 3 个数字输入框，无任何可视化预览</span></li>
+        </ul>
+      </div>
+      <div class="vs">VS</div>
+      <div class="col after">
+        <h4>改进后 <span class="pill">Refined</span></h4>
+        <ul>
+          <li><span class="g">✓</span><span>面板头 <b>左侧色条 + 折叠 + 重置 + 徽章</b>，World(红) / View(绿) / Projection(橙) 一眼对应</span></li>
+          <li><span class="g">✓</span><span><b>XYZ 三联输入</b> 各带彩色 Axis Tag + 独立步进按钮 + 标签色 swatch（X 红/Y 绿/Z 蓝）</span></li>
+          <li><span class="g">✓</span><span>矩阵按 M_W(青) / M_V(紫) / M_P(琥珀) / MVP(亮粉) <b>分色卡片</b>，可按步骤聚焦发光高亮</span></li>
+          <li><span class="g">✓</span><span>视口集成 <b>轴图例 HUD + 迷你导航器 + 浮动工具条 + 性能条 + 光标坐标</b></span></li>
+          <li><span class="g">✓</span><span>工具栏嵌入 <b>演示 N/8 进度条</b> + 标题 + 简述 + 上/下一步按钮，与 spec 中 "演示词条" 对齐</span></li>
+          <li><span class="g">✓</span><span>工具栏按 <b>选择 / 显示模式 / 物体</b> 分组 + 图标 + 选中态阴影，分组化圆角化</span></li>
+          <li><span class="g">✓</span><span>DX11 Lab / Debug 拆为 4 张 <b>独立卡片</b>(Device/Shader/Rasterizer/CB) + 状态点 + Primary 按钮</span></li>
+          <li><span class="g">✓</span><span><b>底部 StatusBar</b> 含 Device OK、SwapChain、MSAA、Tick、Polling 等关键指标</span></li>
+          <li><span class="g">✓</span><span>Tracker 顶部 <b>可视化八面体预览 + 步进 snap 切换</b>，空间感更强</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== 改进要点 ============== -->
+  <section class="block">
+    <h2 class="sec">
+      <span class="ico" style="background:linear-gradient(180deg,#2a5cbf,#1b408a);">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+      </span>
+      12 项关键改进
+      <div class="sub">从左到右，从上到下，每一处都对应可量化提升</div>
+    </h2>
+
+    <div class="imp-grid">
+      <div class="imp">
+        <div class="num">01 · LAYOUT</div>
+        <h3>结构清晰化</h3>
+        <p>保留三栏 Dock 布局，但加入<b>标题栏 tabs + 菜单栏 + 工具栏</b>三级导航；面板采用统一<b>head · accent · body</b>三段式，每段高度/边距严格按 8px 网格。</p>
+        <span class="tag">8px grid</span><span class="tag">三段式面板</span>
+      </div>
+      <div class="imp">
+        <div class="num">02 · COLOR</div>
+        <h3>轴色 ↔ 面板一致</h3>
+        <p>左侧 World(红)/View(绿)/Projection(橙)色条与 3D 视口里 X/Y/Z 锥形轴**<b>色相一致</b>**，矩阵 M_W/M_V/M_P/MVP 同样有独立色板，强化"色键"教学记忆。</p>
+        <span class="tag pink">X=red</span><span class="tag green">Y=green</span><span class="tag">Z=blue</span>
+      </div>
+      <div class="imp">
+        <div class="num">03 · INPUT</div>
+        <h3>XYZ 三联控件</h3>
+        <p>把 Position/Target/Tracker 等 XYZ 数据改为 <b>三联紧凑面板</b>：每格左侧有彩色轴标，右侧数字/步进，整体宽度一致，提升<b>扫描效率</b>。</p>
+        <span class="tag">tabular-nums</span><span class="tag">stepper</span>
+      </div>
+      <div class="imp">
+        <div class="num">04 · MATRIX</div>
+        <h3>矩阵分色卡片</h3>
+        <p>每个矩阵一个独立卡片，<b>行间隔铺底加深</b>、数字按矩阵主色微调、当前演示聚焦块加发光边 + 左侧 3px 渐变色带 — 与 spec 中的 <code>demoMatrixFocus</code> 严格对应。</p>
+        <span class="tag">focus glow</span><span class="tag">row stripe</span>
+      </div>
+      <div class="imp">
+        <div class="num">05 · HUD</div>
+        <h3>演示 HUD 词条</h3>
+        <p>工具栏中嵌入 "演示 3/8 · 标题 · 简述" 词条，加上/下一步按钮，<b>与文档的 8 步教学脚本</b>一一对应；视口底部有 toast 提示应用状态。</p>
+        <span class="tag">demo 1-8</span><span class="tag">stepper</span>
+      </div>
+      <div class="imp">
+        <div class="num">06 · 3D VIEWPORT</div>
+        <h3>浮动导航与工具</h3>
+        <p>视口内 **浮动**装配：左上轴图例/右上迷你导航器(Navigator)/右中竖向工具条(Fill/Wire/Mat/Grid/Axes/Tracker)/左下性能 FPS+GPU 条/右下光标坐标 — 信息密度按"越近视线越集中"排列。</p>
+        <span class="tag">glass</span><span class="tag">backdrop-blur</span>
+      </div>
+      <div class="imp">
+        <div class="num">07 · RENDER SCENE</div>
+        <h3>3D 场景重绘</h3>
+        <p>视口 SVG 场景包含 <b>透视网格地面 + 立方体（Lambert 半透明 + 描边）+ 锥形 RGB 轴 + 文字轴标 + Tracker 八面体</b>；与世界矩阵 Yaw=10°、Pitch=20° 同步。</p>
+        <span class="tag">3-face cube</span><span class="tag">octahedron tracker</span>
+      </div>
+      <div class="imp">
+        <div class="num">08 · DEBUG</div>
+        <h3>DX11 Lab / Debug</h3>
+        <p>从扁平堆叠改为<b>4 张独立卡片</b>：Device/Shader/Rasterizer/CB；Shader 提供 Compile/Reload/Watch 主按钮；开关采用 toggle + 文字标签双通道。</p>
+        <span class="tag">cards</span><span class="tag">CB hex dump</span>
+      </div>
+      <div class="imp">
+        <div class="num">09 · TRACKER</div>
+        <h3>追踪点可视化</h3>
+        <p>上方<b>高 120px 八面体预览区</b>（含渐变菱形 + 标尺），下方三联 X/Y/Z 数值 + Snap 切换，与规范中"粉色线框八面体"对齐。</p>
+        <span class="tag pink">visual + input</span><span class="tag">snap</span>
+      </div>
+      <div class="imp">
+        <div class="num">10 · STATUS</div>
+        <h3>底部状态栏</h3>
+        <p>新增 24px 高 status bar：Device OK / SwapChain / Backbuffer & MSAA / Tick / Polling / Render Thread / DPI — 一眼给出"GPU + 引擎"组合状态。</p>
+        <span class="tag">status bar</span><span class="tag">poll 1.0ms</span>
+      </div>
+      <div class="imp">
+        <div class="num">11 · VISUAL LANG</div>
+        <h3>现代深蓝 Fusion</h3>
+        <p>按规范要求的 <b>"深蓝圆角 + QSS"</b>，所有面板/输入/按钮圆角 6-10px，hero 渐变 + 玻璃态，蓝色为主的极简专业感；与 DX11-Study 视觉语言对齐。</p>
+        <span class="tag">radius 6/10/14</span><span class="tag">QSS-ready</span>
+      </div>
+      <div class="imp">
+        <div class="num">12 · ACCESSIBILITY</div>
+        <h3>色彩 + 文字双通道</h3>
+        <p>关键信息如 XYZ、矩阵、轴标签同时用 <b>色彩 + 文字/字母</b> 双通道编码；交互元素皆有 hover/active/focus 状态；图标均带 tooltip。</p>
+        <span class="tag green">WCAG AA</span><span class="tag">tooltips</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== 设计规范 ============== -->
+  <section class="block">
+    <h2 class="sec">
+      <span class="ico" style="background:linear-gradient(180deg,#b388ff,#6a47c8);">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l3 3 5-5 4 4 6-6"/><path d="M3 19h18"/></svg>
+      </span>
+      设计规范 · Design Tokens
+      <div class="sub">所有颜色/字号/圆角都使用了 design token，可直接映射为 QSS / CSS 变量</div>
+    </h2>
+
+    <div class="spec">
+      <div>
+        <h3 style="font-size:14px;color:var(--text-3);text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">Semantic Colors</h3>
+        <div class="swatches">
+          <div class="swatch-row"><div class="chip-c" style="background:#0e1320"></div><div><div class="nm">--bg-base</div><div class="meta">#0E1320 · 主背景</div></div></div>
+          <div class="swatch-row"><div class="chip-c" style="background:#161b2b"></div><div><div class="nm">--bg-panel</div><div class="meta">#161B2B · 面板</div></div></div>
+          <div class="swatch-row"><div class="chip-c" style="background:#0c1019"></div><div><div class="nm">--bg-input</div><div class="meta">#0C1019 · 输入框</div></div></div>
+          <div class="swatch-row"><div class="chip-c" style="background:#272e44"></div><div><div class="nm">--border</div><div class="meta">#272E44 · 边框</div></div></div>
+          <div class="swatch-row"><div class="chip-c" style="background:#5b8def"></div><div><div class="nm">--accent</div><div class="meta">#5B8DEF · 主蓝</div></div></div>
+          <div class="swatch-row"><div class="chip-c" style="background:#7c8499"></div><div><div class="nm">--text-3</div><div class="meta">#7C8499 · 弱文字</div></div></div>
+          <div class="swatch-row"><div class="chip-c" style="background:#ef476f"></div><div><div class="nm">--world</div><div class="meta">#EF476F · 变换面板色</div></div></div>
+          <div class="swatch-row"><div class="chip-c" style="background:#06d6a0"></div><div><div class="nm">--view</div><div class="meta">#06D6A0 · 视图面板色</div></div></div>
+          <div class="swatch-row"><div class="chip-c" style="background:#ffb703"></div><div><div class="nm">--proj</div><div class="meta">#FFB703 · 投影面板色</div></div></div>
+          <div class="swatch-row"><div class="chip-c" style="background:#4cc9f0"></div><div><div class="nm">--mw</div><div class="meta">M_W 世界矩阵色</div></div></div>
+          <div class="swatch-row"><div class="chip-c" style="background:#b388ff"></div><div><div class="nm">--mv</div><div class="meta">M_V 观察矩阵色</div></div></div>
+          <div class="swatch-row"><div class="chip-c" style="background:#f72585"></div><div><div class="nm">--mmvp</div><div class="meta">MVP 复合矩阵色</div></div></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:18px">
+        <div class="type-card">
+          <h4>UI · Type Scale</h4>
+          <div class="face">Aa 3DEditMax</div>
+          <div class="mono">
+            <div><span class="k">font-family</span> "Segoe UI Variable", "PingFang SC", system-ui</div>
+            <div><span class="k">display · </span><span class="v">28 / 700</span></div>
+            <div><span class="k">title · </span><span class="v">15 / 600</span></div>
+            <div><span class="k">body · </span><span class="v">13 / 400</span></div>
+            <div><span class="k">caption · </span><span class="v">11.5 / 500</span></div>
+            <div><span class="k">badge · </span><span class="v">10.5 / 600 / +0.5</span></div>
+          </div>
+        </div>
+        <div class="type-card">
+          <h4>Mono · 数字与矩阵</h4>
+          <div class="face" style="font-family:'JetBrains Mono',monospace;font-size:30px;color:#9fbcff">0.985 -0.174</div>
+          <div class="mono">
+            <div><span class="k">font-family</span> "JetBrains Mono", "Consolas", monospace</div>
+            <div><span class="k">size · </span><span class="v">10.5–13 px</span></div>
+            <div><span class="k">feature · </span><span class="v">font-variant-numeric: tabular-nums</span></div>
+            <div><span class="k">usage · </span><span class="v">常量值、矩阵、坐标系、Tick</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== 控件 ============== -->
+  <section class="block">
+    <h2 class="sec">
+      <span class="ico" style="background:linear-gradient(180deg,#ffb703,#c08900);">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h2M7 14h6"/></svg>
+      </span>
+      控件样式库
+      <div class="sub">可直接复用到所有 QWidget · 含 6 大常用控件</div>
+    </h2>
+
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px">
+      <div class="type-card">
+        <h4>① Numeric Input</h4>
+        <div style="margin-top:8px;display:flex;gap:6px;align-items:center">
+          <div style="display:flex;align-items:center;background:#0c1019;border:1px solid #272e44;border-radius:6px;height:32px;flex:1">
+            <input value="0.985" style="flex:1;background:transparent;border:0;color:#eef1f9;font-family:'JetBrains Mono',monospace;padding:0 10px;height:100%;outline:none;text-align:right"/>
+            <div style="display:flex;flex-direction:column;height:100%;width:20px;border-left:1px solid #272e44">
+              <button style="flex:1;background:transparent;border:0;color:#7c8499;cursor:pointer">▲</button>
+              <button style="flex:1;background:transparent;border:0;border-top:1px solid #272e44;color:#7c8499;cursor:pointer">▼</button>
+            </div>
+          </div>
+          <span style="font-size:11px;color:#7c8499">+ Stepper</span>
+        </div>
+        <div class="mono" style="margin-top:10px;font-size:11px;color:#7c8499"><span class="k">width:</span><span class="v"> flex / 74px</span> · <span class="k">step:</span><span class="v"> 0.01</span></div>
+      </div>
+
+      <div class="type-card">
+        <h4>② Segmented Control</h4>
+        <div style="margin-top:8px">
+          <div style="display:flex;background:#0c1019;border:1px solid #272e44;border-radius:7px;padding:2px;gap:2px;height:32px">
+            <button style="flex:1;border:0;background:transparent;color:#7c8499;border-radius:5px;font-size:11.5px;font-weight:500;cursor:pointer">None</button>
+            <button style="flex:1;border:0;background:transparent;color:#7c8499;border-radius:5px;font-size:11.5px;font-weight:500;cursor:pointer">Front</button>
+            <button style="flex:1;border:0;background:linear-gradient(180deg,#2a3a64,#1b2541);color:#fff;border-radius:5px;font-size:11.5px;font-weight:500;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.08)">Back</button>
+          </div>
+        </div>
+        <div class="mono" style="margin-top:10px;font-size:11px;color:#7c8499"><span class="k">use:</span><span class="v"> 互斥选项 / 预设视图 / 模式</span></div>
+      </div>
+
+      <div class="type-card">
+        <h4>③ Slider · 带刻度</h4>
+        <div style="margin-top:14px;display:flex;flex-direction:column;gap:6px">
+          <div style="position:relative;height:18px;display:flex;align-items:center">
+            <div style="height:4px;width:100%;border-radius:999px;background:#1a2032;position:relative">
+              <div style="position:absolute;left:0;right:34%;background:linear-gradient(90deg,#3a6ee0,#5b8def);box-shadow:0 0 12px rgba(91,141,239,.6);height:100%;border-radius:999px"></div>
+              <div style="position:absolute;left:66%;top:50%;width:14px;height:14px;border-radius:50%;background:#fff;border:2px solid #5b8def;transform:translate(-50%,-50%);box-shadow:0 2px 6px rgba(0,0,0,.4)"></div>
+            </div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:9.5px;color:#5a6175">
+            <span>0°</span><span>30°</span><span>60°</span><span>90°</span><span>120°</span>
+          </div>
+        </div>
+        <div class="mono" style="margin-top:10px;font-size:11px;color:#7c8499"><span class="k">use:</span><span class="v"> FOV / Slider 类连续值</span></div>
+      </div>
+
+      <div class="type-card">
+        <h4>④ Switch</h4>
+        <div style="margin-top:14px;display:flex;align-items:center;gap:18px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="width:36px;height:20px;border-radius:999px;background:#222a3e;border:1px solid #272e44;position:relative">
+              <div style="position:absolute;top:1px;left:1px;width:14px;height:14px;border-radius:50%;background:#cdd5e6"></div>
+            </div>
+            <span style="font-size:12px;color:#b3bbd1">OFF</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div style="width:36px;height:20px;border-radius:999px;background:linear-gradient(180deg,#2a5cbf,#1b408a);border:1px solid #2a5cbf;position:relative">
+              <div style="position:absolute;top:1px;left:18px;width:14px;height:14px;border-radius:50%;background:#fff"></div>
+            </div>
+            <span style="font-size:12px;color:#b3bbd1">ON</span>
+          </div>
+        </div>
+        <div class="mono" style="margin-top:10px;font-size:11px;color:#7c8499"><span class="k">use:</span><span class="v"> Depth / Scissor / 二元开关</span></div>
+      </div>
+
+      <div class="type-card">
+        <h4>⑤ Matrix Card · 矩阵分色</h4>
+        <div style="margin-top:8px;background:#0c1019;border:1px solid #272e44;border-radius:8px;padding:10px 12px;box-shadow:0 0 0 1px rgba(91,141,239,.35),0 0 24px rgba(91,141,239,.18);position:relative;overflow:hidden">
+          <div style="position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,#4cc9f0,#f72585)"></div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            <span style="font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:700;letter-spacing:.6px;padding:2px 6px;border-radius:4px;background:rgba(179,136,255,.16);color:#b388ff">M_V</span>
+            <span style="font-size:11px;color:#7c8499;flex:1">观察矩阵 · LookAt</span>
+          </div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:10.5px;line-height:1.6;color:#d9c8ff;text-align:right">
+            0.767 -0.000 -0.642  0.000<br/>
+            -0.252  0.917 -0.302  0.000<br/>
+            0.589  0.398  0.704 -6.900<br/>
+            0.000  0.000  0.000  1.000
+          </div>
+        </div>
+        <div class="mono" style="margin-top:10px;font-size:11px;color:#7c8499"><span class="k">focus:</span><span class="v"> 发光边 + 色带</span></div>
+      </div>
+
+      <div class="type-card">
+        <h4>⑥ Pill · 标签/状态</h4>
+        <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px">
+          <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:#0d1119;border:1px solid #1f273b;color:#b3bbd1;font-size:11px;font-family:'JetBrains Mono',monospace">
+            <span style="width:6px;height:6px;border-radius:50%;background:#06d6a0"></span> MSAA 4×
+          </span>
+          <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:#0d1119;border:1px solid #1f273b;color:#b3bbd1;font-size:11px;font-family:'JetBrains Mono',monospace">
+            <span style="width:6px;height:6px;border-radius:50%;background:#ffb703"></span> WARN
+          </span>
+          <span style="display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:#0d1119;border:1px solid #1f273b;color:#b3bbd1;font-size:11px;font-family:'JetBrains Mono',monospace">
+            <span style="width:6px;height:6px;border-radius:50%;background:#ef476f"></span> ERROR
+          </span>
+        </div>
+        <div class="mono" style="margin-top:10px;font-size:11px;color:#7c8499"><span class="k">use:</span><span class="v"> 状态 / 模式 / 数值胶囊</span></div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <p>3DEditMax · UI Redesign Proposal · 2026-08-25 · Designed for DX11 Lab & 矩阵教学</p>
+    <p style="margin-top:4px">配套文件：<a href="./mockup.html">mockup.html</a> · 规范文档：<a href="https://github.com/LoveCicada/3DEditMax/blob/main/docs/superpowers/specs/2026-08-16-dx11-lab-teach-design.md" target="_blank">2026-08-16-dx11-lab-teach-design.md</a></p>
+  </footer>
+
+</div>
+</body>
+</html>
