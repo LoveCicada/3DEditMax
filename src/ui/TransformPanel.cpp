@@ -4,6 +4,7 @@
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
+#include <QLabel>
 #include <QPushButton>
 #include <QVBoxLayout>
 
@@ -19,6 +20,12 @@ void makeCheckableGroup(QGroupBox* box) {
       child->setVisible(checked);
     }
   });
+}
+
+QLabel* makeAxisLabel(QWidget* parent, const char* text, const char* objectName) {
+  QLabel* lab = new QLabel(QString::fromUtf8(text), parent);
+  lab->setObjectName(QString::fromUtf8(objectName));
+  return lab;
 }
 
 }  // namespace
@@ -60,15 +67,15 @@ TransformPanel::TransformPanel(QWidget* parent)
   m_scaleX = makeSpin(world, 0.01, 10.0, 0.01, 2);
   m_scaleY = makeSpin(world, 0.01, 10.0, 0.01, 2);
   m_scaleZ = makeSpin(world, 0.01, 10.0, 0.01, 2);
-  worldForm->addRow(QString::fromUtf8("Pos X"), m_posX);
-  worldForm->addRow(QString::fromUtf8("Pos Y"), m_posY);
-  worldForm->addRow(QString::fromUtf8("Pos Z"), m_posZ);
+  worldForm->addRow(makeAxisLabel(world, "Pos X", "axisLabelX"), m_posX);
+  worldForm->addRow(makeAxisLabel(world, "Pos Y", "axisLabelY"), m_posY);
+  worldForm->addRow(makeAxisLabel(world, "Pos Z", "axisLabelZ"), m_posZ);
   worldForm->addRow(QString::fromUtf8("Pitch"), m_pitch);
   worldForm->addRow(QString::fromUtf8("Yaw"), m_yaw);
   worldForm->addRow(QString::fromUtf8("Roll"), m_roll);
-  worldForm->addRow(QString::fromUtf8("Scale X"), m_scaleX);
-  worldForm->addRow(QString::fromUtf8("Scale Y"), m_scaleY);
-  worldForm->addRow(QString::fromUtf8("Scale Z"), m_scaleZ);
+  worldForm->addRow(makeAxisLabel(world, "Scale X", "axisLabelX"), m_scaleX);
+  worldForm->addRow(makeAxisLabel(world, "Scale Y", "axisLabelY"), m_scaleY);
+  worldForm->addRow(makeAxisLabel(world, "Scale Z", "axisLabelZ"), m_scaleZ);
   makeCheckableGroup(world);
   root->addWidget(world);
 
@@ -84,14 +91,18 @@ TransformPanel::TransformPanel(QWidget* parent)
   viewForm->addRow(QString::fromUtf8("Distance"), m_camDistance);
   viewForm->addRow(QString::fromUtf8("Pitch"), m_camPitch);
   viewForm->addRow(QString::fromUtf8("Yaw"), m_camYaw);
-  viewForm->addRow(QString::fromUtf8("Target X"), m_camTargetX);
-  viewForm->addRow(QString::fromUtf8("Target Y"), m_camTargetY);
-  viewForm->addRow(QString::fromUtf8("Target Z"), m_camTargetZ);
+  viewForm->addRow(makeAxisLabel(view, "Target X", "axisLabelX"), m_camTargetX);
+  viewForm->addRow(makeAxisLabel(view, "Target Y", "axisLabelY"), m_camTargetY);
+  viewForm->addRow(makeAxisLabel(view, "Target Z", "axisLabelZ"), m_camTargetZ);
   QHBoxLayout* presets = new QHBoxLayout();
   QPushButton* front = new QPushButton(QString::fromUtf8("Front"), view);
   QPushButton* side = new QPushButton(QString::fromUtf8("Side"), view);
   QPushButton* top = new QPushButton(QString::fromUtf8("Top"), view);
   QPushButton* iso = new QPushButton(QString::fromUtf8("Iso"), view);
+  front->setObjectName(QString::fromUtf8("btnPreset"));
+  side->setObjectName(QString::fromUtf8("btnPreset"));
+  top->setObjectName(QString::fromUtf8("btnPreset"));
+  iso->setObjectName(QString::fromUtf8("btnPreset"));
   presets->addWidget(front);
   presets->addWidget(side);
   presets->addWidget(top);

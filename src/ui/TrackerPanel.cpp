@@ -33,13 +33,20 @@ TrackerPanel::TrackerPanel(QWidget* parent)
   QVBoxLayout* root = new QVBoxLayout(this);
 
   QGroupBox* model = new QGroupBox(QString::fromUtf8("Model"), this);
+  model->setObjectName(QString::fromUtf8("sectionTracker"));
   QFormLayout* form = new QFormLayout(model);
   m_x = makeSpin();
   m_y = makeSpin();
   m_z = makeSpin();
-  form->addRow(QString::fromUtf8("X"), m_x);
-  form->addRow(QString::fromUtf8("Y"), m_y);
-  form->addRow(QString::fromUtf8("Z"), m_z);
+  QLabel* lx = new QLabel(QString::fromUtf8("X"), model);
+  lx->setObjectName(QString::fromUtf8("axisLabelX"));
+  QLabel* ly = new QLabel(QString::fromUtf8("Y"), model);
+  ly->setObjectName(QString::fromUtf8("axisLabelY"));
+  QLabel* lz = new QLabel(QString::fromUtf8("Z"), model);
+  lz->setObjectName(QString::fromUtf8("axisLabelZ"));
+  form->addRow(lx, m_x);
+  form->addRow(ly, m_y);
+  form->addRow(lz, m_z);
   root->addWidget(model);
 
   QGroupBox* corners = new QGroupBox(QString::fromUtf8("Cube corners"), this);

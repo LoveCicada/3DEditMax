@@ -197,6 +197,43 @@ QHBoxLayout QLabel {
   color: #7c8499;
 }
 
+QLabel#axisLabelX {
+  color: #ef476f;
+  font-weight: 600;
+}
+
+QLabel#axisLabelY {
+  color: #06d6a0;
+  font-weight: 600;
+}
+
+QLabel#axisLabelZ {
+  color: #4cc9f0;
+  font-weight: 600;
+}
+
+QGroupBox#sectionTracker {
+  border-left: 4px solid #f72585;
+}
+
+QGroupBox#sectionTracker::title {
+  color: #f72585;
+}
+
+QGroupBox#sectionObject {
+  border-left: 4px solid #5b8def;
+}
+
+QGroupBox#sectionObject::title {
+  color: #9fbcff;
+}
+
+QPushButton#btnPreset {
+  padding: 3px 8px;
+  min-height: 20px;
+  font-size: 12px;
+}
+
 QPushButton {
   background-color: #0d1119;
   color: #b3bbd1;

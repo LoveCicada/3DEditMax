@@ -156,7 +156,7 @@
 |----|------|------|------|------|------|
 | REQ-HDR-001 | World / View / Projection 左侧 3–4px 色条 + 标题色（§3.2） | P1 | 接线 | 已完成 | `.panel-head .accent` |
 | REQ-HDR-002 | 矩阵看板总头可用渐变色条；子块 M_W/V/P/MVP 各自色键（§3.4） | P1 | 接线 | 未开始 | `.panel.matrices` + matrix cards |
-| REQ-HDR-003 | 面板头徽章样式（如 `TRS` / `MV·MVP`）出现在对应 GroupBox 标题区 | P1 | 接线 | 未开始 | `.badge` |
+| REQ-HDR-003 | 面板头徽章样式（如 `TRS` / `MV·MVP`）出现在对应 GroupBox 标题区 | P1 | 接线 | 不做 | `.badge`（本期用色条替代徽章） |
 | REQ-HDR-004 | 折叠 / 重置图标按钮外观 | P2 | 空壳 | 未开始 | `.icon-btn` |
 | REQ-HDR-005 | 折叠真实收起面板内容 | P2 | 接线 | 未开始 | （后补，非空壳必做） |
 

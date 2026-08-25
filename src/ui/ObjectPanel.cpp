@@ -34,6 +34,7 @@ ObjectPanel::ObjectPanel(QWidget* parent)
   QVBoxLayout* root = new QVBoxLayout(this);
 
   QGroupBox* meshBox = new QGroupBox(QString::fromUtf8("Mesh"), this);
+  meshBox->setObjectName(QString::fromUtf8("sectionObject"));
   QHBoxLayout* meshRow = new QHBoxLayout(meshBox);
   QRadioButton* cube = new QRadioButton(QString::fromUtf8("Cube"), meshBox);
   QRadioButton* sphere = new QRadioButton(QString::fromUtf8("Sphere"), meshBox);
