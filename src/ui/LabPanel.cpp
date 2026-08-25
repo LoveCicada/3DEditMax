@@ -19,7 +19,8 @@ LabPanel::LabPanel(QWidget* parent)
     , m_fill(0)
     , m_cull(0)
     , m_depth(0)
-    , m_cb(0) {
+    , m_cb(0)
+    , m_cbHex(0) {
   QVBoxLayout* root = new QVBoxLayout(this);
 
   QGroupBox* deviceBox = new QGroupBox(QString::fromUtf8("Device"), this);
@@ -71,6 +72,15 @@ LabPanel::LabPanel(QWidget* parent)
   m_cb->setLineWrapMode(QPlainTextEdit::NoWrap);
   m_cb->setTabChangesFocus(true);
   cbLay->addWidget(m_cb);
+  QLabel* hexTitle = new QLabel(QString::fromUtf8("CB hex (shell)"), cbBox);
+  QPlainTextEdit* hex = new QPlainTextEdit(cbBox);
+  hex->setObjectName(QString::fromUtf8("labCbHex"));
+  hex->setReadOnly(true);
+  hex->setMaximumHeight(72);
+  hex->setPlainText(QString::fromUtf8(
+      "00 01 02 03  04 05 06 07\n08 09 0A 0B  0C 0D 0E 0F\n— placeholder —"));
+  cbLay->addWidget(hexTitle);
+  cbLay->addWidget(hex);
   root->addWidget(cbBox, 1);
 
   connect(m_variant, static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged),

@@ -543,3 +543,30 @@ QLabel#demoBarBody {
   color: #7c8499;
   font-size: 11px;
 }
+
+QWidget#vpTools {
+  background-color: #10141f;
+  border-left: 1px solid #1a2032;
+}
+
+QLabel#vpNavigator,
+QLabel#vpPerf,
+QLabel#vpToast,
+QLabel#vpPills,
+QLabel#vpCursor {
+  background-color: #0a0e18;
+  color: #7c8499;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-top: 1px solid #1a2032;
+}
+
+QLabel#vpToast {
+  color: #b9cdff;
+}
+
+QPlainTextEdit#labCbHex {
+  background-color: #0a0e18;
+  color: #b388ff;
+  font-size: 11px;
+}

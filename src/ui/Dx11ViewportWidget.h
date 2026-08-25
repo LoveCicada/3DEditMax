@@ -9,6 +9,8 @@
 
 class QFrame;
 class QLabel;
+class QPushButton;
+class QWidget;
 class Dx11NativeSurface;
 
 class Dx11ViewportWidget : public QWidget {
@@ -32,6 +34,7 @@ private:
   void stopRenderer();
   void commitTeaching();
   void buildHud();
+  void buildShellChrome(class QVBoxLayout* root);
   void updateHud();
   void onSurfaceResized();
   void surfaceMousePress(QMouseEvent* e);

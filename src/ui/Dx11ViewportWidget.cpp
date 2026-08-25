@@ -10,9 +10,11 @@
 #include <QMouseEvent>
 #include <QPaintEngine>
 #include <QPaintEvent>
+#include <QPushButton>
 #include <QResizeEvent>
 #include <QShowEvent>
 #include <QVBoxLayout>
+#include <QWidget>
 #include <QWheelEvent>
 #include <windows.h>
 
@@ -85,7 +87,7 @@ Dx11ViewportWidget::Dx11ViewportWidget(QWidget* parent)
   buildHud();
   m_surface = new Dx11NativeSurface(this);
   root->addWidget(m_hud);
-  root->addWidget(m_surface, 1);
+  buildShellChrome(root);
 }
 
 Dx11ViewportWidget::~Dx11ViewportWidget() {
@@ -304,6 +306,59 @@ void Dx11ViewportWidget::buildHud() {
   m_demoCaption->setWordWrap(false);
   m_demoCaption->hide();
   hudLay->addWidget(m_demoCaption);
+}
+
+void Dx11ViewportWidget::buildShellChrome(QVBoxLayout* root) {
+  QHBoxLayout* mid = new QHBoxLayout();
+  mid->setContentsMargins(0, 0, 0, 0);
+  mid->setSpacing(0);
+  mid->addWidget(m_surface, 1);
+
+  QWidget* tools = new QWidget(this);
+  tools->setObjectName(QString::fromUtf8("vpTools"));
+  tools->setFixedWidth(44);
+  QVBoxLayout* toolsLay = new QVBoxLayout(tools);
+  toolsLay->setContentsMargins(4, 8, 4, 8);
+  toolsLay->setSpacing(4);
+  const char* tips[6] = {"Solid", "Wire", "Material", "Grid", "Axes", "Track"};
+  static const char* kShort[6] = {"So", "Wi", "Mt", "Gr", "Ax", "Tr"};
+  for (int i = 0; i < 6; ++i) {
+    QPushButton* b = new QPushButton(QString::fromUtf8(kShort[i]), tools);
+    b->setToolTip(QString::fromUtf8(tips[i]) +
+                  QString::fromUtf8(" (\xE6\x9C\xAA\xE5\xAE\x9E\xE7\x8E\xB0)"));
+    b->setFixedSize(36, 28);
+    toolsLay->addWidget(b);
+  }
+  toolsLay->addStretch(1);
+  mid->addWidget(tools, 0);
+  root->addLayout(mid, 1);
+
+  QLabel* nav = new QLabel(QString::fromUtf8("Navigator (shell)"), this);
+  nav->setObjectName(QString::fromUtf8("vpNavigator"));
+  nav->setAlignment(Qt::AlignCenter);
+  nav->setFixedHeight(28);
+  root->insertWidget(1, nav);
+
+  QLabel* perf = new QLabel(
+      QString::fromUtf8("FPS — · MS — · GPU — · VRAM — · Draws —"), this);
+  perf->setObjectName(QString::fromUtf8("vpPerf"));
+  root->addWidget(perf);
+
+  QLabel* toast = new QLabel(
+      QString::fromUtf8("Toast: demo step feedback (shell)"), this);
+  toast->setObjectName(QString::fromUtf8("vpToast"));
+  root->addWidget(toast);
+
+  QLabel* pills = new QLabel(
+      QString::fromUtf8(
+          "MSAA 4x · Vsync ON · Solid · Cull Back · Depth ON · HDR OFF · Demo —"),
+      this);
+  pills->setObjectName(QString::fromUtf8("vpPills"));
+  root->addWidget(pills);
+
+  QLabel* cursor = new QLabel(QString::fromUtf8("Cursor —"), this);
+  cursor->setObjectName(QString::fromUtf8("vpCursor"));
+  root->addWidget(cursor);
 }
 
 void Dx11ViewportWidget::updateHud() {

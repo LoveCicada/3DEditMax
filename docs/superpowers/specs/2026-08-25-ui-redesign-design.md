@@ -187,12 +187,12 @@
 |----|------|------|------|------|------|
 | REQ-VP-001 | 轴图例色点/文字改为 §3.3；可保留中文「左右/上下/前后」或 mockup 英式短标签（实现时二选一写进计划，默认保留中文） | P1 | 接线 | 已完成 | `.ax-legend` / 现行 HUD |
 | REQ-VP-002 | 演示中顶栏仅短徽章 `演示中 N/8`（已有行为）；色调对齐 accent | P1 | 接线 | 已完成 | 现行 `m_demoCaption` |
-| REQ-VP-003 | Mini Navigator 空壳（右上装饰控件，无交互相机） | P2 | 空壳 | 未开始 | `.mini-axis` |
-| REQ-VP-004 | 浮动竖工具条空壳：实体/线框/材质/网格/轴向/追踪点 | P2 | 空壳 | 未开始 | `.vp-tools` |
-| REQ-VP-005 | 性能条空壳：FPS/MS/GPU/VRAM/Draws 占位数字 | P2 | 空壳 | 未开始 | `.vp-perf` |
-| REQ-VP-006 | Toast 空壳：演示步进时可显示静态或简单文案（可选接线一步提示） | P2 | 空壳 | 未开始 | `.toast` |
-| REQ-VP-007 | 视口底 pills 空壳：MSAA/Vsync/材质/剔除/Depth/分辨率/演示模式 | P2 | 空壳 | 未开始 | `.vp-bottom-strip` |
-| REQ-VP-008 | 光标信息条空壳 | P2 | 空壳 | 未开始 | `.vp-cursor-info` |
+| REQ-VP-003 | Mini Navigator 空壳（右上装饰控件，无交互相机） | P2 | 空壳 | 已完成 | `.mini-axis` |
+| REQ-VP-004 | 浮动竖工具条空壳：实体/线框/材质/网格/轴向/追踪点 | P2 | 空壳 | 已完成 | `.vp-tools` |
+| REQ-VP-005 | 性能条空壳：FPS/MS/GPU/VRAM/Draws 占位数字 | P2 | 空壳 | 已完成 | `.vp-perf` |
+| REQ-VP-006 | Toast 空壳：演示步进时可显示静态或简单文案（可选接线一步提示） | P2 | 空壳 | 已完成 | `.toast` |
+| REQ-VP-007 | 视口底 pills 空壳：MSAA/Vsync/材质/剔除/Depth/分辨率/演示模式 | P2 | 空壳 | 已完成 | `.vp-bottom-strip` |
+| REQ-VP-008 | 光标信息条空壳 | P2 | 空壳 | 已完成 | `.vp-cursor-info` |
 
 ### 6.6 右栏矩阵
 
@@ -208,7 +208,7 @@
 |----|------|------|------|------|------|
 | REQ-LAB-001 | Device/Shader/Rasterizer/CB 视觉拆成卡片式 GroupBox（仍绑定现有 LabPanel 控件） | P1 | 接线 | 已完成 | `.card` 四块 |
 | REQ-LAB-002 | Debug 日志区边框/背景对齐新表面色 | P1 | 接线 | 已完成 | DebugLogPanel |
-| REQ-LAB-003 | CB 十六进制展示区空壳（可假数据或只读占位） | P2 | 空壳 | 未开始 | mockup CB hex |
+| REQ-LAB-003 | CB 十六进制展示区空壳（可假数据或只读占位） | P2 | 空壳 | 已完成 | mockup CB hex |
 | REQ-TR-001 | Tracker 面板头 + X/Y/Z 标签轴色 | P1 | 接线 | 已完成 | `.panel.tracker` |
 
 ### 6.8 教程条
@@ -224,7 +224,7 @@
 
 | ID | 描述 | 分期 | 深度 | 状态 | 对照 |
 |----|------|------|------|------|------|
-| REQ-SB-001 | 主窗口 `QStatusBar` 空壳：Device OK、SwapChain、Backbuffer、Tick、Polling、CB Upload、Render thread、DPI 等占位段 | P2 | 空壳 | 未开始 | `.statusbar` |
+| REQ-SB-001 | 主窗口 `QStatusBar` 空壳：Device OK、SwapChain、Backbuffer、Tick、Polling、CB Upload、Render thread、DPI 等占位段 | P2 | 空壳 | 已完成 | `.statusbar` |
 | REQ-SB-002 | 将反馈队列中已有 Device/FPS 等信息接到状态栏（可选后补） | P2 | 接线 | 未开始 | FeedbackQueue |
 
 ### 6.10 明确「不做」或仅参考
