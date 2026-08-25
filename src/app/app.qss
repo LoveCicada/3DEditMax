@@ -178,13 +178,29 @@ QGroupBox#sectionMVP::title {
   color: #f72585;
 }
 
-/* Temporary shared demoHot; Task 3 replaces with per-key glow */
-QGroupBox#sectionMatrixW[demoHot="true"],
-QGroupBox#sectionMatrixV[demoHot="true"],
-QGroupBox#sectionMatrixP[demoHot="true"],
+/* Per-matrix demoHot glow (mockup keys) */
+QGroupBox#sectionMatrixW[demoHot="true"] {
+  background-color: rgba(76, 201, 240, 0.14);
+  border: 1px solid #4cc9f0;
+  border-left: 4px solid #4cc9f0;
+}
+
+QGroupBox#sectionMatrixV[demoHot="true"] {
+  background-color: rgba(179, 136, 255, 0.14);
+  border: 1px solid #b388ff;
+  border-left: 4px solid #b388ff;
+}
+
+QGroupBox#sectionMatrixP[demoHot="true"] {
+  background-color: rgba(255, 183, 3, 0.14);
+  border: 1px solid #ffb703;
+  border-left: 4px solid #ffb703;
+}
+
 QGroupBox#sectionMVP[demoHot="true"] {
-  background-color: rgba(91, 141, 239, 0.12);
-  border: 1px solid #5b8def;
+  background-color: rgba(247, 37, 133, 0.14);
+  border: 1px solid #f72585;
+  border-left: 4px solid #f72585;
 }
 
 QLabel {

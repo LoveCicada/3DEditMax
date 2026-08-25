@@ -155,7 +155,7 @@
 | ID | 描述 | 分期 | 深度 | 状态 | 对照 |
 |----|------|------|------|------|------|
 | REQ-HDR-001 | World / View / Projection 左侧 3–4px 色条 + 标题色（§3.2） | P1 | 接线 | 已完成 | `.panel-head .accent` |
-| REQ-HDR-002 | 矩阵看板总头可用渐变色条；子块 M_W/V/P/MVP 各自色键（§3.4） | P1 | 接线 | 未开始 | `.panel.matrices` + matrix cards |
+| REQ-HDR-002 | 矩阵看板总头可用渐变色条；子块 M_W/V/P/MVP 各自色键（§3.4） | P1 | 接线 | 已完成 | `.panel.matrices` + matrix cards |
 | REQ-HDR-003 | 面板头徽章样式（如 `TRS` / `MV·MVP`）出现在对应 GroupBox 标题区 | P1 | 接线 | 不做 | `.badge`（本期用色条替代徽章） |
 | REQ-HDR-004 | 折叠 / 重置图标按钮外观 | P2 | 空壳 | 未开始 | `.icon-btn` |
 | REQ-HDR-005 | 折叠真实收起面板内容 | P2 | 接线 | 未开始 | （后补，非空壳必做） |
@@ -176,10 +176,10 @@
 
 | ID | 描述 | 分期 | 深度 | 状态 | 对照 |
 |----|------|------|------|------|------|
-| REQ-L-001 | World/View/Projection 分组应用 REQ-HDR-001 | P1 | 接线 | 未开始 | TransformPanel objectNames |
-| REQ-L-002 | Pos/Scale 等 X/Y/Z 标签或前缀使用轴色 §3.3 | P1 | 接线 | 未开始 | mockup 左栏轴色字段 |
-| REQ-L-003 | Object 面板视觉纳入新 QSS（无强制新布局） | P1 | 接线 | 未开始 | dockObject |
-| REQ-L-004 | View 预设按钮样式对齐 mockup 小按钮 | P1 | 接线 | 未开始 | Front/Side/Top/Iso |
+| REQ-L-001 | World/View/Projection 分组应用 REQ-HDR-001 | P1 | 接线 | 已完成 | TransformPanel objectNames |
+| REQ-L-002 | Pos/Scale 等 X/Y/Z 标签或前缀使用轴色 §3.3 | P1 | 接线 | 已完成 | mockup 左栏轴色字段 |
+| REQ-L-003 | Object 面板视觉纳入新 QSS（无强制新布局） | P1 | 接线 | 已完成 | dockObject |
+| REQ-L-004 | View 预设按钮样式对齐 mockup 小按钮 | P1 | 接线 | 已完成 | Front/Side/Top/Iso |
 
 ### 6.5 视口 HUD
 
@@ -209,7 +209,7 @@
 | REQ-LAB-001 | Device/Shader/Rasterizer/CB 视觉拆成卡片式 GroupBox（仍绑定现有 LabPanel 控件） | P1 | 接线 | 未开始 | `.card` 四块 |
 | REQ-LAB-002 | Debug 日志区边框/背景对齐新表面色 | P1 | 接线 | 未开始 | DebugLogPanel |
 | REQ-LAB-003 | CB 十六进制展示区空壳（可假数据或只读占位） | P2 | 空壳 | 未开始 | mockup CB hex |
-| REQ-TR-001 | Tracker 面板头 + X/Y/Z 标签轴色 | P1 | 接线 | 未开始 | `.panel.tracker` |
+| REQ-TR-001 | Tracker 面板头 + X/Y/Z 标签轴色 | P1 | 接线 | 已完成 | `.panel.tracker` |
 
 ### 6.8 教程条
 
