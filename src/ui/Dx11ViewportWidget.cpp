@@ -29,7 +29,7 @@ public:
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
     setContextMenuPolicy(Qt::NoContextMenu);
-    setMinimumSize(320, 140);
+    setMinimumSize(320, 80);
   }
 
 protected:
@@ -78,7 +78,7 @@ Dx11ViewportWidget::Dx11ViewportWidget(QWidget* parent)
     , m_panning(false)
     , m_translating(false)
     , m_translateAxis(-1) {
-  setMinimumSize(320, 180);
+  setMinimumSize(320, 120);
   QVBoxLayout* root = new QVBoxLayout(this);
   root->setContentsMargins(0, 0, 0, 0);
   root->setSpacing(0);
@@ -267,7 +267,7 @@ void Dx11ViewportWidget::buildHud() {
       "QLabel#demoCaption {"
       "  color: #e6edf3;"
       "  font-size: 12px;"
-      "  padding: 0 8px 6px 8px;"
+      "  padding: 0 8px 4px 8px;"
       "}"));
 
   QVBoxLayout* hudLay = new QVBoxLayout(m_hud);
@@ -300,7 +300,7 @@ void Dx11ViewportWidget::buildHud() {
 
   m_demoCaption = new QLabel(m_hud);
   m_demoCaption->setObjectName(QString::fromUtf8("demoCaption"));
-  m_demoCaption->setWordWrap(true);
+  m_demoCaption->setWordWrap(false);
   m_demoCaption->hide();
   hudLay->addWidget(m_demoCaption);
 }
@@ -310,12 +310,9 @@ void Dx11ViewportWidget::updateHud() {
     return;
   }
   if (m_teaching.demoPlaying) {
-    const TutorialStep step = tutorialStepAt(m_teaching.tutorialStep);
-    m_demoCaption->setText(QString::fromUtf8("%1 / %2  %3\n%4")
+    m_demoCaption->setText(QString::fromUtf8("\xE6\xBC\x94\xE7\xA4\xBA\xE4\xB8\xAD  %1 / %2")
                                .arg(m_teaching.tutorialStep + 1)
-                               .arg(tutorialStepCount())
-                               .arg(QString::fromUtf8(step.title))
-                               .arg(QString::fromUtf8(step.body)));
+                               .arg(tutorialStepCount()));
     m_demoCaption->show();
   } else {
     m_demoCaption->hide();

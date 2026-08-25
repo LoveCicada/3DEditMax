@@ -14,6 +14,7 @@
 #include <QDockWidget>
 #include <QFile>
 #include <QFileDialog>
+#include <QFrame>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
@@ -50,7 +51,23 @@ MainWindow::MainWindow(QWidget* parent)
   m_labPanel = new LabPanel(this);
   m_log = new DebugLogPanel(this);
   m_tutorial = new TutorialPanel(this);
-  setCentralWidget(m_viewport);
+
+  // Tutorial strip lives in the central column so QMainWindow dock sizing
+  // cannot collapse it to height 0 (resizeDocks will not revive a 0-height dock).
+  QWidget* central = new QWidget(this);
+  QVBoxLayout* centralLay = new QVBoxLayout(central);
+  centralLay->setContentsMargins(0, 0, 0, 0);
+  centralLay->setSpacing(0);
+  centralLay->addWidget(m_viewport, 1);
+  QFrame* tutorialStrip = new QFrame(central);
+  tutorialStrip->setObjectName(QString::fromUtf8("tutorialStrip"));
+  tutorialStrip->setMinimumHeight(128);
+  QVBoxLayout* stripLay = new QVBoxLayout(tutorialStrip);
+  stripLay->setContentsMargins(8, 4, 8, 6);
+  stripLay->setSpacing(0);
+  stripLay->addWidget(m_tutorial);
+  centralLay->addWidget(tutorialStrip, 0);
+  setCentralWidget(central);
 
   QDockWidget* dockTransforms = new QDockWidget(QString::fromUtf8("\xE5\x8F\x98\xE6\x8D\xA2"), this);
   dockTransforms->setObjectName(QString::fromUtf8("dockTransforms"));
@@ -86,15 +103,9 @@ MainWindow::MainWindow(QWidget* parent)
   addDockWidget(Qt::RightDockWidgetArea, dockDebug);
   splitDockWidget(dockMatrix, dockDebug, Qt::Vertical);
 
-  QDockWidget* dockTutorial = new QDockWidget(QString::fromUtf8("\xE6\x95\x99\xE7\xA8\x8B"), this);
-  dockTutorial->setObjectName(QString::fromUtf8("dockTutorial"));
-  dockTutorial->setWidget(m_tutorial);
-  addDockWidget(Qt::BottomDockWidgetArea, dockTutorial);
-
-  QTimer::singleShot(0, this, [this, dockTransforms, dockObject, dockMatrix, dockTutorial]() {
+  QTimer::singleShot(0, this, [this, dockTransforms, dockObject, dockMatrix]() {
     resizeDocks({dockTransforms, dockObject}, {300, 300}, Qt::Horizontal);
     resizeDocks({dockMatrix}, {380}, Qt::Horizontal);
-    resizeDocks({dockTutorial}, {140}, Qt::Vertical);
   });
 
   QToolBar* toolbar = addToolBar(QString::fromUtf8("Teach"));
@@ -113,7 +124,6 @@ MainWindow::MainWindow(QWidget* parent)
   viewMenu->addAction(dockMatrix->toggleViewAction());
   viewMenu->addAction(dockTracker->toggleViewAction());
   viewMenu->addAction(dockDebug->toggleViewAction());
-  viewMenu->addAction(dockTutorial->toggleViewAction());
 
   connect(m_transforms, &TransformPanel::changed, this, &MainWindow::onTransformsChanged);
   connect(m_objects, &ObjectPanel::changed, this, &MainWindow::onObjectsChanged);
@@ -191,6 +201,7 @@ void MainWindow::onTutorialApply(const TeachingState& t) {
     m_demo.start(m_teaching);
     m_demo.tick(0.f, &m_teaching);
     m_tutorial->setStepIndex(m_teaching.tutorialStep);
+    m_tutorial->setDemoPlaying(true);
     syncTeaching();
     m_demoTimer->start();
     return;
@@ -198,6 +209,7 @@ void MainWindow::onTutorialApply(const TeachingState& t) {
   m_demoTimer->stop();
   m_teaching = t;
   m_teaching.demoPlaying = false;
+  m_tutorial->setDemoPlaying(false);
   syncTeaching();
 }
 
@@ -214,6 +226,7 @@ void MainWindow::onReset() {
   m_lab = labStateDefault();
   m_labPanel->setState(m_lab);
   m_tutorial->setStepIndex(0);
+  m_tutorial->setDemoPlaying(false);
   syncTeaching();
 }
 
@@ -245,6 +258,7 @@ void MainWindow::onImportJson() {
   m_demoTimer->stop();
   s.demoPlaying = false;
   m_teaching = s;
+  m_tutorial->setDemoPlaying(false);
   syncTeaching();
 }
 
@@ -274,11 +288,15 @@ void MainWindow::onExportJson() {
 void MainWindow::onDemoTick() {
   if (!m_teaching.demoPlaying) {
     m_demoTimer->stop();
+    m_tutorial->setDemoPlaying(false);
     return;
   }
   if (!m_demo.tick(0.016f, &m_teaching)) {
     m_teaching.demoPlaying = false;
     m_demoTimer->stop();
+    m_tutorial->setDemoPlaying(false);
+  } else {
+    m_tutorial->setDemoPlaying(true);
   }
   m_tutorial->setStepIndex(m_teaching.tutorialStep);
   syncTeaching();

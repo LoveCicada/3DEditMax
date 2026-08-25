@@ -10,6 +10,7 @@ class TutorialPanel : public QWidget {
 public:
   explicit TutorialPanel(QWidget* parent = 0);
   void setStepIndex(int index);
+  void setDemoPlaying(bool playing);
 signals:
   void applyState(TeachingState state);
 private slots:
@@ -20,9 +21,11 @@ private:
   void refresh();
 
   int m_index;
+  bool m_demoPlaying;
   QLabel* m_title;
   QLabel* m_body;
   QLabel* m_step;
   QPushButton* m_prev;
   QPushButton* m_next;
+  QPushButton* m_demo;
 };
