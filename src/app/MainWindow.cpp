@@ -20,6 +20,7 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QStatusBar>
 #include <QTimer>
 #include <QToolBar>
 #include <QVBoxLayout>
@@ -137,6 +138,33 @@ MainWindow::MainWindow(QWidget* parent)
   demoLay->addWidget(m_demoBarTitle);
   demoLay->addWidget(m_demoBarBody, 1);
   toolbar->addWidget(m_demoBar);
+
+  auto addShellTool = [this, toolbar](const char* tipUtf8) {
+    const QString tip = QString::fromUtf8(tipUtf8);
+    QAction* a = toolbar->addAction(tip);
+    a->setToolTip(tip + QString::fromUtf8(" (\xE6\x9C\xAA\xE5\xAE\x9E\xE7\x8E\xB0)"));
+    connect(a, &QAction::triggered, this, [this, tip]() {
+      statusBar()->showMessage(
+          tip + QString::fromUtf8(" — \xE6\x9C\xAA\xE5\xAE\x9E\xE7\x8E\xB0"), 1500);
+    });
+  };
+  toolbar->addSeparator();
+  addShellTool("Select");
+  addShellTool("Pan");
+  addShellTool("Orbit");
+  addShellTool("Dolly");
+  toolbar->addSeparator();
+  addShellTool("Solid");
+  addShellTool("Wire");
+  addShellTool("Track");
+  toolbar->addSeparator();
+  addShellTool("Cube");
+  addShellTool("Sphere");
+  addShellTool("Cylinder");
+  toolbar->addSeparator();
+  addShellTool("Record");
+  addShellTool("Perf");
+  addShellTool("Shot");
 
   QMenu* fileMenu = menuBar()->addMenu(QString::fromUtf8("\xE6\x96\x87\xE4\xBB\xB6"));
   QAction* importAction = fileMenu->addAction(QString::fromUtf8("\xE5\xAF\xBC\xE5\x85\xA5"));
