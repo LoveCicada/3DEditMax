@@ -2,6 +2,7 @@
 #include "core/StateSnapshot.h"
 #include "render/FeedbackQueue.h"
 #include "render/DebugDraw.h"
+#include "render/AxisLabels.h"
 #include "render/MeshGpu.h"
 #include "render/ShaderSet.h"
 #include <d3d11.h>
@@ -80,4 +81,5 @@ private:
   UINT m_cylEdgeVerts;
   ShaderSet m_shaders;
   DebugDraw m_debug;
+  AxisLabels m_axisLabels;
 };

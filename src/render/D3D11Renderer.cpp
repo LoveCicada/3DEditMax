@@ -320,6 +320,10 @@ bool D3D11Renderer::initialize(HWND hwnd, int w, int h, bool wantDebug, Feedback
   if (!m_debug.valid()) {
     pushFb(fb, FbWarn, "DebugDraw line.hlsl failed");
   }
+  m_axisLabels.create(m_device.Get(), m_shaderDir);
+  if (!m_axisLabels.valid()) {
+    pushFb(fb, FbWarn, "AxisLabels sprite.hlsl failed");
+  }
   if (!createEdgeBuffers(fb)) {
     pushFb(fb, FbWarn, "silhouette edge buffers failed");
   }
@@ -338,6 +342,7 @@ void D3D11Renderer::shutdown() {
   }
   m_shaders = ShaderSet();
   m_debug.reset();
+  m_axisLabels.reset();
   m_cube = MeshGpu();
   m_sphere = MeshGpu();
   m_cyl = MeshGpu();
@@ -510,6 +515,7 @@ void D3D11Renderer::render(const StateSnapshot& snap) {
   const float* op = t.objects[0].trs.pos;
   drawAxisCones(snap, V, P, DirectX::XMVectorSet(op[0], op[1], op[2], 0.f),
                 worldAxisGizmoLength());
+  m_axisLabels.draw(m_context.Get(), V, P);
 
   // Sync interval 0: callers may hold a mutex shared with the UI resize path;
   // never block here on vsync or the UI thread can deadlock.
@@ -533,6 +539,11 @@ bool D3D11Renderer::reloadShaders(FeedbackQueue* fb) {
   debugNext.create(m_device.Get(), m_shaderDir);
   if (debugNext.valid()) {
     m_debug = debugNext;
+  }
+  AxisLabels labelsNext;
+  labelsNext.create(m_device.Get(), m_shaderDir);
+  if (labelsNext.valid()) {
+    m_axisLabels = labelsNext;
   }
   return true;
 }

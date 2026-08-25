@@ -50,6 +50,7 @@ add_executable(3DEditMax
   src/render/RenderThread.cpp
   src/render/D3D11Renderer.cpp
   src/render/DebugDraw.cpp
+  src/render/AxisLabels.cpp
   src/render/MeshGpu.cpp
   src/render/ShaderSet.cpp
   src/teach/Transforms.cpp

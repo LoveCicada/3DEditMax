@@ -21,36 +21,6 @@ struct LineCBCpu {
 };
 
 void pushLine(LineVertex* verts, UINT* count, UINT cap,
-              FXMVECTOR a, FXMVECTOR b, const XMFLOAT4& col);
-
-void pushGlyphX(LineVertex* verts, UINT* count, UINT cap, FXMVECTOR c, float s,
-                const XMFLOAT4& col) {
-  pushLine(verts, count, cap, XMVectorAdd(c, XMVectorSet(-s, s, 0.f, 0.f)),
-           XMVectorAdd(c, XMVectorSet(s, -s, 0.f, 0.f)), col);
-  pushLine(verts, count, cap, XMVectorAdd(c, XMVectorSet(-s, -s, 0.f, 0.f)),
-           XMVectorAdd(c, XMVectorSet(s, s, 0.f, 0.f)), col);
-}
-
-void pushGlyphY(LineVertex* verts, UINT* count, UINT cap, FXMVECTOR c, float s,
-                const XMFLOAT4& col) {
-  pushLine(verts, count, cap, XMVectorAdd(c, XMVectorSet(-s, s, 0.f, 0.f)),
-           XMVectorAdd(c, XMVectorSet(0.f, 0.f, 0.f, 0.f)), col);
-  pushLine(verts, count, cap, XMVectorAdd(c, XMVectorSet(s, s, 0.f, 0.f)),
-           XMVectorAdd(c, XMVectorSet(0.f, 0.f, 0.f, 0.f)), col);
-  pushLine(verts, count, cap, c, XMVectorAdd(c, XMVectorSet(0.f, -s, 0.f, 0.f)), col);
-}
-
-void pushGlyphZ(LineVertex* verts, UINT* count, UINT cap, FXMVECTOR c, float s,
-                const XMFLOAT4& col) {
-  pushLine(verts, count, cap, XMVectorAdd(c, XMVectorSet(-s, s, 0.f, 0.f)),
-           XMVectorAdd(c, XMVectorSet(s, s, 0.f, 0.f)), col);
-  pushLine(verts, count, cap, XMVectorAdd(c, XMVectorSet(s, s, 0.f, 0.f)),
-           XMVectorAdd(c, XMVectorSet(-s, -s, 0.f, 0.f)), col);
-  pushLine(verts, count, cap, XMVectorAdd(c, XMVectorSet(-s, -s, 0.f, 0.f)),
-           XMVectorAdd(c, XMVectorSet(s, -s, 0.f, 0.f)), col);
-}
-
-void pushLine(LineVertex* verts, UINT* count, UINT cap,
               FXMVECTOR a, FXMVECTOR b, const XMFLOAT4& col) {
   if (!verts || !count || *count + 2 > cap) {
     return;
@@ -339,13 +309,9 @@ void DebugDraw::draw(ID3D11DeviceContext* context,
   pushLine(verts, &count, kMaxLineVerts, origin, XMVectorSet(0.f, 0.f, axisLen, 0.f),
            XMFLOAT4(0x44 / 255.f, 0x44 / 255.f, 1.f, 1.f));
 
-  const float glyph = 0.18f;
   const XMFLOAT4 red(1.f, 0x44 / 255.f, 0x44 / 255.f, 1.f);
   const XMFLOAT4 green(0x44 / 255.f, 1.f, 0x44 / 255.f, 1.f);
   const XMFLOAT4 blue(0x44 / 255.f, 0x44 / 255.f, 1.f, 1.f);
-  pushGlyphX(verts, &count, kMaxLineVerts, XMVectorSet(axisLen + 0.4f, 0.f, 0.f, 0.f), glyph, red);
-  pushGlyphY(verts, &count, kMaxLineVerts, XMVectorSet(0.f, axisLen + 0.4f, 0.f, 0.f), glyph, green);
-  pushGlyphZ(verts, &count, kMaxLineVerts, XMVectorSet(0.f, 0.f, axisLen + 0.4f, 0.f), glyph, blue);
 
   const TeachingState& t = snap.teaching;
   const float* op = t.objects[0].trs.pos;
