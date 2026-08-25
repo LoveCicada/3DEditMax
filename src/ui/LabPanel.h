@@ -32,5 +32,4 @@ private:
   QComboBox* m_cull;
   QCheckBox* m_depth;
   QPlainTextEdit* m_cb;
-  QPlainTextEdit* m_cbHex;
 };
