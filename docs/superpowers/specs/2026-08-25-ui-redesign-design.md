@@ -145,16 +145,16 @@
 
 | ID | 描述 | 分期 | 深度 | 状态 | 对照 |
 |----|------|------|------|------|------|
-| REQ-VIS-001 | 应用 §3 表面/文字/强调色到 `app.qss` 与 Fusion 壳 | P1 | 接线 | 未开始 | mockup `:root` surfaces |
-| REQ-VIS-002 | GroupBox / Dock / ToolBar / Menu / 输入控件圆角与边框对齐 mockup 密度 | P1 | 接线 | 未开始 | `.panel` / `.tool-group` |
-| REQ-VIS-003 | `#tutorialStrip` 使用新表面色与顶部分割线 | P1 | 接线 | 未开始 | 现行 strip + mockup panel |
-| REQ-VIS-004 | 文档注明色值以 mockup 为准；废弃旧抛光表中 W红/V青/P金/MVP紫 作为目标色 | P1 | 接线 | 未开始 | 旧 `viewport-polish` 色表 |
+| REQ-VIS-001 | 应用 §3 表面/文字/强调色到 `app.qss` 与 Fusion 壳 | P1 | 接线 | 已完成 | mockup `:root` surfaces |
+| REQ-VIS-002 | GroupBox / Dock / ToolBar / Menu / 输入控件圆角与边框对齐 mockup 密度 | P1 | 接线 | 已完成 | `.panel` / `.tool-group` |
+| REQ-VIS-003 | `#tutorialStrip` 使用新表面色与顶部分割线 | P1 | 接线 | 已完成 | 现行 strip + mockup panel |
+| REQ-VIS-004 | 文档注明色值以 mockup 为准；废弃旧抛光表中 W红/V青/P金/MVP紫 作为目标色 | P1 | 接线 | 已完成 | 旧 `viewport-polish` 色表 |
 
 ### 6.2 面板头
 
 | ID | 描述 | 分期 | 深度 | 状态 | 对照 |
 |----|------|------|------|------|------|
-| REQ-HDR-001 | World / View / Projection 左侧 3–4px 色条 + 标题色（§3.2） | P1 | 接线 | 未开始 | `.panel-head .accent` |
+| REQ-HDR-001 | World / View / Projection 左侧 3–4px 色条 + 标题色（§3.2） | P1 | 接线 | 已完成 | `.panel-head .accent` |
 | REQ-HDR-002 | 矩阵看板总头可用渐变色条；子块 M_W/V/P/MVP 各自色键（§3.4） | P1 | 接线 | 未开始 | `.panel.matrices` + matrix cards |
 | REQ-HDR-003 | 面板头徽章样式（如 `TRS` / `MV·MVP`）出现在对应 GroupBox 标题区 | P1 | 接线 | 未开始 | `.badge` |
 | REQ-HDR-004 | 折叠 / 重置图标按钮外观 | P2 | 空壳 | 未开始 | `.icon-btn` |
@@ -198,7 +198,7 @@
 
 | ID | 描述 | 分期 | 深度 | 状态 | 对照 |
 |----|------|------|------|------|------|
-| REQ-MX-001 | M_W/M_V/M_P/MVP 边框或色条使用 §3.4 | P1 | 接线 | 未开始 | matrix cards |
+| REQ-MX-001 | M_W/M_V/M_P/MVP 边框或色条使用 §3.4 | P1 | 接线 | 已完成 | matrix cards |
 | REQ-MX-002 | `demoHot` 使用对应矩阵色 glow/边框，替代统一黄洗 | P1 | 接线 | 未开始 | `demoHot` property |
 | REQ-MX-003 | 主序切换控件样式纳入新工具按钮语言 | P1 | 接线 | 未开始 | 看板头 actions |
 
