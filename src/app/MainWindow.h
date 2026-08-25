@@ -11,7 +11,9 @@ class LabPanel;
 class MatrixBoardPanel;
 class ObjectPanel;
 class QAction;
+class QLabel;
 class QTimer;
+class QWidget;
 class TrackerPanel;
 class TransformPanel;
 class TutorialPanel;
@@ -38,6 +40,7 @@ private:
   void refreshBoard();
   void refreshTracker();
   void syncMajorActionText();
+  void refreshDemoBar();
 
   Dx11ViewportWidget* m_viewport;
   TransformPanel* m_transforms;
@@ -47,6 +50,10 @@ private:
   LabPanel* m_labPanel;
   DebugLogPanel* m_log;
   TutorialPanel* m_tutorial;
+  QWidget* m_demoBar;
+  QLabel* m_demoBarStep;
+  QLabel* m_demoBarTitle;
+  QLabel* m_demoBarBody;
   QTimer* m_poll;
   QTimer* m_demoTimer;
   QAction* m_majorAction;

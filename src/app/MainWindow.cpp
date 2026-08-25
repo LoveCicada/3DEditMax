@@ -15,12 +15,15 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFrame>
+#include <QHBoxLayout>
+#include <QLabel>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QTimer>
 #include <QToolBar>
 #include <QVBoxLayout>
+#include <QWidget>
 #include <DirectXMath.h>
 #include <string>
 
@@ -34,6 +37,10 @@ MainWindow::MainWindow(QWidget* parent)
     , m_labPanel(0)
     , m_log(0)
     , m_tutorial(0)
+    , m_demoBar(0)
+    , m_demoBarStep(0)
+    , m_demoBarTitle(0)
+    , m_demoBarBody(0)
     , m_poll(0)
     , m_demoTimer(0)
     , m_majorAction(0)
@@ -114,6 +121,23 @@ MainWindow::MainWindow(QWidget* parent)
   QAction* resetAction = toolbar->addAction(QString::fromUtf8("\xE9\x87\x8D\xE7\xBD\xAE"));
   syncMajorActionText();
 
+  m_demoBar = new QWidget(toolbar);
+  m_demoBar->setObjectName(QString::fromUtf8("demoBar"));
+  QHBoxLayout* demoLay = new QHBoxLayout(m_demoBar);
+  demoLay->setContentsMargins(8, 2, 8, 2);
+  demoLay->setSpacing(8);
+  m_demoBarStep = new QLabel(m_demoBar);
+  m_demoBarStep->setObjectName(QString::fromUtf8("demoBarStep"));
+  m_demoBarTitle = new QLabel(m_demoBar);
+  m_demoBarTitle->setObjectName(QString::fromUtf8("demoBarTitle"));
+  m_demoBarBody = new QLabel(m_demoBar);
+  m_demoBarBody->setObjectName(QString::fromUtf8("demoBarBody"));
+  m_demoBarBody->setMaximumWidth(360);
+  demoLay->addWidget(m_demoBarStep);
+  demoLay->addWidget(m_demoBarTitle);
+  demoLay->addWidget(m_demoBarBody, 1);
+  toolbar->addWidget(m_demoBar);
+
   QMenu* fileMenu = menuBar()->addMenu(QString::fromUtf8("\xE6\x96\x87\xE4\xBB\xB6"));
   QAction* importAction = fileMenu->addAction(QString::fromUtf8("\xE5\xAF\xBC\xE5\x85\xA5"));
   QAction* exportAction = fileMenu->addAction(QString::fromUtf8("\xE5\xAF\xBC\xE5\x87\xBA"));
@@ -164,6 +188,20 @@ void MainWindow::syncTeaching() {
   m_viewport->publishState(m_teaching, m_lab);
   refreshBoard();
   refreshTracker();
+  refreshDemoBar();
+}
+
+void MainWindow::refreshDemoBar() {
+  if (!m_demoBarStep || !m_demoBarTitle || !m_demoBarBody) {
+    return;
+  }
+  const TutorialStep step = tutorialStepAt(m_teaching.tutorialStep);
+  m_demoBarStep->setText(QString::fromUtf8("%1 / %2")
+                             .arg(m_teaching.tutorialStep + 1)
+                             .arg(tutorialStepCount()));
+  m_demoBarTitle->setText(QString::fromUtf8(step.title));
+  m_demoBarBody->setText(QString::fromUtf8(step.body));
+  m_demoBarBody->setToolTip(QString::fromUtf8(step.body));
 }
 
 void MainWindow::onTransformsChanged() {

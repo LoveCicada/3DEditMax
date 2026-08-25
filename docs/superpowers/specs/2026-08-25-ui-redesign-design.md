@@ -164,9 +164,9 @@
 
 | ID | 描述 | 分期 | 深度 | 状态 | 对照 |
 |----|------|------|------|------|------|
-| REQ-TB-001 | 保留「列/行主序」「重置」并套用新工具按钮样式 | P1 | 接线 | 未开始 | `.tool` / 现行 Teach toolbar |
-| REQ-TB-002 | 增加只读 `demo-bar`：步数 pill、标题、简述（单行省略）；随 `tutorialStep`/`demoPlaying` 更新 | P1 | 接线 | 未开始 | `.demo-bar` |
-| REQ-TB-003 | `demo-bar` 内上一步/下一步按钮不作为主控（禁用或隐藏）；主控仍在 `TutorialPanel` | P1 | 接线 | 未开始 | D-03 |
+| REQ-TB-001 | 保留「列/行主序」「重置」并套用新工具按钮样式 | P1 | 接线 | 已完成 | `.tool` / 现行 Teach toolbar |
+| REQ-TB-002 | 增加只读 `demo-bar`：步数 pill、标题、简述（单行省略）；随 `tutorialStep`/`demoPlaying` 更新 | P1 | 接线 | 已完成 | `.demo-bar` |
+| REQ-TB-003 | `demo-bar` 内上一步/下一步按钮不作为主控（禁用或隐藏）；主控仍在 `TutorialPanel` | P1 | 接线 | 已完成 | D-03 |
 | REQ-TB-004 | 工具组空壳：选择/平移/轨道/推拉 | P2 | 空壳 | 未开始 | toolbar 第一组 |
 | REQ-TB-005 | 工具组空壳：实心/选择/线框/追踪点（与已有着色能力接线可后做） | P2 | 空壳 | 未开始 | toolbar 第二组 |
 | REQ-TB-006 | 工具组空壳：立方体/球/柱 | P2 | 空壳 | 未开始 | toolbar 第三组 |
@@ -206,8 +206,8 @@
 
 | ID | 描述 | 分期 | 深度 | 状态 | 对照 |
 |----|------|------|------|------|------|
-| REQ-LAB-001 | Device/Shader/Rasterizer/CB 视觉拆成卡片式 GroupBox（仍绑定现有 LabPanel 控件） | P1 | 接线 | 未开始 | `.card` 四块 |
-| REQ-LAB-002 | Debug 日志区边框/背景对齐新表面色 | P1 | 接线 | 未开始 | DebugLogPanel |
+| REQ-LAB-001 | Device/Shader/Rasterizer/CB 视觉拆成卡片式 GroupBox（仍绑定现有 LabPanel 控件） | P1 | 接线 | 已完成 | `.card` 四块 |
+| REQ-LAB-002 | Debug 日志区边框/背景对齐新表面色 | P1 | 接线 | 已完成 | DebugLogPanel |
 | REQ-LAB-003 | CB 十六进制展示区空壳（可假数据或只读占位） | P2 | 空壳 | 未开始 | mockup CB hex |
 | REQ-TR-001 | Tracker 面板头 + X/Y/Z 标签轴色 | P1 | 接线 | 已完成 | `.panel.tracker` |
 
@@ -215,9 +215,9 @@
 
 | ID | 描述 | 分期 | 深度 | 状态 | 对照 |
 |----|------|------|------|------|------|
-| REQ-TU-001 | 保持中央底条 `TutorialPanel`：上一步/下一步/演示\|停止 + 标题/正文 | P1 | 接线 | 未开始 | 现行 strip（D-03） |
-| REQ-TU-002 | 演示中禁用步进；停止恢复（已有则核对样式） | P1 | 接线 | 未开始 | TutorialPanel |
-| REQ-TU-003 | 教程按钮/正文排版纳入新 QSS | P1 | 接线 | 未开始 | `#btnDemo` 等 |
+| REQ-TU-001 | 保持中央底条 `TutorialPanel`：上一步/下一步/演示\|停止 + 标题/正文 | P1 | 接线 | 已完成 | 现行 strip（D-03） |
+| REQ-TU-002 | 演示中禁用步进；停止恢复（已有则核对样式） | P1 | 接线 | 已完成 | TutorialPanel |
+| REQ-TU-003 | 教程按钮/正文排版纳入新 QSS | P1 | 接线 | 已完成 | `#btnDemo` 等 |
 | REQ-TU-004 | 与 REQ-TB-002 文案同步（同一步标题/简述） | P1 | 接线 | 未开始 | D-03 |
 
 ### 6.9 状态栏

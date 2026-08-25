@@ -517,3 +517,29 @@ QPlainTextEdit#debugLog {
   border: 1px solid #272e44;
   color: #b3bbd1;
 }
+
+QWidget#demoBar {
+  background-color: #101626;
+  border: 1px solid #1f273b;
+  border-radius: 8px;
+}
+
+QLabel#demoBarStep {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background-color: rgba(91, 141, 239, 0.14);
+  color: #b9cdff;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+QLabel#demoBarTitle {
+  color: #eef1f9;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+QLabel#demoBarBody {
+  color: #7c8499;
+  font-size: 11px;
+}
