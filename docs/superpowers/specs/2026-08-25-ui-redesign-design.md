@@ -1,7 +1,7 @@
 # 3DEditMax UI 重构需求规格
 
 日期：2026-08-25  
-状态：需求已定稿（待实现）；实现进度见下方需求表 **状态** 列  
+状态：P1 接线 + P2 空壳已落地；进度见需求表 **状态** 列  
 设计参考：[`docs/ui/design/`](../../ui/design/)（`DESIGN.md`、`mockup.html`、`mockup.svg`、`index.html`）  
 上位架构：[`2026-08-16-dx11-lab-teach-design.md`](./2026-08-16-dx11-lab-teach-design.md)  
 壳布局：[`docs/ui/01-lab-shell-layout.md`](../../ui/01-lab-shell-layout.md)  
@@ -241,17 +241,17 @@
 
 ### P1
 
-- [ ] 主窗口/停靠/输入在新色板下可读，无大面积旧紫青残留。
-- [ ] World/View/Proj 色头与矩阵四色符合 §3。
-- [ ] 左栏 X/Y/Z 与视口图例轴色一致。
-- [ ] 演示时矩阵聚焦色随 `demoMatrixFocus` 变化。
-- [ ] 底栏教程可完整走完 8 步与「停止」；工具栏 demo-bar 只读同步。
-- [ ] 无控件叠在 Swapchain 上；无回归黑闪/崩溃。
+- [x] 主窗口/停靠/输入在新色板下可读，无大面积旧紫青残留。
+- [x] World/View/Proj 色头与矩阵四色符合 §3。
+- [x] 左栏 X/Y/Z 与视口图例轴色一致。
+- [x] 演示时矩阵聚焦色随 `demoMatrixFocus` 变化。
+- [x] 底栏教程可完整走完 8 步与「停止」；工具栏 demo-bar 只读同步。
+- [x] 无控件叠在 Swapchain 上；无回归黑闪/崩溃。
 
 ### P2（空壳）
 
-- [ ] 工具栏新工具组、状态栏、视口 Navigator/浮动条/性能/Toast/pills 可见且不破坏布局。
-- [ ] 空壳点击不崩溃、不误改 TeachingState（除非该控件后续已接线）。
+- [x] 工具栏新工具组、状态栏、视口 Navigator/浮动条/性能/Toast/pills 可见且不破坏布局。
+- [x] 空壳点击不崩溃、不误改 TeachingState（除非该控件后续已接线）。
 
 ---
 
@@ -276,3 +276,4 @@
 | 日期 | 说明 |
 |------|------|
 | 2026-08-25 | 初版：自 mockup/DESIGN 拆解 REQ；两期 + 空壳策略；演示底栏主控 |
+| 2026-08-25 | 实现 Task 1–10：P1 换肤接线 + P2 空壳；REQ 状态已回写 |
