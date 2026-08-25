@@ -23,6 +23,7 @@ LabPanel::LabPanel(QWidget* parent)
   QVBoxLayout* root = new QVBoxLayout(this);
 
   QGroupBox* deviceBox = new QGroupBox(QString::fromUtf8("Device"), this);
+  deviceBox->setObjectName(QString::fromUtf8("labCardDevice"));
   QVBoxLayout* deviceLay = new QVBoxLayout(deviceBox);
   m_device = new QLabel(QString::fromUtf8("(no device)"), deviceBox);
   m_device->setWordWrap(true);
@@ -30,6 +31,7 @@ LabPanel::LabPanel(QWidget* parent)
   root->addWidget(deviceBox);
 
   QGroupBox* shaderBox = new QGroupBox(QString::fromUtf8("Shader"), this);
+  shaderBox->setObjectName(QString::fromUtf8("labCardShader"));
   QHBoxLayout* shaderRow = new QHBoxLayout(shaderBox);
   m_variant = new QComboBox(shaderBox);
   m_variant->addItem(QString::fromUtf8("unlit"));
@@ -41,6 +43,7 @@ LabPanel::LabPanel(QWidget* parent)
   root->addWidget(shaderBox);
 
   QGroupBox* rsBox = new QGroupBox(QString::fromUtf8("Rasterizer"), this);
+  rsBox->setObjectName(QString::fromUtf8("labCardRaster"));
   QFormLayout* rsForm = new QFormLayout(rsBox);
   m_fill = new QComboBox(rsBox);
   m_fill->addItem(QString::fromUtf8("Solid"));
@@ -56,6 +59,7 @@ LabPanel::LabPanel(QWidget* parent)
   root->addWidget(rsBox);
 
   QGroupBox* cbBox = new QGroupBox(QString::fromUtf8("CB"), this);
+  cbBox->setObjectName(QString::fromUtf8("labCardCb"));
   QVBoxLayout* cbLay = new QVBoxLayout(cbBox);
   m_cb = new QPlainTextEdit(cbBox);
   m_cb->setReadOnly(true);

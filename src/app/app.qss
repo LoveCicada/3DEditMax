@@ -484,3 +484,36 @@ QMessageBox {
 QFileDialog {
   background-color: #161b2b;
 }
+
+QGroupBox#labCardDevice,
+QGroupBox#labCardShader,
+QGroupBox#labCardRaster,
+QGroupBox#labCardCb {
+  background-color: #161b2b;
+  border: 1px solid #272e44;
+  border-radius: 10px;
+  margin-top: 10px;
+  padding-top: 8px;
+}
+
+QGroupBox#labCardDevice {
+  border-left: 4px solid #5b8def;
+}
+
+QGroupBox#labCardShader {
+  border-left: 4px solid #7aa1ff;
+}
+
+QGroupBox#labCardRaster {
+  border-left: 4px solid #06d6a0;
+}
+
+QGroupBox#labCardCb {
+  border-left: 4px solid #b388ff;
+}
+
+QPlainTextEdit#debugLog {
+  background-color: #0a0e18;
+  border: 1px solid #272e44;
+  color: #b3bbd1;
+}

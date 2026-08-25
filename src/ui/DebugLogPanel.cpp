@@ -6,6 +6,7 @@
 DebugLogPanel::DebugLogPanel(QWidget* parent)
     : QWidget(parent) {
   m_edit = new QPlainTextEdit(this);
+  m_edit->setObjectName(QString::fromUtf8("debugLog"));
   m_edit->setReadOnly(true);
   QVBoxLayout* layout = new QVBoxLayout(this);
   layout->setContentsMargins(0, 0, 0, 0);
