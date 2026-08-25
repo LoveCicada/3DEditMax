@@ -22,8 +22,9 @@ flowchart TB
 | 区域 | Qt 角色 | 内容 | 填满阶段 |
 |------|---------|------|----------|
 | 顶栏菜单 | `QMenuBar` | 文件（JSON 导入/导出）、视图（重置、面板显隐）、帮助 | 0 菜单骨架；3 接通 JSON |
-| 工具条 | `QToolBar` | 行列主序切换、全部重置；（UI 重构后可加只读演示条） | 1 |
-| 中央 | `QMainWindow::setCentralWidget` | 上：`Dx11ViewportWidget`（HWND + DX11 Swapchain）；下：教程条 `TutorialPanel`（非 Bottom dock，避免高度被挤到 0） | 0；教程 3 |
+| 工具条 | `QToolBar` | 行列主序切换、全部重置；只读演示条；P2 空壳工具组 | 1；UI 重构 |
+| 中央 | `QMainWindow::setCentralWidget` | 上：`Dx11ViewportWidget`（HWND + DX11 Swapchain）+ 视口壳 HUD；下：教程条 `TutorialPanel`（非 Bottom dock，避免高度被挤到 0） | 0；教程 3 |
+| 状态栏 | `QStatusBar` | 引擎占位段（Device / SwapChain / …） | UI 重构 P2 空壳 |
 | 左停靠 | `Left` | World / View / Projection 分组，模型与材质 | 1 变换；2 模型材质 |
 | 右上停靠 | `Right` | 矩阵看板 W / V / P / MVP | 1 |
 | 右中停靠 | `Right` | 坐标追踪 | 2 |
