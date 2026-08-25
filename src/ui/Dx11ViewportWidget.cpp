@@ -260,13 +260,14 @@ void Dx11ViewportWidget::buildHud() {
   m_hud->setObjectName(QString::fromUtf8("axisLegend"));
   m_hud->setStyleSheet(QString::fromUtf8(
       "QFrame#axisLegend {"
-      "  background-color: #0a0a18;"
-      "  border-bottom: 1px solid rgba(97, 218, 251, 71);"
+      "  background-color: #0a0e18;"
+      "  border-bottom: 1px solid #272e44;"
       "}"
-      "QLabel#axisLegendName { color: #ccd6f6; font-size: 11px; }"
+      "QLabel#axisLegendName { color: #b3bbd1; font-size: 11px; }"
       "QLabel#demoCaption {"
-      "  color: #e6edf3;"
+      "  color: #5b8def;"
       "  font-size: 12px;"
+      "  font-weight: 600;"
       "  padding: 0 8px 4px 8px;"
       "}"));
 
@@ -283,7 +284,7 @@ void Dx11ViewportWidget::buildHud() {
       "Z  \xE5\x89\x8D\xE5\x90\x8E",
       "\xE8\xBF\xBD\xE8\xB8\xAA\xE7\x82\xB9",
   };
-  const char* swatches[4] = { "#ff4444", "#44ff44", "#4444ff", "#ff59ff" };
+  const char* swatches[4] = { "#ef476f", "#06d6a0", "#4cc9f0", "#f72585" };
   for (int i = 0; i < 4; ++i) {
     QLabel* swatch = new QLabel(m_hud);
     swatch->setFixedSize(10, 10);

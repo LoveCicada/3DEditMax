@@ -708,9 +708,9 @@ void D3D11Renderer::drawAxisCones(const StateSnapshot& snap,
       XMVectorSet(0.f, 0.f, 1.f, 0.f),
   };
   const XMFLOAT4 colors[3] = {
-      XMFLOAT4(1.f, 0x44 / 255.f, 0x44 / 255.f, 1.f),
-      XMFLOAT4(0x44 / 255.f, 1.f, 0x44 / 255.f, 1.f),
-      XMFLOAT4(0x44 / 255.f, 0x44 / 255.f, 1.f, 1.f),
+      XMFLOAT4(0xef / 255.f, 0x47 / 255.f, 0x6f / 255.f, 1.f),
+      XMFLOAT4(0x06 / 255.f, 0xd6 / 255.f, 0xa0 / 255.f, 1.f),
+      XMFLOAT4(0x4c / 255.f, 0xc9 / 255.f, 0xf0 / 255.f, 1.f),
   };
 
   for (int i = 0; i < 3; ++i) {

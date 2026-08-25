@@ -303,15 +303,15 @@ void DebugDraw::draw(ID3D11DeviceContext* context,
   const XMVECTOR origin = XMVectorZero();
   const float axisLen = 3.f;
   pushLine(verts, &count, kMaxLineVerts, origin, XMVectorSet(axisLen, 0.f, 0.f, 0.f),
-           XMFLOAT4(1.f, 0x44 / 255.f, 0x44 / 255.f, 1.f));
+           XMFLOAT4(0xef / 255.f, 0x47 / 255.f, 0x6f / 255.f, 1.f));
   pushLine(verts, &count, kMaxLineVerts, origin, XMVectorSet(0.f, axisLen, 0.f, 0.f),
-           XMFLOAT4(0x44 / 255.f, 1.f, 0x44 / 255.f, 1.f));
+           XMFLOAT4(0x06 / 255.f, 0xd6 / 255.f, 0xa0 / 255.f, 1.f));
   pushLine(verts, &count, kMaxLineVerts, origin, XMVectorSet(0.f, 0.f, axisLen, 0.f),
-           XMFLOAT4(0x44 / 255.f, 0x44 / 255.f, 1.f, 1.f));
+           XMFLOAT4(0x4c / 255.f, 0xc9 / 255.f, 0xf0 / 255.f, 1.f));
 
-  const XMFLOAT4 red(1.f, 0x44 / 255.f, 0x44 / 255.f, 1.f);
-  const XMFLOAT4 green(0x44 / 255.f, 1.f, 0x44 / 255.f, 1.f);
-  const XMFLOAT4 blue(0x44 / 255.f, 0x44 / 255.f, 1.f, 1.f);
+  const XMFLOAT4 red(0xef / 255.f, 0x47 / 255.f, 0x6f / 255.f, 1.f);
+  const XMFLOAT4 green(0x06 / 255.f, 0xd6 / 255.f, 0xa0 / 255.f, 1.f);
+  const XMFLOAT4 blue(0x4c / 255.f, 0xc9 / 255.f, 0xf0 / 255.f, 1.f);
 
   const TeachingState& t = snap.teaching;
   const float* op = t.objects[0].trs.pos;
@@ -332,7 +332,7 @@ void DebugDraw::draw(ID3D11DeviceContext* context,
   const XMVECTOR ny = XMVectorAdd(wp, XMVectorSet(0.f, -s, 0.f, 0.f));
   const XMVECTOR pz = XMVectorAdd(wp, XMVectorSet(0.f, 0.f, s, 0.f));
   const XMVECTOR nz = XMVectorAdd(wp, XMVectorSet(0.f, 0.f, -s, 0.f));
-  const XMFLOAT4 mag(1.f, 0.35f, 1.f, 1.f);
+  const XMFLOAT4 mag(0xf7 / 255.f, 0x25 / 255.f, 0x85 / 255.f, 1.f);
   pushLine(verts, &count, kMaxLineVerts, px, py, mag);
   pushLine(verts, &count, kMaxLineVerts, px, ny, mag);
   pushLine(verts, &count, kMaxLineVerts, px, pz, mag);

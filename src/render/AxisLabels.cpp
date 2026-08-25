@@ -290,13 +290,13 @@ bool AxisLabels::compile(ID3D11Device* device, const std::wstring& shaderDir) {
 }
 
 bool AxisLabels::createGlyphTextures(ID3D11Device* device) {
-  if (!createOneGlyph(device, 'X', 255, 68, 68, &m_srv[0])) {
+  if (!createOneGlyph(device, 'X', 0xef, 0x47, 0x6f, &m_srv[0])) {
     return false;
   }
-  if (!createOneGlyph(device, 'Y', 68, 255, 68, &m_srv[1])) {
+  if (!createOneGlyph(device, 'Y', 0x06, 0xd6, 0xa0, &m_srv[1])) {
     return false;
   }
-  if (!createOneGlyph(device, 'Z', 68, 68, 255, &m_srv[2])) {
+  if (!createOneGlyph(device, 'Z', 0x4c, 0xc9, 0xf0, &m_srv[2])) {
     return false;
   }
   return true;

@@ -199,8 +199,8 @@
 | ID | 描述 | 分期 | 深度 | 状态 | 对照 |
 |----|------|------|------|------|------|
 | REQ-MX-001 | M_W/M_V/M_P/MVP 边框或色条使用 §3.4 | P1 | 接线 | 已完成 | matrix cards |
-| REQ-MX-002 | `demoHot` 使用对应矩阵色 glow/边框，替代统一黄洗 | P1 | 接线 | 未开始 | `demoHot` property |
-| REQ-MX-003 | 主序切换控件样式纳入新工具按钮语言 | P1 | 接线 | 未开始 | 看板头 actions |
+| REQ-MX-002 | `demoHot` 使用对应矩阵色 glow/边框，替代统一黄洗 | P1 | 接线 | 已完成 | `demoHot` property |
+| REQ-MX-003 | 主序切换控件样式纳入新工具按钮语言 | P1 | 接线 | 已完成 | 看板头 actions |
 
 ### 6.7 Lab / Debug / Tracker
 
