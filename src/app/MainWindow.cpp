@@ -200,6 +200,15 @@ MainWindow::MainWindow(QWidget* parent)
   m_demoTimer = new QTimer(this);
   m_demoTimer->setInterval(16);
   connect(m_demoTimer, &QTimer::timeout, this, &MainWindow::onDemoTick);
+
+  QStatusBar* sb = statusBar();
+  sb->addWidget(new QLabel(QString::fromUtf8("Device OK"), sb));
+  sb->addWidget(new QLabel(QString::fromUtf8("SwapChain · DXGI"), sb));
+  sb->addWidget(new QLabel(QString::fromUtf8("Backbuffer R8G8B8A8 · 4x MSAA"), sb));
+  sb->addPermanentWidget(new QLabel(QString::fromUtf8("Polling —"), sb));
+  sb->addPermanentWidget(new QLabel(QString::fromUtf8("CB Upload —"), sb));
+  sb->addPermanentWidget(new QLabel(QString::fromUtf8("Render thread std::thread"), sb));
+  sb->addPermanentWidget(new QLabel(QString::fromUtf8("DPI 100%"), sb));
 }
 
 void MainWindow::onPollFeedback() {
