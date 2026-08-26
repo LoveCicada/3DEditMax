@@ -41,6 +41,9 @@ private:
   void surfaceMouseRelease(QMouseEvent* e);
   void surfaceMouseMove(QMouseEvent* e);
   void surfaceWheel(QWheelEvent* e);
+  void surfaceLeave();
+  void updateGizmoHover(float mx, float my);
+  void publishSnapshot();
   HWND hwnd() const;
   std::unique_ptr<RenderThread> m_thread;
   TeachingState m_teaching;
@@ -53,4 +56,5 @@ private:
   bool m_panning;
   bool m_translating;
   int m_translateAxis;
+  int m_hoverAxis;
 };

@@ -511,10 +511,10 @@ void D3D11Renderer::render(const StateSnapshot& snap) {
   }
 
   m_debug.draw(m_context.Get(), snap, V, P);
-  drawAxisCones(snap, V, P, DirectX::XMVectorZero(), 3.f);
+  drawAxisCones(snap, V, P, DirectX::XMVectorZero(), 3.f, -1, -1);
   const float* op = t.objects[0].trs.pos;
   drawAxisCones(snap, V, P, DirectX::XMVectorSet(op[0], op[1], op[2], 0.f),
-                worldAxisGizmoLength());
+                worldAxisGizmoLength(), snap.gizmoHoverAxis, snap.gizmoActiveAxis);
   m_axisLabels.draw(m_context.Get(), V, P);
 
   // Sync interval 0: callers may hold a mutex shared with the UI resize path;
@@ -685,7 +685,9 @@ void D3D11Renderer::drawAxisCones(const StateSnapshot& snap,
                                  FXMMATRIX view,
                                  FXMMATRIX proj,
                                  FXMVECTOR origin,
-                                 float axisLen) {
+                                 float axisLen,
+                                 int hoverAxis,
+                                 int activeAxis) {
   (void)snap;
   if (!m_context || !m_cone.valid() || !m_cb) {
     return;
@@ -707,19 +709,15 @@ void D3D11Renderer::drawAxisCones(const StateSnapshot& snap,
       XMVectorSet(0.f, 1.f, 0.f, 0.f),
       XMVectorSet(0.f, 0.f, 1.f, 0.f),
   };
-  const XMFLOAT4 colors[3] = {
-      XMFLOAT4(0xef / 255.f, 0x47 / 255.f, 0x6f / 255.f, 1.f),
-      XMFLOAT4(0x06 / 255.f, 0xd6 / 255.f, 0xa0 / 255.f, 1.f),
-      XMFLOAT4(0x4c / 255.f, 0xc9 / 255.f, 0xf0 / 255.f, 1.f),
-  };
 
   for (int i = 0; i < 3; ++i) {
+    const XMFLOAT4 color = axisGizmoColor(i, hoverAxis, activeAxis);
     const XMMATRIX rot = rotationYToDir(dirs[i]);
     const XMMATRIX T = XMMatrixTranslationFromVector(
         XMVectorAdd(origin, XMVectorScale(dirs[i], axisLen)));
     const XMMATRIX W = rot * T;
-    const XMFLOAT4 emit(colors[i].x * 0.35f, colors[i].y * 0.35f, colors[i].z * 0.35f, 0.f);
-    writeFrameCb(m_context.Get(), m_cb.Get(), W, view, proj, 0.f, colors[i], emit);
+    const XMFLOAT4 emit(color.x * 0.35f, color.y * 0.35f, color.z * 0.35f, 0.f);
+    writeFrameCb(m_context.Get(), m_cb.Get(), W, view, proj, 0.f, color, emit);
     m_cone.draw(m_context.Get());
   }
 }

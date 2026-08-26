@@ -3,6 +3,7 @@
 #include "teach/Transforms.h"
 #include "teach/TutorialScript.h"
 #include <QCoreApplication>
+#include <QEvent>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QHideEvent>
@@ -58,6 +59,11 @@ protected:
       m_owner->surfaceMouseMove(e);
     }
   }
+  void leaveEvent(QEvent*) {
+    if (m_owner) {
+      m_owner->surfaceLeave();
+    }
+  }
   void wheelEvent(QWheelEvent* e) {
     if (m_owner) {
       m_owner->surfaceWheel(e);
@@ -79,7 +85,8 @@ Dx11ViewportWidget::Dx11ViewportWidget(QWidget* parent)
     , m_orbiting(false)
     , m_panning(false)
     , m_translating(false)
-    , m_translateAxis(-1) {
+    , m_translateAxis(-1)
+    , m_hoverAxis(-1) {
   setMinimumSize(320, 120);
   QVBoxLayout* root = new QVBoxLayout(this);
   root->setContentsMargins(0, 0, 0, 0);
@@ -98,6 +105,10 @@ void Dx11ViewportWidget::publishState(const TeachingState& t, const LabState& l)
   m_teaching = t;
   m_lab = l;
   updateHud();
+  publishSnapshot();
+}
+
+void Dx11ViewportWidget::publishSnapshot() {
   if (!m_thread) {
     return;
   }
@@ -106,7 +117,26 @@ void Dx11ViewportWidget::publishState(const TeachingState& t, const LabState& l)
   snap.lab = m_lab;
   snap.viewportW = surfaceWidth();
   snap.viewportH = surfaceHeight();
+  snap.gizmoHoverAxis = m_hoverAxis;
+  snap.gizmoActiveAxis = m_translating ? m_translateAxis : -1;
   m_thread->snapshots().publish(snap);
+}
+
+void Dx11ViewportWidget::updateGizmoHover(float mx, float my) {
+  int axis = -1;
+  if (!m_teaching.demoPlaying && !m_orbiting && !m_panning && !m_translating) {
+    axis = hitWorldAxisHandle(m_teaching, mx, my,
+                              static_cast<float>(surfaceWidth()),
+                              static_cast<float>(surfaceHeight()));
+  }
+  if (axis == m_hoverAxis) {
+    return;
+  }
+  m_hoverAxis = axis;
+  if (m_surface) {
+    m_surface->setCursor(axis >= 0 ? Qt::PointingHandCursor : Qt::ArrowCursor);
+  }
+  publishSnapshot();
 }
 
 void Dx11ViewportWidget::reloadShaders() {
@@ -170,14 +200,24 @@ void Dx11ViewportWidget::surfaceMousePress(QMouseEvent* e) {
     if (axis >= 0) {
       m_translating = true;
       m_translateAxis = axis;
+      m_hoverAxis = axis;
+      publishSnapshot();
     } else {
       m_orbiting = true;
+      if (m_hoverAxis != -1) {
+        m_hoverAxis = -1;
+        publishSnapshot();
+      }
     }
     m_surface->grabMouse();
     m_surface->setFocus(Qt::MouseFocusReason);
   } else if (e->button() == Qt::RightButton && !m_orbiting && !m_translating) {
     m_lastMouse = e->pos();
     m_panning = true;
+    if (m_hoverAxis != -1) {
+      m_hoverAxis = -1;
+      publishSnapshot();
+    }
     m_surface->grabMouse();
     m_surface->setFocus(Qt::MouseFocusReason);
   }
@@ -189,11 +229,15 @@ void Dx11ViewportWidget::surfaceMouseRelease(QMouseEvent* e) {
     m_translating = false;
     m_translateAxis = -1;
     m_surface->releaseMouse();
+    updateGizmoHover(static_cast<float>(e->pos().x()),
+                     static_cast<float>(e->pos().y()));
     publishState(m_teaching, m_lab);
     emit teachingEdited(m_teaching);
   } else if (e->button() == Qt::RightButton && m_panning) {
     m_panning = false;
     m_surface->releaseMouse();
+    updateGizmoHover(static_cast<float>(e->pos().x()),
+                     static_cast<float>(e->pos().y()));
     publishState(m_teaching, m_lab);
     emit teachingEdited(m_teaching);
   }
@@ -218,6 +262,21 @@ void Dx11ViewportWidget::surfaceMouseMove(QMouseEvent* e) {
     m_lastMouse = p;
     applyPanDrag(&m_teaching, dx, dy, vw, vh);
     commitTeaching();
+  } else if (e->buttons() == Qt::NoButton) {
+    updateGizmoHover(static_cast<float>(p.x()), static_cast<float>(p.y()));
+  }
+}
+
+void Dx11ViewportWidget::surfaceLeave() {
+  if (m_hoverAxis == -1 && !m_translating) {
+    return;
+  }
+  if (!m_translating) {
+    m_hoverAxis = -1;
+    if (m_surface) {
+      m_surface->setCursor(Qt::ArrowCursor);
+    }
+    publishSnapshot();
   }
 }
 

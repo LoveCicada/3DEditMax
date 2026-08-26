@@ -309,17 +309,18 @@ void DebugDraw::draw(ID3D11DeviceContext* context,
   pushLine(verts, &count, kMaxLineVerts, origin, XMVectorSet(0.f, 0.f, axisLen, 0.f),
            XMFLOAT4(0x4c / 255.f, 0xc9 / 255.f, 0xf0 / 255.f, 1.f));
 
-  const XMFLOAT4 red(0xef / 255.f, 0x47 / 255.f, 0x6f / 255.f, 1.f);
-  const XMFLOAT4 green(0x06 / 255.f, 0xd6 / 255.f, 0xa0 / 255.f, 1.f);
-  const XMFLOAT4 blue(0x4c / 255.f, 0xc9 / 255.f, 0xf0 / 255.f, 1.f);
-
   const TeachingState& t = snap.teaching;
   const float* op = t.objects[0].trs.pos;
   const XMVECTOR gizmoO = XMVectorSet(op[0], op[1], op[2], 0.f);
   const float gizmoLen = worldAxisGizmoLength();
-  pushLine(verts, &count, kMaxLineVerts, gizmoO, XMVectorAdd(gizmoO, XMVectorSet(gizmoLen, 0.f, 0.f, 0.f)), red);
-  pushLine(verts, &count, kMaxLineVerts, gizmoO, XMVectorAdd(gizmoO, XMVectorSet(0.f, gizmoLen, 0.f, 0.f)), green);
-  pushLine(verts, &count, kMaxLineVerts, gizmoO, XMVectorAdd(gizmoO, XMVectorSet(0.f, 0.f, gizmoLen, 0.f)), blue);
+  const int hover = snap.gizmoHoverAxis;
+  const int active = snap.gizmoActiveAxis;
+  pushLine(verts, &count, kMaxLineVerts, gizmoO, XMVectorAdd(gizmoO, XMVectorSet(gizmoLen, 0.f, 0.f, 0.f)),
+           axisGizmoColor(0, hover, active));
+  pushLine(verts, &count, kMaxLineVerts, gizmoO, XMVectorAdd(gizmoO, XMVectorSet(0.f, gizmoLen, 0.f, 0.f)),
+           axisGizmoColor(1, hover, active));
+  pushLine(verts, &count, kMaxLineVerts, gizmoO, XMVectorAdd(gizmoO, XMVectorSet(0.f, 0.f, gizmoLen, 0.f)),
+           axisGizmoColor(2, hover, active));
 
   const XMMATRIX W = BuildWorld(t.objects[0].trs);
   const XMFLOAT3 model(t.trackModel[0], t.trackModel[1], t.trackModel[2]);

@@ -34,7 +34,9 @@ private:
                      DirectX::FXMMATRIX view,
                      DirectX::FXMMATRIX proj,
                      DirectX::FXMVECTOR origin,
-                     float axisLen);
+                     float axisLen,
+                     int hoverAxis,
+                     int activeAxis);
   void handlePresentResult(HRESULT hr);
   void copyVariantName(const char* name);
   void copyTriedName(const char* name);

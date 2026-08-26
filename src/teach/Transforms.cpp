@@ -139,3 +139,30 @@ float axisTranslateFromDrag(const TeachingState& t, int axis, float dx, float dy
   }
   return ((dx * sx + dy * sy) / s2) * len;
 }
+
+XMFLOAT4 axisGizmoColor(int axis, int hoverAxis, int activeAxis) {
+  XMFLOAT4 base;
+  if (axis == 0) {
+    base = XMFLOAT4(0xef / 255.f, 0x47 / 255.f, 0x6f / 255.f, 1.f);
+  } else if (axis == 1) {
+    base = XMFLOAT4(0x06 / 255.f, 0xd6 / 255.f, 0xa0 / 255.f, 1.f);
+  } else {
+    base = XMFLOAT4(0x4c / 255.f, 0xc9 / 255.f, 0xf0 / 255.f, 1.f);
+  }
+  float t = 0.f;
+  if (axis == activeAxis) {
+    t = 0.55f;
+  } else if (axis == hoverAxis) {
+    t = 0.35f;
+  } else {
+    return base;
+  }
+  // Mix toward warm white for active, cool white for hover.
+  const float wr = (axis == activeAxis) ? 1.f : 1.f;
+  const float wg = (axis == activeAxis) ? 0.96f : 1.f;
+  const float wb = (axis == activeAxis) ? 0.82f : 1.f;
+  return XMFLOAT4(base.x + (wr - base.x) * t,
+                  base.y + (wg - base.y) * t,
+                  base.z + (wb - base.z) * t,
+                  1.f);
+}

@@ -7,6 +7,8 @@ struct StateSnapshot {
   LabState lab;
   int viewportW;
   int viewportH;
+  int gizmoHoverAxis;
+  int gizmoActiveAxis;
 };
 
 inline StateSnapshot stateSnapshotDefault() {
@@ -15,5 +17,7 @@ inline StateSnapshot stateSnapshotDefault() {
   s.lab = labStateDefault();
   s.viewportW = 1;
   s.viewportH = 1;
+  s.gizmoHoverAxis = -1;
+  s.gizmoActiveAxis = -1;
   return s;
 }

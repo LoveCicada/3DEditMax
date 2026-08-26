@@ -15,6 +15,9 @@ int hitWorldAxisHandle(const TeachingState& t, float mx, float my,
 float axisTranslateFromDrag(const TeachingState& t, int axis, float dx, float dy,
                             float viewportW, float viewportH);
 
+// axis: 0/1/2 = X/Y/Z. hover/active: -1 or matching axis index.
+DirectX::XMFLOAT4 axisGizmoColor(int axis, int hoverAxis, int activeAxis);
+
 struct TrackResult {
   DirectX::XMFLOAT4 model;
   DirectX::XMFLOAT4 world;

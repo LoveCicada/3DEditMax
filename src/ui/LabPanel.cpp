@@ -19,8 +19,7 @@ LabPanel::LabPanel(QWidget* parent)
     , m_fill(0)
     , m_cull(0)
     , m_depth(0)
-    , m_cb(0)
-    , m_cbHex(0) {
+    , m_cb(0) {
   QVBoxLayout* root = new QVBoxLayout(this);
 
   QGroupBox* deviceBox = new QGroupBox(QString::fromUtf8("Device"), this);
