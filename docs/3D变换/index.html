@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>3D 变换矩阵 · 模型 / 世界 / 视图 / 投影</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <a class="skip" href="#content">跳到正文</a>
+  <div class="page">
+    <nav class="toc" aria-label="章节目录">
+      <div class="toc-title">目录</div>
+      <a href="#intro">1. 一个顶点的路</a>
+      <a href="#spaces">2. 五种空间</a>
+      <a href="#model">3. 模型矩阵</a>
+      <a href="#world">4. 世界矩阵</a>
+      <a href="#view">5. 视图矩阵</a>
+      <a href="#proj">6. 投影矩阵</a>
+      <a href="#wvp">7. 串成 WVP</a>
+      <a href="#lab">8. 对照实验台</a>
+    </nav>
+
+    <main class="content" id="content">
+      <header class="hero">
+        <div class="crumbs"><span class="dot"></span> 3DEditMax · 交互讲解</div>
+        <h1>模型、世界、视图、投影：<br />四张矩阵其实是四次搬家</h1>
+        <p class="lead">
+          矩阵格子本身并不难记，难的是搞清<strong>谁在搬、从哪间房搬到哪间房</strong>。
+          下面每个概念都配有可播放的示意图：先看动画，再看 4×4。
+        </p>
+        <div class="meta">
+          <span class="chip x">X 红</span>
+          <span class="chip y">Y 绿</span>
+          <span class="chip z">Z 青</span>
+          <span class="chip world">World 青</span>
+          <span class="chip view">View 紫</span>
+          <span class="chip proj">Proj 琥珀</span>
+          <span class="chip mvp">WVP 粉</span>
+        </div>
+      </header>
+
+      <aside class="callout">
+        <strong>本页约定与 3DEditMax 相同。</strong>
+        Direct3D 11 左手系、Y 向上、Z 向前（远离相机为正深度）。
+        顶点按<strong>行向量</strong>相乘：
+        <code>p' = p × W × V × P</code>。
+        网上许多 OpenGL 教程用列向量，乘法顺序刚好相反，对照时不要混用。
+      </aside>
+
+      <section class="chapter" id="intro">
+        <h2>1. 开场：一个顶点要走的路</h2>
+        <p class="one-liner">GPU 听不懂「把茶壶放到桌子左边」，它只会给每个顶点连续乘几张 4×4 矩阵。</p>
+        <p>
+          把坐标系想成<strong>房间</strong>，把矩阵想成<strong>搬家说明书</strong>。
+          网格文件里写下的坐标，永远住在「模型房间」；要画到显示器上，这个点必须依次搬进世界、搬到相机面前、再被压进屏幕矩形。
+        </p>
+        <div class="formula-flow" aria-label="变换顺序">
+          <span class="chip model">p<sub>model</sub></span>
+          <span class="op">×</span>
+          <span class="chip world">W 世界</span>
+          <span class="op">×</span>
+          <span class="chip view">V 视图</span>
+          <span class="op">×</span>
+          <span class="chip proj">P 投影</span>
+          <span class="op">→</span>
+          <span class="chip mvp">屏幕</span>
+        </div>
+        <figure class="viz" data-viz="pipeline">
+          <div class="viz-stage">
+            <canvas></canvas>
+          </div>
+          <figcaption class="viz-bar">
+            <button type="button" class="btn play" data-play="pipeline">暂停</button>
+            <span class="legend">粉点是同一个顶点，沿流水线往前走。</span>
+          </figcaption>
+        </figure>
+        <p>
+          读法从右往左也成立：<em>屏幕 ← 投影 ← 视图 ← 世界 ← 模型点</em>。
+          后面四章就是把这四次搬家拆开看。
+        </p>
+      </section>
+
+      <section class="chapter" id="spaces">
+        <h2>2. 五种空间</h2>
+        <p class="one-liner">同一个点，换一间房间，数字就变了——房间变了，点并没有变成另一个点。</p>
+        <p>实验台追踪点默认取立方体角 <code>(0.5, 0.5, 0.5)</code>。拖动下面三个滑块，看它在五个空间里的坐标一起变。</p>
+        <ul>
+          <li><strong>模型空间</strong>：网格自己的身体坐标。立方体中心是原点，棱长为 1 时角点就是 ±0.5。</li>
+          <li><strong>世界空间</strong>：场景公共大厅。所有物体、灯光、相机都在这里碰面。</li>
+          <li><strong>视图 / 相机空间</strong>：以相机为原点，+Z 朝你看的方向（左手）。</li>
+          <li><strong>裁剪空间</strong>：投影之后、除以 w 之前。GPU 用它做视锥裁剪。</li>
+          <li><strong>NDC</strong>：透视除法后的标准化设备坐标。DX11 里 x、y ∈ [-1, 1]，z ∈ [0, 1]。</li>
+        </ul>
+        <figure class="viz" data-viz="track">
+          <div class="viz-stage">
+            <canvas></canvas>
+          </div>
+          <figcaption class="viz-bar">
+            <button type="button" class="btn play" data-play="track">暂停</button>
+            <div class="controls">
+              <label class="ctrl">模型 X <input type="range" data-bind="px" data-viz="track" min="-0.5" max="0.5" step="0.01" /><output></output></label>
+              <label class="ctrl">模型 Y <input type="range" data-bind="py" data-viz="track" min="-0.5" max="0.5" step="0.01" /><output></output></label>
+              <label class="ctrl">模型 Z <input type="range" data-bind="pz" data-viz="track" min="-0.5" max="0.5" step="0.01" /><output></output></label>
+            </div>
+          </figcaption>
+        </figure>
+        <div class="cards" id="track-cards">
+          <div class="card model"><div class="k">模型</div><div class="v" data-vec="model">—</div></div>
+          <div class="card world"><div class="k">世界</div><div class="v" data-vec="world">—</div></div>
+          <div class="card view"><div class="k">视图</div><div class="v" data-vec="view">—</div></div>
+          <div class="card clip"><div class="k">裁剪</div><div class="v" data-vec="clip">—</div></div>
+          <div class="card ndc"><div class="k">NDC</div><div class="v" data-vec="ndc">—</div></div>
+        </div>
+        <div class="lab-card">
+          <h3>和 3DEditMax 的关系</h3>
+          <p>这正是 <code>TrackPoint</code> 做的事：同一个模型点，依次乘 W、V、P，再除以 w 得到 NDC。品红点就是视口里的追踪标记。</p>
+        </div>
+      </section>
+
+      <section class="chapter" id="model">
+        <h2>3. 模型矩阵：在物体自己的身体里</h2>
+        <p class="one-liner">模型空间像衣服上的口袋：口袋在左胸，不因为你走到客厅而改叫「右口袋」。</p>
+        <p>
+          美术导出的立方体、角色、茶壶，顶点坐标都写在<strong>模型空间</strong>。
+          立方体的「上面」永远是它自己的 +Y，不管它后来被扔到世界的哪里、转成什么朝向。
+        </p>
+        <p>
+          <strong>模型矩阵</strong>描述的是：这个物体相对<strong>它的父物体</strong>怎么摆。
+          如果没有父物体，模型矩阵和世界矩阵是同一张表——这就是本仓库第一期的情况。
+        </p>
+        <figure class="viz" data-viz="track">
+          <div class="viz-stage" style="height:280px">
+            <canvas data-clone="track"></canvas>
+          </div>
+          <figcaption class="viz-bar">
+            <span class="legend">
+              <i style="background:var(--model)"></i>淡绿点 = 模型坐标（停在原点淡色立方体上）
+              <i style="background:var(--mvp)"></i>粉点 = 乘世界矩阵之后（贴在青色立方体上）
+            </span>
+          </figcaption>
+        </figure>
+        <div class="note">
+          着色器拿到的 <code>float3 pos</code> 几乎总是模型空间。你在面板里调平移，改的不是顶点数组，而是后面那张世界矩阵。
+        </div>
+      </section>
+
+      <section class="chapter" id="world">
+        <h2>4. 世界矩阵：把物体摆进场景</h2>
+        <p class="one-liner">世界矩阵 = 把家具搬进客厅：先按比例缩放，再转身，最后平移到位置上。</p>
+        <p>
+          DirectXMath 里这一句就是搬家顺序（行向量：从左乘到右，先缩放、再旋转、再平移）：
+        </p>
+        <p><code>W = S * R * T</code>　对应源码 <code>return s * r * t;</code></p>
+        <p>淡色立方体停在原点，青色立方体是乘上世界矩阵之后。拖滑块，看 4×4 哪一块在变。</p>
+        <figure class="viz" data-viz="trs">
+          <div class="viz-stage">
+            <canvas></canvas>
+          </div>
+          <figcaption class="viz-bar">
+            <button type="button" class="btn play" data-play="trs">暂停</button>
+            <div class="controls">
+              <label class="ctrl">平移 X <input type="range" data-bind="tx" data-viz="trs" min="-2" max="2" step="0.05" /><output></output></label>
+              <label class="ctrl">平移 Y <input type="range" data-bind="ty" data-viz="trs" min="-2" max="2" step="0.05" /><output></output></label>
+              <label class="ctrl">平移 Z <input type="range" data-bind="tz" data-viz="trs" min="-2" max="2" step="0.05" /><output></output></label>
+              <label class="ctrl">偏航 Yaw° <input type="range" data-bind="yaw" data-viz="trs" min="-180" max="180" step="1" /><output></output></label>
+              <label class="ctrl">俯仰 Pitch° <input type="range" data-bind="pitch" data-viz="trs" min="-89" max="89" step="1" /><output></output></label>
+              <label class="ctrl">缩放 <input type="range" data-bind="sx" data-viz="trs" min="0.3" max="2" step="0.05" /><output></output></label>
+            </div>
+          </figcaption>
+        </figure>
+        <div class="mat-wrap">
+          <div class="mat-block">
+            <h4><span class="swatch" style="background:var(--world)"></span> 世界矩阵 W　行向量约定</h4>
+            <table class="mat" id="mat-world">
+              <tbody></tbody>
+            </table>
+            <p class="legend" style="margin-top:8px">
+              <i style="background:rgba(91,141,239,.5)"></i>左上 3×3：旋转 + 缩放
+              <i style="background:rgba(76,201,240,.5)"></i>最后一行前三列：平移
+            </p>
+          </div>
+        </div>
+
+        <h3 style="font-size:18px;margin:22px 0 8px">模型矩阵 vs 世界矩阵</h3>
+        <p>
+          这是最容易混的一对词。记住一句话：
+          <strong>模型 / 局部矩阵讲「相对爸爸怎么站」；世界矩阵讲「相对大厅怎么站」。</strong>
+        </p>
+        <div class="compare">
+          <div class="col">
+            <h3>有父节点时</h3>
+            <p>卫星相对行星转，用的是局部矩阵。卫星要画进场景，还得再乘上行星自己的世界矩阵。</p>
+            <p>行向量：<code>W<sub>卫星</sub> = Local<sub>卫星</sub> × W<sub>行星</sub></code></p>
+            <p>读法：<em>先做自己相对行星的那次搬家，再跟着行星一起搬进大厅。</em></p>
+          </div>
+          <div class="col">
+            <h3>3DEditMax 第一期</h3>
+            <p>没有场景图、没有父子节点。每个物体的 TRS 直接对着世界大厅。</p>
+            <p>所以实验台只暴露 <strong>World</strong>，不单独叫 Model——此时两者是同一张矩阵。</p>
+          </div>
+        </div>
+        <figure class="viz" data-viz="parent">
+          <div class="viz-stage">
+            <canvas></canvas>
+          </div>
+          <figcaption class="viz-bar">
+            <button type="button" class="btn play" data-play="parent">暂停</button>
+            <div class="controls">
+              <label class="ctrl">公转° <input type="range" data-bind="orbit" data-viz="parent" min="0" max="360" step="1" /><output></output></label>
+              <label class="ctrl">行星自转° <input type="range" data-bind="spin" data-viz="parent" min="0" max="360" step="1" /><output></output></label>
+            </div>
+          </figcaption>
+        </figure>
+        <div class="lab-card">
+          <h3>和 3DEditMax 的关系</h3>
+          <p><code>BuildWorld</code> 把面板上的平移 / 欧拉角 / 缩放合成一张 W。你拖的是 TRS 参数，看板里刷新的是这张 4×4。</p>
+        </div>
+      </section>
+
+      <section class="chapter" id="view">
+        <h2>5. 视图矩阵：把世界搬到相机面前</h2>
+        <p class="one-liner">拍照时你可以走过去，也可以让全班转向你——视图矩阵选的是后者。</p>
+        <p>
+          相机在世界里有位置和朝向，这是一张「相机的世界矩阵」。
+          GPU 却希望顶点已经站在相机鼻子前面：原点在眼睛，+Z 沿视线向前。
+          所以 <code>V = inverse(CameraWorld)</code>——不是把相机搬进场景，而是把整个世界搬进相机的房间。
+        </p>
+        <p>左边：相机（紫色视锥）绕物体转。右边：同一瞬间，物体被搬进视图空间，相机钉在原点。</p>
+        <figure class="viz" data-viz="camera">
+          <div class="viz-stage tall">
+            <canvas></canvas>
+          </div>
+          <figcaption class="viz-bar">
+            <button type="button" class="btn play" data-play="camera">暂停</button>
+            <div class="controls">
+              <label class="ctrl">方位 Yaw° <input type="range" data-bind="cyaw" data-viz="camera" min="-180" max="180" step="1" /><output></output></label>
+              <label class="ctrl">俯仰 Pitch° <input type="range" data-bind="cpitch" data-viz="camera" min="-80" max="80" step="1" /><output></output></label>
+              <label class="ctrl">距离 <input type="range" data-bind="dist" data-viz="camera" min="3" max="12" step="0.1" /><output></output></label>
+            </div>
+          </figcaption>
+        </figure>
+        <div class="mat-wrap">
+          <div class="mat-block">
+            <h4><span class="swatch" style="background:var(--view)"></span> 视图矩阵 V　LookAtLH</h4>
+            <table class="mat" id="mat-view"><tbody></tbody></table>
+          </div>
+          <div class="mat-block">
+            <h4><span class="swatch" style="background:#9fbcff"></span> 相机世界矩阵（V 的逆）</h4>
+            <table class="mat" id="mat-camworld"><tbody></tbody></table>
+          </div>
+        </div>
+        <div class="lab-card">
+          <h3>和 3DEditMax 的关系</h3>
+          <p>
+            <code>BuildView</code> 用距离、俯仰、方位算出眼睛位置，再调用 <code>XMMatrixLookAtLH(eye, at, up)</code>。
+            视口里左键转轨道、滚轮推拉，改的就是这几个参数，从而改 V。
+          </p>
+        </div>
+      </section>
+
+      <section class="chapter" id="proj">
+        <h2>6. 投影矩阵：视锥压成盒子</h2>
+        <p class="one-liner">透视负责「近大远小」；投影矩阵负责把那座金字塔，压成 GPU 爱用的标准盒子。</p>
+        <p>
+          相机只能看见视锥里的东西：近平面、远平面、以及由 FOV 撑开的四堵墙。
+          透视投影把远处的墙缩得更小，所以同样尺寸的立方体在远平面上看起来更小。
+          乘上 P 再除以 w 之后，这座锥被压成 NDC 立方体：左右上下是 ±1，DX 深度从 0（近）到 1（远）。
+        </p>
+        <p>打开「正交」对比：视锥变成盒子，平行线保持平行，没有近大远小。</p>
+        <figure class="viz" data-viz="frustum">
+          <div class="viz-stage tall">
+            <canvas></canvas>
+          </div>
+          <figcaption class="viz-bar">
+            <button type="button" class="btn play" data-play="frustum">暂停</button>
+            <div class="controls">
+              <label class="ctrl">FOV° <input type="range" data-bind="fov" data-viz="frustum" min="25" max="100" step="1" /><output></output></label>
+              <label class="ctrl">近平面 <input type="range" data-bind="near" data-viz="frustum" min="0.4" max="4" step="0.1" /><output></output></label>
+              <label class="ctrl">远平面 <input type="range" data-bind="far" data-viz="frustum" min="6" max="20" step="0.5" /><output></output></label>
+              <label class="ctrl toggle"><input type="checkbox" data-bind="ortho" data-viz="frustum" /> 正交投影</label>
+            </div>
+          </figcaption>
+        </figure>
+        <div class="mat-wrap">
+          <div class="mat-block">
+            <h4><span class="swatch" style="background:var(--proj)"></span> 投影矩阵 P</h4>
+            <table class="mat" id="mat-proj"><tbody></tbody></table>
+            <p class="legend" style="margin-top:8px">
+              <i style="background:rgba(255,183,3,.5)"></i>透视时最后一列的 1 会把 z 抄到 w，供透视除法
+            </p>
+          </div>
+        </div>
+        <div class="lab-card">
+          <h3>和 3DEditMax 的关系</h3>
+          <p>
+            透视走 <code>XMMatrixPerspectiveFovLH</code>，正交走 <code>XMMatrixOrthographicLH</code>。
+            面板上的 FOV / near / far 只改这一张 P，不改物体的 World。
+          </p>
+        </div>
+      </section>
+
+      <section class="chapter" id="wvp">
+        <h2>7. 串起来：W × V × P</h2>
+        <p class="one-liner">四次搬家可以合成一张矩阵，但空间逐步变了——合成只是少做几次乘法，不是少了几次搬家。</p>
+        <div class="formula-flow">
+          <span class="chip world">W</span>
+          <span class="op">×</span>
+          <span class="chip view">V</span>
+          <span class="op">×</span>
+          <span class="chip proj">P</span>
+          <span class="op">=</span>
+          <span class="chip mvp">WVP</span>
+          <span class="op" style="margin-left:8px">HLSL：</span>
+          <code>o.pos = mul(float4(i.pos, 1), worldViewProj);</code>
+        </div>
+        <p>
+          CPU 上 <code>XMVector4Transform</code> 连续乘 W、V、P，与 HLSL 这一行是同一套列主序习惯。
+          下面的视口用的就是教学相机的 V 和 P：你改 TRS / 轨道 / FOV，画面和五个坐标一起动。
+        </p>
+        <figure class="viz" data-viz="wvp">
+          <div class="viz-stage tall">
+            <canvas></canvas>
+          </div>
+          <figcaption class="viz-bar">
+            <button type="button" class="btn play" data-play="wvp">播放</button>
+            <div class="controls">
+              <label class="ctrl">物体 Yaw° <input type="range" data-bind="yaw" data-viz="wvp" min="-180" max="180" step="1" /><output></output></label>
+              <label class="ctrl">相机 Yaw° <input type="range" data-bind="cyaw" data-viz="wvp" min="-180" max="180" step="1" /><output></output></label>
+              <label class="ctrl">FOV° <input type="range" data-bind="fov" data-viz="wvp" min="25" max="100" step="1" /><output></output></label>
+              <label class="ctrl">平移 X <input type="range" data-bind="tx" data-viz="wvp" min="-2" max="2" step="0.05" /><output></output></label>
+            </div>
+          </figcaption>
+        </figure>
+        <div class="cards" id="wvp-cards">
+          <div class="card model"><div class="k">模型</div><div class="v" data-vec="model">—</div></div>
+          <div class="card world"><div class="k">世界</div><div class="v" data-vec="world">—</div></div>
+          <div class="card view"><div class="k">视图</div><div class="v" data-vec="view">—</div></div>
+          <div class="card clip"><div class="k">裁剪</div><div class="v" data-vec="clip">—</div></div>
+          <div class="card ndc"><div class="k">NDC</div><div class="v" data-vec="ndc">—</div></div>
+        </div>
+        <div class="mat-wrap">
+          <div class="mat-block">
+            <h4><span class="swatch" style="background:var(--mvp)"></span> WVP = W × V × P</h4>
+            <table class="mat" id="mat-wvp"><tbody></tbody></table>
+          </div>
+        </div>
+      </section>
+
+      <section class="chapter" id="lab">
+        <h2>8. 对照 3DEditMax 实验台</h2>
+        <p class="one-liner">网页帮你建立房间直觉；实验台用真 GPU 把同一套数字画出来。</p>
+        <table class="bridge">
+          <thead>
+            <tr>
+              <th>网页这一章</th>
+              <th>实验台里看哪里</th>
+              <th>源码</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>模型空间 / 追踪点</td>
+              <td>追踪面板的模型坐标，视口品红标记</td>
+              <td><code>TrackPoint</code></td>
+            </tr>
+            <tr>
+              <td>世界矩阵 TRS</td>
+              <td>Transform 面板的平移 / 欧拉 / 缩放</td>
+              <td><code>BuildWorld</code> → <code>s * r * t</code></td>
+            </tr>
+            <tr>
+              <td>视图矩阵</td>
+              <td>视口轨道旋转、滚轮距离</td>
+              <td><code>BuildView</code> → <code>XMMatrixLookAtLH</code></td>
+            </tr>
+            <tr>
+              <td>投影矩阵</td>
+              <td>透视 / 正交、FOV、near、far</td>
+              <td><code>BuildProjection</code></td>
+            </tr>
+            <tr>
+              <td>WVP</td>
+              <td>矩阵看板与 Constant Buffer 观察</td>
+              <td>HLSL <code>mul(pos, worldViewProj)</code></td>
+            </tr>
+          </tbody>
+        </table>
+        <p>建议顺序：先在本页把「房间」看熟，再打开实验台——只动 Transform，看世界矩阵变；只转视口，看视图矩阵变；只改 FOV，看投影矩阵变。</p>
+        <div class="note">
+          看板默认按<strong>列主序</strong>显示（与 HLSL 上传一致），本页表格按<strong>行主序</strong>画出行向量习惯：同一张矩阵，两种读法。切换实验台的行列开关只改字符串，不转置 GPU 数据。
+        </div>
+      </section>
+
+      <footer class="page-foot">
+        纯静态页，可离线打开。线框场景用的就是本页实现的 DirectX 风格矩阵，与 <code>src/teach/Transforms.cpp</code> 同一套约定。
+      </footer>
+    </main>
+  </div>
+  <script src="math.js"></script>
+  <script src="viz.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
