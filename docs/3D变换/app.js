@@ -34,7 +34,10 @@
     orbit: 35,
     spin: 12,
     squeeze: 1,
-    playT: 0
+    playT: 0,
+    trackCamYaw: 38,
+    pipelineT: 0,
+    trackPose: null
   };
 
   const canvases = {};
@@ -50,12 +53,37 @@
     return d;
   }
 
-  function worldMatrix() {
+  function livePose() {
+    return {
+      sx: state.sx,
+      sy: state.sy,
+      sz: state.sz,
+      pitch: state.pitch,
+      yaw: state.yaw,
+      roll: state.roll,
+      tx: state.tx,
+      ty: state.ty,
+      tz: state.tz,
+      dist: state.dist,
+      cpitch: state.cpitch,
+      cyaw: state.cyaw
+    };
+  }
+
+  function trackPose() {
+    return state.playing.track || !state.trackPose ? livePose() : state.trackPose;
+  }
+
+  function worldMatrixFrom(pose) {
     return DX.composeWorld(
-      state.sx, state.sy, state.sz,
-      DX.deg(state.pitch), DX.deg(state.yaw), DX.deg(state.roll),
-      state.tx, state.ty, state.tz
+      pose.sx, pose.sy, pose.sz,
+      DX.deg(pose.pitch), DX.deg(pose.yaw), DX.deg(pose.roll),
+      pose.tx, pose.ty, pose.tz
     );
+  }
+
+  function worldMatrix() {
+    return worldMatrixFrom(state);
   }
 
   function viewMatrix() {
@@ -254,25 +282,26 @@
     for (let i = 0; i < list.length; i++) {
       const canvas = list[i];
       const fit = VIZ.fitCanvas(canvas);
+      const pose = id === "track" ? trackPose() : livePose();
       const pack = {
         ctx: fit.ctx,
         w: fit.w,
         h: fit.h,
-        sx: state.sx,
-        sy: state.sy,
-        sz: state.sz,
-        pitch: state.pitch,
-        yaw: state.yaw,
-        roll: state.roll,
-        tx: state.tx,
-        ty: state.ty,
-        tz: state.tz,
+        sx: pose.sx,
+        sy: pose.sy,
+        sz: pose.sz,
+        pitch: pose.pitch,
+        yaw: pose.yaw,
+        roll: pose.roll,
+        tx: pose.tx,
+        ty: pose.ty,
+        tz: pose.tz,
         px: state.px,
         py: state.py,
         pz: state.pz,
-        dist: state.dist,
-        cpitch: state.cpitch,
-        cyaw: state.cyaw,
+        dist: pose.dist,
+        cpitch: pose.cpitch,
+        cyaw: pose.cyaw,
         fov: state.fov,
         near: state.near,
         far: state.far,
@@ -281,11 +310,11 @@
         spin: state.spin,
         squeeze: state.squeeze,
         playT: state.playT,
+        trackCamYaw: state.trackCamYaw,
         cubeYaw: state.playing.frustum ? (state.time * 24) % 360 : state.yaw
       };
       if (id === "pipeline") {
-        const t = (state.time % 8) / 8;
-        VIZ.drawPipeline(fit.ctx, fit.w, fit.h, state.playing.pipeline ? t : 0.18);
+        VIZ.drawPipeline(fit.ctx, fit.w, fit.h, state.pipelineT);
       } else if (id === "track") {
         VIZ.drawTrack(fit.ctx, fit.w, fit.h, pack);
       } else if (id === "trs") {
@@ -304,7 +333,18 @@
 
   function updateHud() {
     const snap = currentTrack(16 / 9);
-    fillVecs(document.getElementById("track-cards"), snap.tracked);
+    const pose = trackPose();
+    const trackSnap = DX.trackPoint(
+      [state.px, state.py, state.pz],
+      worldMatrixFrom(pose),
+      DX.lookAtLH(
+        DX.orbitEye(pose.dist, pose.cpitch, pose.cyaw, [0, 0.4, 0]),
+        [0, 0.4, 0],
+        [0, 1, 0]
+      ),
+      snap.P
+    );
+    fillVecs(document.getElementById("track-cards"), trackSnap);
     fillVecs(document.getElementById("wvp-cards"), snap.tracked);
     fillMatrix(document.getElementById("mat-world"), snap.W, "world");
     fillMatrix(document.getElementById("mat-view"), snap.V, "view");
@@ -323,6 +363,13 @@
     state.time = (now - tick.start) / 1000;
     state.playT = state.time;
 
+    if (state.playing.pipeline) {
+      state.pipelineT = (state.time % 8) / 8;
+    }
+    if (state.playing.track) {
+      state.trackCamYaw = wrapSigned(state.trackCamYaw + dt * 18);
+      state.trackPose = livePose();
+    }
     if (state.playing.trs) {
       state.yaw = wrapSigned(state.yaw + dt * 22);
     }

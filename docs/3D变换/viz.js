@@ -311,7 +311,8 @@
 
   function drawTrack(ctx, w, h, state) {
     clear(ctx, w, h);
-    const cam = orbitDiagram(w, h, 6.2, 22, 38 + (state.playT || 0) * 8, [0.3, 0.3, 0.3]);
+    const camYaw = state.trackCamYaw === undefined ? 38 : state.trackCamYaw;
+    const cam = orbitDiagram(w, h, 6.2, 22, camYaw, [0.3, 0.3, 0.3]);
     const g = begin3D(ctx, w, h, cam.view, cam.proj);
     g.grid(3, 1);
     g.axes([0, 0, 0], 1.6, null);
