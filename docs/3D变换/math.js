@@ -102,12 +102,14 @@
     return mulMany(rotationZ(roll), rotationX(pitch), rotationY(yaw));
   }
 
-  function composeWorld(sx, sy, sz, pitch, yaw, roll, tx, ty, tz) {
-    return mulMany(
-      scaling(sx, sy, sz),
-      rotationRollPitchYaw(pitch, yaw, roll),
-      translation(tx, ty, tz)
-    );
+  function composeWorld(sx, sy, sz, pitch, yaw, roll, tx, ty, tz, order) {
+    const S = scaling(sx, sy, sz);
+    const R = rotationRollPitchYaw(pitch, yaw, roll);
+    const T = translation(tx, ty, tz);
+    if (order === "trs") {
+      return mulMany(T, R, S);
+    }
+    return mulMany(S, R, T);
   }
 
   function deg(d) {
@@ -354,12 +356,25 @@
     });
   }
 
-  function matrixRows(m, digits) {
+  function matrixRows(m, digits, colMajor) {
     const rows = [];
     for (let r = 0; r < 4; r++) {
-      rows.push(format4([m[r * 4], m[r * 4 + 1], m[r * 4 + 2], m[r * 4 + 3]], digits));
+      const cells = [];
+      for (let c = 0; c < 4; c++) {
+        const i = colMajor ? c * 4 + r : r * 4 + c;
+        cells.push(format4([m[i]], digits)[0]);
+      }
+      rows.push(cells);
     }
     return rows;
+  }
+
+  function toHlsl(m, name) {
+    const rows = matrixRows(m, 4, false);
+    const body = rows.map(function (row) {
+      return "  " + row.map(function (s) { return s + "f"; }).join(", ");
+    }).join(",\n");
+    return "float4x4 " + (name || "M") + " = {\n" + body + "\n};";
   }
 
   const DX = {
@@ -396,7 +411,8 @@
     trackPoint: trackPoint,
     frustumCornersView: frustumCornersView,
     format4: format4,
-    matrixRows: matrixRows
+    matrixRows: matrixRows,
+    toHlsl: toHlsl
   };
 
   root.DX = DX;

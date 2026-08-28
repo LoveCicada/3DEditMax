@@ -37,7 +37,26 @@
     playT: 0,
     trackCamYaw: 38,
     pipelineT: 0,
-    trackPose: null
+    trackPose: null,
+    worldOrder: "srt",
+    showDir: false,
+    colMajor: false
+  };
+
+  const DEFAULTS = {
+    tx: 0.85, ty: 0.45, tz: 0.25, yaw: 28, pitch: 10, roll: 0,
+    sx: 1, sy: 1, sz: 1, px: 0.5, py: 0.5, pz: 0.5,
+    dist: 6, cpitch: 22, cyaw: 40, fov: 60, near: 1.2, far: 12,
+    ortho: false, orbit: 35, spin: 12, showDir: false, worldOrder: "srt"
+  };
+
+  const RESET_KEYS = {
+    track: ["px", "py", "pz"],
+    trs: ["tx", "ty", "tz", "yaw", "pitch", "sx", "sy", "sz", "showDir", "worldOrder"],
+    parent: ["orbit", "spin"],
+    camera: ["cyaw", "cpitch", "dist"],
+    frustum: ["fov", "near", "far", "ortho"],
+    wvp: ["yaw", "cyaw", "fov", "tx"]
   };
 
   const canvases = {};
@@ -78,7 +97,8 @@
     return DX.composeWorld(
       pose.sx, pose.sy, pose.sz,
       DX.deg(pose.pitch), DX.deg(pose.yaw), DX.deg(pose.roll),
-      pose.tx, pose.ty, pose.tz
+      pose.tx, pose.ty, pose.tz,
+      state.worldOrder
     );
   }
 
@@ -127,15 +147,20 @@
         tb.appendChild(tr);
       }
     }
-    const rows = DX.matrixRows(m, 2);
+    const rows = DX.matrixRows(m, 2, state.colMajor);
+    const prev = table.getAttribute("data-sig") || "";
+    const sig = rows[3].join(",");
     for (let r = 0; r < 4; r++) {
       for (let c = 0; c < 4; c++) {
         const td = tb.rows[r].cells[c];
         td.textContent = rows[r][c];
         td.className = "";
         if (kind === "world") {
-          if (r === 3 && c < 3) {
+          if ((!state.colMajor && r === 3 && c < 3) || (state.colMajor && c === 3 && r < 3)) {
             td.className = "hl-trs";
+            if (prev && prev !== sig) {
+              td.classList.add("pulse");
+            }
           } else if (r < 3 && c < 3) {
             td.className = "hl-rot";
           }
@@ -145,6 +170,7 @@
         }
       }
     }
+    table.setAttribute("data-sig", sig);
   }
 
   function fmtVec(v, n) {
@@ -206,8 +232,7 @@
         el.addEventListener("input", function () {
           const v = parseFloat(el.value);
           state[key] = v;
-          if (key === "sx") {
-            state.sy = v;
+          if (key === "sy") {
             state.sz = v;
           }
           if (vizId) {
@@ -248,6 +273,93 @@
       buttons[i].textContent = on ? "暂停" : "播放";
       buttons[i].classList.toggle("playing", on);
     }
+  }
+
+  function updateOrderButtons() {
+    const buttons = document.querySelectorAll("[data-order]");
+    for (let i = 0; i < buttons.length; i++) {
+      buttons[i].classList.toggle("active", buttons[i].getAttribute("data-order") === state.worldOrder);
+    }
+  }
+
+  function bindOrder() {
+    const buttons = document.querySelectorAll("[data-order]");
+    for (let i = 0; i < buttons.length; i++) {
+      buttons[i].addEventListener("click", function () {
+        state.worldOrder = this.getAttribute("data-order");
+        state.playing.trs = false;
+        updateOrderButtons();
+        updatePlayButtons();
+      });
+    }
+  }
+
+  function bindReset() {
+    const buttons = document.querySelectorAll("[data-reset]");
+    for (let i = 0; i < buttons.length; i++) {
+      buttons[i].addEventListener("click", function () {
+        const id = this.getAttribute("data-reset");
+        const keys = RESET_KEYS[id] || [];
+        for (let k = 0; k < keys.length; k++) {
+          const key = keys[k];
+          state[key] = DEFAULTS[key];
+        }
+        if (keys.indexOf("sy") >= 0) {
+          state.sz = state.sy;
+        }
+        if (state.playing[id] !== undefined) {
+          state.playing[id] = false;
+        }
+        updateOrderButtons();
+        updatePlayButtons();
+        syncOutputs();
+      });
+    }
+  }
+
+  function matrixForCopy(which) {
+    const snap = currentTrack(16 / 9);
+    if (which === "world" || which === "wvpW") {
+      return { m: snap.W, name: "world" };
+    }
+    if (which === "wvp") {
+      return { m: DX.mulMany(snap.W, snap.V, snap.P), name: "worldViewProj" };
+    }
+    return { m: snap.W, name: "M" };
+  }
+
+  function bindCopy() {
+    const buttons = document.querySelectorAll("[data-copy]");
+    for (let i = 0; i < buttons.length; i++) {
+      buttons[i].addEventListener("click", function () {
+        const pack = matrixForCopy(this.getAttribute("data-copy"));
+        const text = DX.toHlsl(pack.m, pack.name);
+        const btn = this;
+        const done = function () {
+          const old = btn.textContent;
+          btn.textContent = "已复制";
+          setTimeout(function () { btn.textContent = old; }, 1200);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done).catch(function () {
+            window.prompt("复制：", text);
+          });
+        } else {
+          window.prompt("复制：", text);
+        }
+      });
+    }
+  }
+
+  function bindMajor() {
+    const btn = document.getElementById("toggle-major");
+    if (!btn) {
+      return;
+    }
+    btn.addEventListener("click", function () {
+      state.colMajor = !state.colMajor;
+      updateHud();
+    });
   }
 
   function bindPlay() {
@@ -311,7 +423,9 @@
         squeeze: state.squeeze,
         playT: state.playT,
         trackCamYaw: state.trackCamYaw,
-        cubeYaw: state.playing.frustum ? (state.time * 24) % 360 : state.yaw
+        cubeYaw: state.playing.frustum ? (state.time * 24) % 360 : state.yaw,
+        worldOrder: state.worldOrder,
+        showDir: state.showDir
       };
       if (id === "pipeline") {
         VIZ.drawPipeline(fit.ctx, fit.w, fit.h, state.pipelineT);
@@ -350,7 +464,29 @@
     fillMatrix(document.getElementById("mat-view"), snap.V, "view");
     fillMatrix(document.getElementById("mat-camworld"), snap.cam.camW, "cam");
     fillMatrix(document.getElementById("mat-proj"), snap.P, "proj");
+    fillMatrix(document.getElementById("mat-wvp-w"), snap.W, "world");
+    fillMatrix(document.getElementById("mat-wvp-v"), snap.V, "view");
+    fillMatrix(document.getElementById("mat-wvp-p"), snap.P, "proj");
     fillMatrix(document.getElementById("mat-wvp"), DX.mulMany(snap.W, snap.V, snap.P), "mvp");
+    const clip = snap.tracked.clip;
+    const ndc = snap.tracked.ndc;
+    const wEl = document.getElementById("proj-w");
+    const cEl = document.getElementById("proj-clip");
+    const nEl = document.getElementById("proj-ndc");
+    if (cEl) {
+      cEl.textContent = fmtVec(clip, 4);
+    }
+    if (wEl) {
+      const w = clip[3];
+      wEl.textContent = "w " + DX.format4([w], 2)[0] + "\nxyzw / w → NDC";
+    }
+    if (nEl) {
+      nEl.textContent = fmtVec(ndc, 4);
+    }
+    const majorBtn = document.getElementById("toggle-major");
+    if (majorBtn) {
+      majorBtn.textContent = state.colMajor ? "行主序显示" : "列主序显示";
+    }
   }
 
   function tick(now) {
@@ -429,9 +565,14 @@
   collectCanvases();
   bindSliders();
   bindPlay();
+  bindOrder();
+  bindReset();
+  bindCopy();
+  bindMajor();
   bindToc();
   syncOutputs();
   updatePlayButtons();
+  updateOrderButtons();
   window.addEventListener("resize", function () {
     drawId("pipeline");
     drawId("track");

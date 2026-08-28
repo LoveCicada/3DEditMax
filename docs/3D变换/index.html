@@ -72,7 +72,7 @@
           </div>
           <figcaption class="viz-bar">
             <button type="button" class="btn play" data-play="pipeline">暂停</button>
-            <span class="legend">粉点是同一个顶点，沿流水线往前走。</span>
+            <span class="legend">粉点进站时上方出现当前这一步的运算。</span>
           </figcaption>
         </figure>
         <p>
@@ -89,7 +89,7 @@
           <li><strong>模型空间</strong>：网格自己的身体坐标。立方体中心是原点，棱长为 1 时角点就是 ±0.5。</li>
           <li><strong>世界空间</strong>：场景公共大厅。所有物体、灯光、相机都在这里碰面。</li>
           <li><strong>视图 / 相机空间</strong>：以相机为原点，+Z 朝你看的方向（左手）。</li>
-          <li><strong>裁剪空间</strong>：投影之后、除以 w 之前。GPU 用它做视锥裁剪。</li>
+          <li><strong>裁剪空间</strong>：投影之后、除以 w 之前。GPU 用 <code>[-w, w]</code> 做视锥裁剪，再透视除法。</li>
           <li><strong>NDC</strong>：透视除法后的标准化设备坐标。DX11 里 x、y ∈ [-1, 1]，z ∈ [0, 1]。</li>
         </ul>
         <figure class="viz" data-viz="track">
@@ -103,6 +103,7 @@
               <label class="ctrl">模型 Y <input type="range" data-bind="py" data-viz="track" min="-0.5" max="0.5" step="0.01" /><output></output></label>
               <label class="ctrl">模型 Z <input type="range" data-bind="pz" data-viz="track" min="-0.5" max="0.5" step="0.01" /><output></output></label>
             </div>
+            <button type="button" class="btn" data-reset="track">重置</button>
           </figcaption>
         </figure>
         <div class="cards" id="track-cards">
@@ -125,23 +126,17 @@
           美术导出的立方体、角色、茶壶，顶点坐标都写在<strong>模型空间</strong>。
           立方体的「上面」永远是它自己的 +Y，不管它后来被扔到世界的哪里、转成什么朝向。
         </p>
-        <p>
-          <strong>模型矩阵</strong>描述的是：这个物体相对<strong>它的父物体</strong>怎么摆。
-          如果没有父物体，模型矩阵和世界矩阵是同一张表——这就是本仓库第一期的情况。
-        </p>
-        <figure class="viz" data-viz="track">
-          <div class="viz-stage" style="height:280px">
-            <canvas data-clone="track"></canvas>
+        <div class="compare">
+          <div class="col">
+            <h3>口袋不会因为搬家改名</h3>
+            <p>左胸口袋的坐标写在衣服上。你走进客厅，它仍叫左胸口袋——这就是模型空间。</p>
+            <p>着色器拿到的 <code>float3 pos</code> 几乎总是模型空间。面板里调平移，改的不是顶点数组，而是后面那张世界矩阵。</p>
           </div>
-          <figcaption class="viz-bar">
-            <span class="legend">
-              <i style="background:var(--model)"></i>淡绿点 = 模型坐标（停在原点淡色立方体上）
-              <i style="background:var(--mvp)"></i>粉点 = 乘世界矩阵之后（贴在青色立方体上）
-            </span>
-          </figcaption>
-        </figure>
-        <div class="note">
-          着色器拿到的 <code>float3 pos</code> 几乎总是模型空间。你在面板里调平移，改的不是顶点数组，而是后面那张世界矩阵。
+          <div class="col">
+            <h3>相对父亲怎么站</h3>
+            <p><strong>模型矩阵</strong>描述物体相对<strong>父节点</strong>怎么摆。没有父节点时，它和世界矩阵是同一张表——本仓库第一期就是这样。</p>
+            <p>有父节点的例子见第 4 章行星–卫星：<a href="#world">去看公转动画</a>。</p>
+          </div>
         </div>
       </section>
 
@@ -152,32 +147,46 @@
           DirectXMath 里这一句就是搬家顺序（行向量：从左乘到右，先缩放、再旋转、再平移）：
         </p>
         <p><code>W = S * R * T</code>　对应源码 <code>return s * r * t;</code></p>
-        <p>淡色立方体停在原点，青色立方体是乘上世界矩阵之后。拖滑块，看 4×4 哪一块在变。</p>
+        <p>淡色立方体停在原点，青色立方体是乘上世界矩阵之后。矩阵乘法<strong>不可交换</strong>：先缩放再平移，和先平移再缩放，不是同一件事。</p>
         <figure class="viz" data-viz="trs">
           <div class="viz-stage">
             <canvas></canvas>
           </div>
           <figcaption class="viz-bar">
             <button type="button" class="btn play" data-play="trs">暂停</button>
+            <div class="btn-row">
+              <button type="button" class="btn order-btn active" data-order="srt">约定 S·R·T</button>
+              <button type="button" class="btn order-btn" data-order="trs">反例 T·R·S</button>
+            </div>
             <div class="controls">
               <label class="ctrl">平移 X <input type="range" data-bind="tx" data-viz="trs" min="-2" max="2" step="0.05" /><output></output></label>
               <label class="ctrl">平移 Y <input type="range" data-bind="ty" data-viz="trs" min="-2" max="2" step="0.05" /><output></output></label>
               <label class="ctrl">平移 Z <input type="range" data-bind="tz" data-viz="trs" min="-2" max="2" step="0.05" /><output></output></label>
               <label class="ctrl">偏航 Yaw° <input type="range" data-bind="yaw" data-viz="trs" min="-180" max="180" step="1" /><output></output></label>
               <label class="ctrl">俯仰 Pitch° <input type="range" data-bind="pitch" data-viz="trs" min="-89" max="89" step="1" /><output></output></label>
-              <label class="ctrl">缩放 <input type="range" data-bind="sx" data-viz="trs" min="0.3" max="2" step="0.05" /><output></output></label>
+              <label class="ctrl">缩放 X <input type="range" data-bind="sx" data-viz="trs" min="0.3" max="2" step="0.05" /><output></output></label>
+              <label class="ctrl">缩放 YZ <input type="range" data-bind="sy" data-viz="trs" min="0.3" max="2" step="0.05" /><output></output></label>
+              <label class="ctrl toggle"><input type="checkbox" data-bind="showDir" data-viz="trs" /> 显示方向箭头 w=0</label>
             </div>
+            <button type="button" class="btn" data-reset="trs">重置</button>
           </figcaption>
         </figure>
+        <p class="note">把「缩放 X」拧到 0.4，再在 <code>S·R·T</code> 与 <code>T·R·S</code> 之间切换，立方体会错位——顺序可以调，但 CPU 和 HLSL 必须用同一张。点（<code>w=1</code>）跟着平移走；方向箭头（<code>w=0</code>）不受平移。非均匀缩放时法线要用 <code>(W⁻¹)ᵀ</code>，本页不展开。</p>
         <div class="mat-wrap">
           <div class="mat-block">
-            <h4><span class="swatch" style="background:var(--world)"></span> 世界矩阵 W　行向量约定</h4>
+            <h4>
+              <span class="swatch" style="background:var(--world)"></span> 世界矩阵 W
+              <span class="mat-actions">
+                <button type="button" class="btn btn-tiny" id="toggle-major">列主序显示</button>
+                <button type="button" class="btn btn-tiny" data-copy="world">复制 HLSL</button>
+              </span>
+            </h4>
             <table class="mat" id="mat-world">
               <tbody></tbody>
             </table>
             <p class="legend" style="margin-top:8px">
               <i style="background:rgba(91,141,239,.5)"></i>左上 3×3：旋转 + 缩放
-              <i style="background:rgba(76,201,240,.5)"></i>最后一行前三列：平移
+              <i style="background:rgba(76,201,240,.5)"></i>行主序时最后一行前三列：平移
             </p>
           </div>
         </div>
@@ -210,6 +219,7 @@
               <label class="ctrl">公转° <input type="range" data-bind="orbit" data-viz="parent" min="0" max="360" step="1" /><output></output></label>
               <label class="ctrl">行星自转° <input type="range" data-bind="spin" data-viz="parent" min="0" max="360" step="1" /><output></output></label>
             </div>
+            <button type="button" class="btn" data-reset="parent">重置</button>
           </figcaption>
         </figure>
         <div class="lab-card">
@@ -226,7 +236,7 @@
           GPU 却希望顶点已经站在相机鼻子前面：原点在眼睛，+Z 沿视线向前。
           所以 <code>V = inverse(CameraWorld)</code>——不是把相机搬进场景，而是把整个世界搬进相机的房间。
         </p>
-        <p>左边：相机（紫色视锥）绕物体转。右边：同一瞬间，物体被搬进视图空间，相机钉在原点。</p>
+        <p>左边：相机三轴是 <strong>right（红 X）/ up（绿 Y）/ forward（青 Z）</strong>，虚线指向 target。右边：同一瞬间物体被搬进视图空间；<code>right = worldUp × forward</code>。</p>
         <figure class="viz" data-viz="camera">
           <div class="viz-stage tall">
             <canvas></canvas>
@@ -238,6 +248,7 @@
               <label class="ctrl">俯仰 Pitch° <input type="range" data-bind="cpitch" data-viz="camera" min="-80" max="80" step="1" /><output></output></label>
               <label class="ctrl">距离 <input type="range" data-bind="dist" data-viz="camera" min="3" max="12" step="0.1" /><output></output></label>
             </div>
+            <button type="button" class="btn" data-reset="camera">重置</button>
           </figcaption>
         </figure>
         <div class="mat-wrap">
@@ -263,11 +274,10 @@
         <h2>6. 投影矩阵：视锥压成盒子</h2>
         <p class="one-liner">透视负责「近大远小」；投影矩阵负责把那座金字塔，压成 GPU 爱用的标准盒子。</p>
         <p>
-          相机只能看见视锥里的东西：近平面、远平面、以及由 FOV 撑开的四堵墙。
-          透视投影把远处的墙缩得更小，所以同样尺寸的立方体在远平面上看起来更小。
-          乘上 P 再除以 w 之后，这座锥被压成 NDC 立方体：左右上下是 ±1，DX 深度从 0（近）到 1（远）。
+          粉点沿虚线从视锥角走到对应 NDC 角：透视时远平面的 <code>w</code> 更大，除以它之后 xy 被压向中心——这就是近大远小。
+          GPU 在裁剪空间用 <code>[-w, w]</code> 裁剪；除以 w 之后，DX 的 NDC 深度是 <code>z ∈ [0, 1]</code>，OpenGL 常见是 <code>[-1, 1]</code>。
         </p>
-        <p>打开「正交」对比：视锥变成盒子，平行线保持平行，没有近大远小。</p>
+        <p>打开「正交」对比：视锥变成盒子，<code>w</code> 不再当距离分母，平行线保持平行。</p>
         <figure class="viz" data-viz="frustum">
           <div class="viz-stage tall">
             <canvas></canvas>
@@ -280,8 +290,14 @@
               <label class="ctrl">远平面 <input type="range" data-bind="far" data-viz="frustum" min="6" max="20" step="0.5" /><output></output></label>
               <label class="ctrl toggle"><input type="checkbox" data-bind="ortho" data-viz="frustum" /> 正交投影</label>
             </div>
+            <button type="button" class="btn" data-reset="frustum">重置</button>
           </figcaption>
         </figure>
+        <div class="cards" id="proj-cards">
+          <div class="card clip"><div class="k">裁剪（除法前）</div><div class="v" id="proj-clip">—</div></div>
+          <div class="card proj"><div class="k">w 是分母</div><div class="v" id="proj-w">—</div></div>
+          <div class="card ndc"><div class="k">NDC = clip / w</div><div class="v" id="proj-ndc">—</div></div>
+        </div>
         <div class="mat-wrap">
           <div class="mat-block">
             <h4><span class="swatch" style="background:var(--proj)"></span> 投影矩阵 P</h4>
@@ -315,9 +331,13 @@
           <code>o.pos = mul(float4(i.pos, 1), worldViewProj);</code>
         </div>
         <p>
-          CPU 上 <code>XMVector4Transform</code> 连续乘 W、V、P，与 HLSL 这一行是同一套列主序习惯。
-          下面的视口用的就是教学相机的 V 和 P：你改 TRS / 轨道 / FOV，画面和五个坐标一起动。
+          CPU 连续乘 W、V、P，与下面这段 HLSL 一致。顶点着色器输出的是<strong>裁剪空间</strong>；透视除法由 GPU 在 VS 之后做，不要在 shader 里写成 NDC 再令 <code>w=1</code>。
         </p>
+        <pre class="code"><code>float4 posWS = mul(float4(pos, 1), world);
+float4 posVS = mul(posWS, view);
+float4 posCS = mul(posVS, proj);  // 裁剪空间，交给 GPU 除以 w
+o.pos = posCS;
+// 等价：o.pos = mul(float4(pos, 1), worldViewProj);</code></pre>
         <figure class="viz" data-viz="wvp">
           <div class="viz-stage tall">
             <canvas></canvas>
@@ -330,6 +350,7 @@
               <label class="ctrl">FOV° <input type="range" data-bind="fov" data-viz="wvp" min="25" max="100" step="1" /><output></output></label>
               <label class="ctrl">平移 X <input type="range" data-bind="tx" data-viz="wvp" min="-2" max="2" step="0.05" /><output></output></label>
             </div>
+            <button type="button" class="btn" data-reset="wvp">重置</button>
           </figcaption>
         </figure>
         <div class="cards" id="wvp-cards">
@@ -341,7 +362,19 @@
         </div>
         <div class="mat-wrap">
           <div class="mat-block">
-            <h4><span class="swatch" style="background:var(--mvp)"></span> WVP = W × V × P</h4>
+            <h4><span class="swatch" style="background:var(--world)"></span> W <button type="button" class="btn btn-tiny" data-copy="wvpW">复制</button></h4>
+            <table class="mat" id="mat-wvp-w"><tbody></tbody></table>
+          </div>
+          <div class="mat-block">
+            <h4><span class="swatch" style="background:var(--view)"></span> V</h4>
+            <table class="mat" id="mat-wvp-v"><tbody></tbody></table>
+          </div>
+          <div class="mat-block">
+            <h4><span class="swatch" style="background:var(--proj)"></span> P</h4>
+            <table class="mat" id="mat-wvp-p"><tbody></tbody></table>
+          </div>
+          <div class="mat-block">
+            <h4><span class="swatch" style="background:var(--mvp)"></span> WVP = W × V × P <button type="button" class="btn btn-tiny" data-copy="wvp">复制 HLSL</button></h4>
             <table class="mat" id="mat-wvp"><tbody></tbody></table>
           </div>
         </div>
@@ -388,8 +421,26 @@
         </table>
         <p>建议顺序：先在本页把「房间」看熟，再打开实验台——只动 Transform，看世界矩阵变；只转视口，看视图矩阵变；只改 FOV，看投影矩阵变。</p>
         <div class="note">
-          看板默认按<strong>列主序</strong>显示（与 HLSL 上传一致），本页表格按<strong>行主序</strong>画出行向量习惯：同一张矩阵，两种读法。切换实验台的行列开关只改字符串，不转置 GPU 数据。
+          看板默认按<strong>列主序</strong>显示（与 HLSL 上传一致），本页表格默认<strong>行主序</strong>。第 4 章的「列主序显示」只改字符串，不转置 GPU 数据。
         </div>
+        <h3 style="font-size:16px;margin:20px 0 8px">src/teach/Transforms.cpp</h3>
+        <pre class="code"><code>XMMATRIX BuildWorld(const TransformTRS&amp; trs) {
+  const XMMATRIX s = XMMatrixScaling(trs.scale[0], trs.scale[1], trs.scale[2]);
+  const XMMATRIX r = XMMatrixRotationRollPitchYaw(...);
+  const XMMATRIX t = XMMatrixTranslation(trs.pos[0], trs.pos[1], trs.pos[2]);
+  return s * r * t;  // 行向量：先 S，再 R，再 T
+}
+
+XMMATRIX BuildView(...) {
+  // eye = at + orbitOffset(distance, pitch, yaw)
+  return XMMatrixLookAtLH(eye, at, up);  // up = (0,1,0)
+}
+
+XMMATRIX BuildProjection(const TeachingState&amp; s, float aspect) {
+  if (s.proj == ProjOrtho)
+    return XMMatrixOrthographicLH(h * a, h, s.nearZ, s.farZ);
+  return XMMatrixPerspectiveFovLH(radians(s.fovDeg), a, s.nearZ, s.farZ);
+}</code></pre>
       </section>
 
       <footer class="page-foot">

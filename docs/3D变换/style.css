@@ -324,6 +324,52 @@ p code, li code {
   color: #7be7c5;
 }
 
+.btn.btn-tiny {
+  font-size: 11px;
+  padding: 3px 8px;
+  font-weight: 600;
+}
+
+.btn.order-btn.active {
+  background: rgba(76, 201, 240, .16);
+  border-color: rgba(76, 201, 240, .5);
+  color: var(--world);
+}
+
+.btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mat-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+
+@keyframes matpulse {
+  from { background: rgba(76, 201, 240, .35); }
+  to { background: rgba(76, 201, 240, .10); }
+}
+
+table.mat td.pulse {
+  animation: matpulse .45s ease;
+}
+
+pre.code {
+  background: #0c1019;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  overflow-x: auto;
+  margin: 12px 0;
+  color: #d7e0ff;
+  font-family: "Cascadia Code", Consolas, ui-monospace, monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
 .controls {
   display: flex;
   flex-wrap: wrap;
@@ -422,6 +468,7 @@ p code, li code {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
 }
 
 .swatch {

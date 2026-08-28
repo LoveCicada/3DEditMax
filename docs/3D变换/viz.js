@@ -81,7 +81,7 @@
       return { x: s.x + ox, y: s.y + oy, z: s.z };
     }
 
-    function line(a, b, color, width, alpha) {
+    function line(a, b, color, width, alpha, dash) {
       const sa = toScreen(a);
       const sb = toScreen(b);
       if (!sa || !sb) {
@@ -96,6 +96,7 @@
         color: color,
         width: width || 1.4,
         alpha: alpha === undefined ? 1 : alpha,
+        dash: dash || false,
         z: (sa.z + sb.z) * 0.5
       });
     }
@@ -117,12 +118,12 @@
       labels.push({ x: s.x, y: s.y + (dy || -10), z: s.z, text: text, color: color || C.text });
     }
 
-    function axes(origin, len, matrix) {
+    function axes(origin, len, matrix, names) {
       const o = origin || [0, 0, 0];
       const L = len || 1.4;
       const ends = [[L, 0, 0], [0, L, 0], [0, 0, L]];
       const cols = [C.x, C.y, C.z];
-      const names = ["X", "Y", "Z"];
+      const tags = names || ["X", "Y", "Z"];
       for (let i = 0; i < 3; i++) {
         let a = o;
         let b = DX.add3(o, ends[i]);
@@ -131,7 +132,7 @@
           b = DX.transformCoord(DX.add3(o, ends[i]), matrix).slice(0, 3);
         }
         line(a, b, cols[i], 2.2);
-        label(b, names[i], cols[i], -6);
+        label(b, tags[i], cols[i], -6);
       }
     }
 
@@ -166,10 +167,12 @@
         ctx.strokeStyle = L.color;
         ctx.lineWidth = L.width;
         ctx.lineCap = "round";
+        ctx.setLineDash(L.dash ? [6, 4] : []);
         ctx.beginPath();
         ctx.moveTo(L.a.x, L.a.y);
         ctx.lineTo(L.b.x, L.b.y);
         ctx.stroke();
+        ctx.setLineDash([]);
       }
       ctx.globalAlpha = 1;
       dots.sort(function (a, b) { return b.z - a.z; });
@@ -246,6 +249,7 @@
       { name: "裁剪 / NDC", sub: "× 投影矩阵", color: C.proj },
       { name: "屏幕像素", sub: "视口映射", color: C.mvp }
     ];
+    const formulas = ["p 模型", "× W", "× V", "× P", "÷ w → 屏幕"];
     const n = stations.length;
     const boxW = Math.min(150, (w - 48) / n - 12);
     const boxH = 72;
@@ -285,6 +289,11 @@
       ctx.fillStyle = C.text;
       ctx.font = "11px Segoe UI, Microsoft YaHei, sans-serif";
       ctx.fillText(stations[i].sub, x + boxW / 2, y + 50);
+      if (on) {
+        ctx.fillStyle = stations[i].color;
+        ctx.font = "600 14px Segoe UI, Microsoft YaHei, sans-serif";
+        ctx.fillText(formulas[i], x + boxW / 2, y - 12);
+      }
     }
 
     const u = t * (n - 1);
@@ -319,7 +328,8 @@
     const W = DX.composeWorld(
       state.sx, state.sy, state.sz,
       DX.deg(state.pitch), DX.deg(state.yaw), DX.deg(state.roll),
-      state.tx, state.ty, state.tz
+      state.tx, state.ty, state.tz,
+      state.worldOrder
     );
     g.cube(DX.identity(), C.dim, 1);
     g.cube(W, C.world, 1);
@@ -343,16 +353,28 @@
     const W = DX.composeWorld(
       state.sx, state.sy, state.sz,
       DX.deg(state.pitch), DX.deg(state.yaw), DX.deg(state.roll),
-      state.tx, state.ty, state.tz
+      state.tx, state.ty, state.tz,
+      state.worldOrder
     );
     g.cube(DX.identity(), C.dim, 1);
     g.cube(W, C.world, 1);
     g.axes([0, 0, 0], 0.85, W);
+    if (state.showDir) {
+      const center = DX.transform([0, 0, 0], W, 1).slice(0, 3);
+      const pos = DX.transform([0.5, 0, 0], W, 1).slice(0, 3);
+      const dir = DX.transform([1, 0, 0], W, 0);
+      const dirEnd = DX.add3(center, DX.scale3(DX.normalize3(dir.slice(0, 3)), 1.1));
+      g.point(pos, C.mvp, 6);
+      g.label(pos, "点 w=1", C.mvp, -12);
+      g.line(center, dirEnd, C.model, 2.4);
+      g.label(dirEnd, "方向 w=0", C.model, -8);
+    }
     g.flush();
     ctx.fillStyle = C.text;
     ctx.font = "12px Segoe UI, Microsoft YaHei, sans-serif";
     ctx.textAlign = "left";
-    ctx.fillText("淡色 = 模型空间原位　亮青 = 乘上世界矩阵之后", 14, h - 14);
+    const order = state.worldOrder === "trs" ? "反例 T·R·S（先平移）" : "约定 S·R·T（先缩放）";
+    ctx.fillText("淡色 = 原位　亮青 = 乘 W　" + order, 14, h - 14);
   }
 
   function planetMatrix(spin) {
@@ -404,9 +426,14 @@
     const right = DX.normalize3(DX.cross3([0, 1, 0], fwd));
     const up = DX.cross3(fwd, right);
     g.point(eye, C.view, 5);
-    g.line(eye, DX.add3(eye, DX.scale3(right, 0.55)), C.x, 2);
-    g.line(eye, DX.add3(eye, DX.scale3(up, 0.55)), C.y, 2);
-    g.line(eye, DX.add3(eye, DX.scale3(fwd, 0.9)), C.z, 2);
+    g.line(eye, DX.add3(eye, DX.scale3(right, 0.7)), C.x, 2);
+    g.line(eye, DX.add3(eye, DX.scale3(up, 0.7)), C.y, 2);
+    g.line(eye, DX.add3(eye, DX.scale3(fwd, 1.05)), C.z, 2);
+    g.label(DX.add3(eye, DX.scale3(right, 0.75)), "right", C.x, -4);
+    g.label(DX.add3(eye, DX.scale3(up, 0.75)), "up", C.y, -4);
+    g.label(DX.add3(eye, DX.scale3(fwd, 1.1)), "forward", C.z, -4);
+    g.line(eye, at, C.view, 1.6, 0.85, true);
+    g.label(at, "target", C.view, 14);
     const near = 0.55;
     const far = 1.85;
     const hw = 0.4;
@@ -456,12 +483,16 @@
     const camR = diagramView(w - mid, h, [3.2, 2.4, -5.2], [0, 0, 2.2]);
     const gR = begin3D(ctx, w, h, camR.view, camR.proj, mid, 0, w - mid, h);
     gR.grid(3, 1);
-    gR.axes([0, 0, 0], 1.4, null);
+    gR.axes([0, 0, 0], 1.4, null, ["right X", "up Y", "forward Z"]);
     const viewOfWorld = DX.mul(W, teachView);
     gR.cube(viewOfWorld, C.view, 1);
     gR.point([0, 0, 0], C.view, 4);
     gR.label([0, 0, 0], "相机原点", C.view, 16);
     gR.flush();
+    ctx.fillStyle = C.text;
+    ctx.font = "11px Segoe UI, Microsoft YaHei, sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText("right = worldUp × forward", mid + 12, h - 16);
     endR();
   }
 
@@ -480,6 +511,11 @@
     const cornersV = DX.frustumCornersView(fov, aspect, nearZ, farZ, isOrtho, orthoH);
     const cubeYaw = state.cubeYaw === undefined ? state.yaw : state.cubeYaw;
     const cubeW = DX.composeWorld(1, 1, 1, 0, DX.deg(cubeYaw), 0, 0, 0.2, (nearZ + farZ) * 0.45);
+    const ndcCube = [
+      [-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0],
+      [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]
+    ];
+    const idx = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
 
     const endL = pane(ctx, 0, 0, mid, h, isOrtho ? "正交：视锥是盒子，大小不随远近变" : "透视：视锥是金字塔，远处更宽");
     const camL = diagramView(mid, h, [5.5, 3.2, -1.2], [0, 0, (nearZ + farZ) * 0.4]);
@@ -487,52 +523,57 @@
     gL.axes([0, 0, 0], 1.1, null);
     gL.point([0, 0, 0], C.view, 4);
     gL.label([0, 0, 0], "相机", C.view, -12);
-    const idx = [[0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7]];
     for (let i = 0; i < idx.length; i++) {
       gL.line(cornersV[idx[i][0]], cornersV[idx[i][1]], C.proj, 1.5);
     }
     gL.cube(cubeW, C.world, 1);
     gL.flush();
+    const leftScr = cornersV.map(function (p) { return gL.toScreen(p); });
     endL();
 
-    const endR = pane(ctx, mid, 0, w - mid, h, "乘上投影矩阵并做透视除法 → NDC 盒子");
+    const endR = pane(ctx, mid, 0, w - mid, h, isOrtho
+      ? "正交：除以 w 几乎不改变大小　DX z ∈ [0,1]"
+      : "透视除法 ÷w：远角 w 更大，被压向中心　DX z ∈ [0,1]（GL 为 [-1,1]）");
     const camR = diagramView(w - mid, h, [2.8, 2.1, 3.4], [0, 0, 0.45]);
     const gR = begin3D(ctx, w, h, camR.view, camR.proj, mid, 0, w - mid, h);
-    const ndcCube = [
-      [-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0],
-      [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]
-    ];
     for (let i = 0; i < idx.length; i++) {
       gR.line(ndcCube[idx[i][0]], ndcCube[idx[i][1]], C.proj, 1.5);
     }
-    const squeeze = state.squeeze === undefined ? 1 : state.squeeze;
-    const cornersN = cornersV.map(function (p) {
-      const ndc = DX.transformCoord(p, P);
-      return [
-        p[0] + (ndc[0] - p[0]) * squeeze,
-        p[1] + (ndc[1] - p[1]) * squeeze,
-        p[2] + (ndc[2] - p[2]) * squeeze
-      ];
-    });
-    for (let i = 0; i < idx.length; i++) {
-      gR.line(cornersN[idx[i][0]], cornersN[idx[i][1]], "rgba(255,183,3,0.35)", 1);
-    }
-    const cubePts = cubeCorners(1).map(function (p) {
-      const world = DX.transformCoord(p, cubeW);
-      const ndc = DX.transformCoord(world, P);
-      return [
-        world[0] + (ndc[0] - world[0]) * squeeze,
-        world[1] + (ndc[1] - world[1]) * squeeze,
-        world[2] + (ndc[2] - world[2]) * squeeze
-      ];
+    const cubeNdc = cubeCorners(1).map(function (p) {
+      return DX.transformCoord(DX.transformCoord(p, cubeW), P).slice(0, 3);
     });
     for (let i = 0; i < CUBE_EDGES.length; i++) {
       const e = CUBE_EDGES[i];
-      gR.line(cubePts[e[0]], cubePts[e[1]], C.mvp, 1.8);
+      gR.line(cubeNdc[e[0]], cubeNdc[e[1]], C.mvp, 1.8);
     }
     gR.label([0, 1.08, 0.5], "NDC", C.proj, 0);
     gR.flush();
+    const rightScr = ndcCube.map(function (p) { return gR.toScreen(p); });
     endR();
+
+    const t = state.squeeze === undefined ? 1 : state.squeeze;
+    ctx.save();
+    ctx.setLineDash([5, 4]);
+    ctx.strokeStyle = "rgba(255,183,3,0.45)";
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 8; i++) {
+      if (!leftScr[i] || !rightScr[i]) {
+        continue;
+      }
+      ctx.beginPath();
+      ctx.moveTo(leftScr[i].x, leftScr[i].y);
+      ctx.lineTo(rightScr[i].x, rightScr[i].y);
+      ctx.stroke();
+      const gx = leftScr[i].x + (rightScr[i].x - leftScr[i].x) * t;
+      const gy = leftScr[i].y + (rightScr[i].y - leftScr[i].y) * t;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.fillStyle = C.mvp;
+      ctx.arc(gx, gy, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.setLineDash([5, 4]);
+    }
+    ctx.restore();
   }
 
   function drawWvp(ctx, w, h, state) {
@@ -547,7 +588,8 @@
     const W = DX.composeWorld(
       state.sx, state.sy, state.sz,
       DX.deg(state.pitch), DX.deg(state.yaw), DX.deg(state.roll),
-      state.tx, state.ty, state.tz
+      state.tx, state.ty, state.tz,
+      state.worldOrder
     );
     const g = begin3D(ctx, w, h, V, P);
     g.grid(5, 1);
